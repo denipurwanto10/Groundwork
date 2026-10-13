@@ -268,7 +268,7 @@ tidak menyentuh proses milik aplikasi lain.
 ## Keterbatasan
 
 - `migrations/*.sql` ikut repo — diperlukan reviewer untuk membuat database yang sama.
-- `migrations/seed.sql` opsional (5 landmark Jakarta, dijalankan manual sekali;
+- `migrations/seed.sql` opsional (8 landmark Jakarta, satu per type, dijalankan manual sekali;
   sengaja bukan `002_*` agar migration dari nol tetap kosong dan empty state
   "No entities yet." bisa direproduksi reviewer).
 

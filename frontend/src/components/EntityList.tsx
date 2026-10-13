@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Entity } from '../lib/types'
+import { canonicalType } from '../lib/types'
 import { IconAlert, IconPin, IconPlus, IconRefresh, IconSearch } from './Icons'
 
 type Filter = 'all' | 'active' | 'inactive'
@@ -85,7 +86,7 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
     [entities],
   )
 
-  const types = useMemo(() => [...new Set(entities.map((e) => e.type.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [entities])
+  const types = useMemo(() => [...new Set(entities.map((e) => canonicalType(e.type)).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [entities])
 
   // The type dropdown lists trimmed values; if the chosen type disappears
   // (renamed/deleted), fall back to 'all' instead of showing an empty list.
@@ -97,7 +98,7 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
     const q = query.trim().toLowerCase()
     const result = entities.filter((e) => {
       if (filter !== 'all' && e.status !== filter) return false
-      if (typeFilter !== 'all' && e.type.trim() !== typeFilter) return false
+      if (typeFilter !== 'all' && canonicalType(e.type) !== typeFilter) return false
       if (!q) return true
       return `${e.name} ${e.type} ${e.status} ${e.latitude} ${e.longitude}`.toLowerCase().includes(q)
     })

@@ -7,7 +7,7 @@ Plain SQL files, applied in filename order. No migration framework
 
 - `001_create_entities.up.sql` — creates `entities` + indexes + `updated_at` trigger.
 - `001_create_entities.down.sql` — drops them (rollback only).
-- `seed.sql` — optional review data (5 Jakarta landmarks). Run manually,
+- `seed.sql` — optional review data (8 Jakarta landmarks, one per type). Run manually,
   once, **after** the migration above. Deliberately *not* numbered `002_*`
   so a fresh checkout stays empty and the "No entities yet." state is
   reproducible.

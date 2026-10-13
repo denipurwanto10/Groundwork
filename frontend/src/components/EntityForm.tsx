@@ -1,6 +1,6 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { Entity, EntityFieldErrors, EntityInput } from '../lib/types'
-import { emptyEntityInput, validateEntityInput } from '../lib/types'
+import { emptyEntityInput, validateEntityInput, ENTITY_TYPES, canonicalType } from '../lib/types'
 import { IconClose, IconCrosshair } from './Icons'
 
 interface Props {
@@ -19,6 +19,49 @@ interface Props {
 
 function parseCoord(raw: string): number {
   return raw.trim() === '' ? NaN : Number(raw)
+}
+
+const TYPE_OPTIONS = [{ value: '', label: 'Select type' }, ...ENTITY_TYPES.map((t) => ({ value: t, label: t }))]
+
+function TypeDropdown({ id, value, onChange, invalid, describedBy }: { id: string; value: string; onChange: (value: string) => void; invalid?: boolean; describedBy?: string }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const selected = TYPE_OPTIONS.find((option) => option.value === value) ?? TYPE_OPTIONS[0]
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus() }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div className={`filter-control custom-select form-type-select ${open ? 'is-open' : ''}`} ref={rootRef}>
+      <button ref={triggerRef} id={id} type="button" className="filter-select-trigger" aria-haspopup="listbox" aria-expanded={open} aria-invalid={invalid ? true : undefined} aria-describedby={describedBy} onClick={() => setOpen((current) => !current)}>
+        <span className={value ? 'filter-select-value' : 'filter-select-value placeholder'}>{selected?.label ?? 'Select type'}</span>
+        <svg className="filter-select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <div className="filter-select-menu" role="listbox" aria-label="Type">
+          {TYPE_OPTIONS.map((option) => (
+            <button key={option.value || 'placeholder'} type="button" role="option" aria-selected={value === option.value} className="filter-select-option" onClick={() => { onChange(option.value); setOpen(false); triggerRef.current?.focus() }}>
+              <span>{option.label}</span>{value === option.value && <span className="filter-select-check" aria-hidden="true">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function EntityForm({
@@ -49,7 +92,7 @@ export default function EntityForm({
   useEffect(() => {
     if (open) {
       setName(initial?.name ?? emptyEntityInput.name)
-      setType(initial?.type ?? emptyEntityInput.type)
+      setType(canonicalType(initial?.type ?? emptyEntityInput.type))
       setStatus(initial?.status ?? 'active')
       setLatRaw(initial ? String(initial.latitude) : draftCoords ? String(draftCoords.latitude) : '')
       setLngRaw(initial ? String(initial.longitude) : draftCoords ? String(draftCoords.longitude) : '')
@@ -147,16 +190,13 @@ export default function EntityForm({
           <div className="field">
             <label htmlFor={fid('type')} className="label-text">
               Type
-              {type.length > 80 && <span className="muted"> {type.length}/100</span>}
             </label>
-            <input
+            <TypeDropdown
               id={fid('type')}
               value={type}
-              onChange={(e) => setType(e.target.value)}
-              placeholder="Monument"
-              maxLength={100}
-              autoComplete="off"
-              {...a11y('type')}
+              onChange={setType}
+              invalid={!!errors.type}
+              describedBy={errors.type ? fid('type-err') : undefined}
             />
             {fieldError('type')}
           </div>
@@ -200,7 +240,7 @@ export default function EntityForm({
               <span className="num">
                 {Number.isFinite(input.latitude) && Number.isFinite(input.longitude)
                   ? `${input.latitude}, ${input.longitude}`
-                  : 'Invalid coordinates'}
+                  : 'Belum pilih lokasi'}
               </span>
               <button type="button" className="link-btn" aria-expanded={showManual} onClick={() => setManual((v) => !v)}>
                 {showManual ? 'Hide' : 'Enter manually'}
@@ -250,7 +290,7 @@ export default function EntityForm({
           <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>
             Cancel
           </button>
-          <button type="submit" className="btn primary" disabled={saving || invalid} title={invalid ? 'Lengkapi Name dan Type dulu' : undefined}>
+          <button type="submit" className="btn primary" disabled={saving || invalid} title={invalid ? 'Lengkapi name, type, dan lokasi dulu' : undefined}>
             {saving ? 'Saving…' : mode === 'create' ? 'Create' : 'Save changes'}
           </button>
         </div>

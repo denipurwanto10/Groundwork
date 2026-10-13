@@ -57,3 +57,65 @@ export const emptyEntityInput: EntityInput = {
   latitude: 0,
   longitude: 0,
 }
+
+/** Fixed type list (select options, English). Indonesian values from the old
+ *  free-text field keep working as legacy aliases (see below). */
+export const ENTITY_TYPES = [
+  'destination',
+  'monument',
+  'historic',
+  'park',
+  'recreation',
+  'zoo',
+  'culinary',
+  'lodging',
+] as const
+
+/** Distinct marker colour per type; legacy Indonesian values map to the same colour. */
+export const TYPE_COLORS: Record<string, string> = {
+  destination: '#2563eb',
+  destinasi: '#2563eb',
+  monument: '#dc2626',
+  monumen: '#dc2626',
+  historic: '#b45309',
+  bersejarah: '#b45309',
+  park: '#16a34a',
+  taman: '#16a34a',
+  recreation: '#9333ea',
+  rekreasi: '#9333ea',
+  zoo: '#ea580c',
+  'kebun binatang': '#ea580c',
+  culinary: '#db2777',
+  kuliner: '#db2777',
+  lodging: '#0891b2',
+  penginapan: '#0891b2',
+}
+
+/** Legacy Indonesian values (old free-text field) map to the fixed list. */
+export const LEGACY_TYPE_ALIASES: Record<string, string> = {
+  destinasi: 'destination',
+  monumen: 'monument',
+  bersejarah: 'historic',
+  taman: 'park',
+  rekreasi: 'recreation',
+  'kebun binatang': 'zoo',
+  kuliner: 'culinary',
+  penginapan: 'lodging',
+}
+
+/** Canonical form for the select: legacy alias → fixed value, else as-is. */
+export function canonicalType(type: string): string {
+  const s = type.trim().toLowerCase()
+  return LEGACY_TYPE_ALIASES[s] ?? s
+}
+
+/** Stable colour for any type: fixed map first, hash fallback for unknowns. */
+export function typeColorFor(type: string): string {
+  const s = type.trim().toLowerCase()
+  if (!s) return '#64748b'
+  const fixed = TYPE_COLORS[s]
+  if (fixed) return fixed
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360
+  return `hsl(${h} 65% 45%)`
+}

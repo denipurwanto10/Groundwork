@@ -12,20 +12,13 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Entity } from '../lib/types'
+import { typeColorFor } from '../lib/types'
 
 // Custom CSS pin markers (no bundled PNGs needed); colour follows entity type
-// (stable hash → hue), inactive is the same hue dimmed, new point is black.
-function typeColor(type: string): string {
-  const s = type.trim().toLowerCase()
-  if (!s) return '#64748b'
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360
-  return `hsl(${h} 65% 45%)`
-}
-
+// (fixed palette → hash fallback), inactive is the same hue dimmed, new point is black.
 function pinIcon(status: 'active' | 'inactive' | 'draft', type: string, selected = false): L.DivIcon {
   const size = selected ? 46 : 36
-  const color = status === 'draft' ? '#111827' : typeColor(type)
+  const color = status === 'draft' ? '#111827' : typeColorFor(type)
   return L.divIcon({
     className: 'pin-wrap',
     html: `<span class="pin ${status}${selected ? ' selected' : ''}" style="--pin:${color}"><i></i></span>`,

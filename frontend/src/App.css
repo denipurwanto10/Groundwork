@@ -1363,10 +1363,39 @@ fieldset.field > legend {
   padding: 0 14px;
   color: var(--text);
   font-size: 15px;
-  background: var(--field);
+  background-color: var(--field);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+/* Type dropdown in the form reuses the list Sort dropdown style, sized like inputs. */
+.form-type-select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  font-size: 15px;
+  background-color: var(--field);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+}
+
+.form-type-select .filter-select-trigger {
+  min-height: 44px;
+  font-size: 15px;
+}
+
+.form-type-select .filter-select-value.placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.form-type-select:hover {
+  border-color: var(--text-2);
+}
+
+.form-type-select:has(.filter-select-trigger[aria-invalid='true']) {
+  border-color: var(--danger);
 }
 
 .form-card input:not([type='radio']):hover {
