@@ -26,6 +26,7 @@ function getInitialTheme(): Theme {
 
 export default function App() {
   const [entities, setEntities] = useState<Entity[]>([])
+  const [visibleEntities, setVisibleEntities] = useState<Entity[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -191,7 +192,7 @@ export default function App() {
     <div className="app">
       <div className="map-stage">
         <EntityMap
-          entities={entities}
+          entities={visibleEntities}
           selected={selected}
           onSelect={setSelectedId}
           picking={picking && formOpen}
@@ -241,6 +242,7 @@ export default function App() {
             onSelect={setSelectedId}
             onAdd={openCreate}
             onRetry={refresh}
+            onVisibleEntitiesChange={setVisibleEntities}
           />
         </div>
       </aside>

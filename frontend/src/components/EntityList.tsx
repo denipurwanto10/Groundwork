@@ -3,6 +3,7 @@ import type { Entity } from '../lib/types'
 import { IconAlert, IconPin, IconPlus, IconRefresh, IconSearch } from './Icons'
 
 type Filter = 'all' | 'active' | 'inactive'
+type SortMode = 'name-asc' | 'name-desc' | 'newest' | 'oldest'
 
 interface Props {
   entities: Entity[]
@@ -12,6 +13,7 @@ interface Props {
   onSelect: (id: number | null) => void
   onAdd: () => void
   onRetry: () => void
+  onVisibleEntitiesChange?: (entities: Entity[]) => void
 }
 
 const FILTERS: { key: Filter; label: string }[] = [
@@ -20,9 +22,55 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'inactive', label: 'Inactive' },
 ]
 
-export default function EntityList({ entities, selectedId, loading, error, onSelect, onAdd, onRetry }: Props) {
+type DropdownOption = { value: string; label: string }
+
+function FilterDropdown({ label, value, options, onChange }: { label: string; value: string; options: DropdownOption[]; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const selected = options.find((option) => option.value === value) ?? options[0]
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus() }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div className={`filter-control custom-select ${open ? 'is-open' : ''}`} ref={rootRef}>
+      <span>{label}</span>
+      <button ref={triggerRef} type="button" className="filter-select-trigger" aria-label={label} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+        <span className="filter-select-value">{selected?.label ?? ''}</span>
+        <svg className="filter-select-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <div className="filter-select-menu" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <button key={option.value} type="button" role="option" aria-selected={value === option.value} className="filter-select-option" onClick={() => { onChange(option.value); setOpen(false); triggerRef.current?.focus() }}>
+              <span>{option.label}</span>{value === option.value && <span className="filter-select-check" aria-hidden="true">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function EntityList({ entities, selectedId, loading, error, onSelect, onAdd, onRetry, onVisibleEntitiesChange }: Props) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [sortMode, setSortMode] = useState<SortMode>('name-asc')
   // Phones only: the list lives in a bottom sheet that can be peeked or expanded.
   const [expanded, setExpanded] = useState(false)
   const dragStart = useRef<number | null>(null)
@@ -37,14 +85,27 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
     [entities],
   )
 
+  const types = useMemo(() => [...new Set(entities.map((e) => e.type.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [entities])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return entities.filter((e) => {
+    const result = entities.filter((e) => {
       if (filter !== 'all' && e.status !== filter) return false
+      if (typeFilter !== 'all' && e.type !== typeFilter) return false
       if (!q) return true
-      return `${e.name} ${e.type} ${e.status}`.toLowerCase().includes(q)
+      return `${e.name} ${e.type} ${e.status} ${e.latitude} ${e.longitude}`.toLowerCase().includes(q)
     })
-  }, [entities, query, filter])
+    return result.sort((a, b) => {
+      if (sortMode === 'name-desc') return b.name.localeCompare(a.name)
+      if (sortMode === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      if (sortMode === 'oldest') return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      return a.name.localeCompare(b.name)
+    })
+  }, [entities, query, filter, typeFilter, sortMode])
+
+  useEffect(() => {
+    onVisibleEntitiesChange?.(filtered)
+  }, [filtered, onVisibleEntitiesChange])
 
   // Keep the selected row visible when the selection came from a map pin.
   useEffect(() => {
@@ -62,7 +123,11 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
   const clearFilters = () => {
     setQuery('')
     setFilter('all')
+    setTypeFilter('all')
+    setSortMode('name-asc')
   }
+
+  const hasFilters = query.trim() !== '' || filter !== 'all' || typeFilter !== 'all'
 
   return (
     <section className={expanded ? 'glass list-panel expanded' : 'glass list-panel'} aria-label="Entities">
@@ -132,10 +197,30 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
                 </button>
               ))}
             </div>
-            {(query.trim() !== '' || filter !== 'all') && (
-              <p className="hint" role="status">
-                Showing {filtered.length} of {entities.length}
-              </p>
+            <div className="filter-row">
+              <FilterDropdown
+                label="Type"
+                value={typeFilter}
+                onChange={setTypeFilter}
+                options={[{ value: 'all', label: 'All types' }, ...types.map((type) => ({ value: type, label: type }))]}
+              />
+              <FilterDropdown
+                label="Sort"
+                value={sortMode}
+                onChange={(value) => setSortMode(value as SortMode)}
+                options={[
+                  { value: 'name-asc', label: 'Name A–Z' },
+                  { value: 'name-desc', label: 'Name Z–A' },
+                  { value: 'newest', label: 'Newest' },
+                  { value: 'oldest', label: 'Oldest' },
+                ]}
+              />
+            </div>
+            {(hasFilters || sortMode !== 'name-asc') && (
+              <div className="filter-summary" role="status" aria-live="polite">
+                <span>Showing <strong>{filtered.length}</strong> of {entities.length}</span>
+                <button type="button" className="text-action" onClick={clearFilters}>Reset</button>
+              </div>
             )}
           </>
         )}
@@ -154,7 +239,11 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
           {loading && entities.length === 0 ? (
             <ul className="entity-list" aria-busy="true" aria-label="Loading entities">
               {[0, 1, 2, 3].map((i) => (
-                <li key={i} className="skeleton" />
+                <li key={i} className="skeleton-row">
+                  <span className="skeleton-avatar" />
+                  <span className="skeleton-copy"><i /><i /></span>
+                  <span className="skeleton-badge" />
+                </li>
               ))}
             </ul>
           ) : error && entities.length === 0 ? (
@@ -186,8 +275,8 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
               <span className="empty-icon">
                 <IconSearch width={22} height={22} />
               </span>
-              <p className="empty-title">No matches</p>
-              <p className="muted">Try a different search or status.</p>
+              <p className="empty-title">No matching entities</p>
+              <p className="muted">Try another name, type, or status filter.</p>
               <button className="btn secondary" onClick={clearFilters}>
                 Clear filters
               </button>

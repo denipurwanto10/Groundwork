@@ -43,6 +43,7 @@ export default function EntityForm({
   const [latRaw, setLatRaw] = useState('0')
   const [lngRaw, setLngRaw] = useState('0')
   const [touched, setTouched] = useState(false)
+  const [manual, setManual] = useState(false)
 
   // Reset when opened for a different entity/mode.
   useEffect(() => {
@@ -53,6 +54,7 @@ export default function EntityForm({
       setLatRaw(String(initial?.latitude ?? draftCoords?.latitude ?? 0))
       setLngRaw(String(initial?.longitude ?? draftCoords?.longitude ?? 0))
       setTouched(false)
+      setManual(false)
       onCoordsChange()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,6 +82,8 @@ export default function EntityForm({
   // Server errors (from backend validation) take precedence per field.
   const errors: EntityFieldErrors = { ...clientErrors, ...serverFields }
   const invalid = Object.keys(validateEntityInput(input)).length > 0
+
+  const showManual = manual || !!errors.latitude || !!errors.longitude
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -114,7 +118,7 @@ export default function EntityForm({
         <div className="sheet-head">
           <div>
             <h2 id={fid('title')}>{mode === 'create' ? 'New entity' : 'Edit entity'}</h2>
-            <p className="hint">Place the point on the map or enter coordinates.</p>
+            <p className="hint">Fill in the details and pick a point on the map.</p>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} disabled={saving} aria-label="Close form">
             <IconClose />
@@ -124,10 +128,8 @@ export default function EntityForm({
         <div className="form-body">
           <div className="field">
             <label htmlFor={fid('name')} className="label-text">
-              Name{' '}
-              <span className="muted">
-                {name.length}/255
-              </span>
+              Name
+              {name.length > 200 && <span className="muted"> {name.length}/255</span>}
             </label>
             <input
               id={fid('name')}
@@ -144,10 +146,8 @@ export default function EntityForm({
 
           <div className="field">
             <label htmlFor={fid('type')} className="label-text">
-              Type{' '}
-              <span className="muted">
-                {type.length}/100
-              </span>
+              Type
+              {type.length > 80 && <span className="muted"> {type.length}/100</span>}
             </label>
             <input
               id={fid('type')}
@@ -196,40 +196,53 @@ export default function EntityForm({
                 <span>{picking ? 'Picking…' : 'Pick on map'}</span>
               </button>
             </div>
-            <div className="coord-row">
-              <div className="field">
-                <label htmlFor={fid('latitude')} className="sub-label">
-                  Latitude
-                </label>
-                <input
-                  id={fid('latitude')}
-                  className="num"
-                  value={latRaw}
-                  onChange={(e) => setLatRaw(e.target.value)}
-                  placeholder="-6.1754"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  {...a11y('latitude')}
-                />
-                {fieldError('latitude')}
-              </div>
-              <div className="field">
-                <label htmlFor={fid('longitude')} className="sub-label">
-                  Longitude
-                </label>
-                <input
-                  id={fid('longitude')}
-                  className="num"
-                  value={lngRaw}
-                  onChange={(e) => setLngRaw(e.target.value)}
-                  placeholder="106.8272"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  {...a11y('longitude')}
-                />
-                {fieldError('longitude')}
-              </div>
+            <div className="coord-summary">
+              <span className="num">
+                {Number.isFinite(input.latitude) && Number.isFinite(input.longitude)
+                  ? `${input.latitude}, ${input.longitude}`
+                  : 'Invalid coordinates'}
+              </span>
+              <button type="button" className="link-btn" aria-expanded={showManual} onClick={() => setManual((v) => !v)}>
+                {showManual ? 'Hide' : 'Enter manually'}
+              </button>
             </div>
+            {showManual && (
+              <div className="coord-row">
+                <div className="field">
+                  <label htmlFor={fid('latitude')} className="sub-label">
+                    Latitude
+                  </label>
+                  <input
+                    id={fid('latitude')}
+                    className="num"
+                    value={latRaw}
+                    onChange={(e) => setLatRaw(e.target.value)}
+                    placeholder="-6.1754"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    {...a11y('latitude')}
+                  />
+                  {fieldError('latitude')}
+                </div>
+                <div className="field">
+                  <label htmlFor={fid('longitude')} className="sub-label">
+                    Longitude
+                  </label>
+                  <input
+                    id={fid('longitude')}
+                    className="num"
+                    value={lngRaw}
+                    onChange={(e) => setLngRaw(e.target.value)}
+                    placeholder="106.8272"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    {...a11y('longitude')}
+                  />
+                  {fieldError('longitude')}
+                </div>
+              </div>
+            )}
+            {!showManual && (fieldError('latitude') || fieldError('longitude'))}
           </fieldset>
         </div>
 
