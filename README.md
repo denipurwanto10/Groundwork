@@ -23,6 +23,8 @@ dengan REST API Go dan database PostgreSQL.
 - Tambah, ubah, hapus entitas (hapus pakai dialog konfirmasi)
 - Lihat detail entitas
 - Validasi di frontend dan backend
+- Tombol "show all" untuk melihat semua marker sekaligus
+- CI GitHub Actions (backend: gofmt/vet/build/test; frontend: tsc/build)
 
 ## Tech Stack
 
@@ -150,6 +152,27 @@ Aturan validasi: name/type wajib non-kosong (maks 255/100),
 status `active`/`inactive`, latitude −90…90, longitude −180…180.
 `PUT` adalah full replace (kirim semua field).
 
+Contoh request/response:
+
+```bash
+# Buat entitas
+curl -X POST http://localhost:8080/api/entities \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Monas","type":"monument","status":"active","latitude":-6.1754,"longitude":106.8272}'
+# → 201 {"data":{"id":1,"name":"Monas","type":"monument","status":"active",
+#     "latitude":-6.1754,"longitude":106.8272,"created_at":"…","updated_at":"…"}}
+
+# Validasi gagal
+curl -X POST http://localhost:8080/api/entities \
+  -H 'Content-Type: application/json' -d '{"name":"","type":"x","status":"active","latitude":0,"longitude":0}'
+# → 400 {"error":{"code":"validation_failed","message":"validation failed",
+#     "fields":{"name":"…"}}}
+
+# ID bukan angka / tidak ada
+curl http://localhost:8080/api/entities/abc   # → 400 {"error":{"code":"invalid_id",…}}
+curl http://localhost:8080/api/entities/9999  # → 404 {"error":{"code":"not_found",…}}
+```
+
 ## Pengujian
 
 Backend (dari root; Go harus di PATH):
@@ -245,7 +268,9 @@ tidak menyentuh proses milik aplikasi lain.
 ## Keterbatasan
 
 - `migrations/*.sql` ikut repo — diperlukan reviewer untuk membuat database yang sama.
-- Data seed 5 landmark Jakarta hanya ada di database lokal; migration dari nol menghasilkan tabel kosong (empty state "No entities yet." terverifikasi).
+- `migrations/seed.sql` opsional (5 landmark Jakarta, dijalankan manual sekali;
+  sengaja bukan `002_*` agar migration dari nol tetap kosong dan empty state
+  "No entities yet." bisa direproduksi reviewer).
 
 ## Struktur Proyek
 
@@ -256,7 +281,7 @@ internal/
   db/                    # pgxpool + HealthCheck
   entity/                # model + validasi + unit test
   handler/               # /health + CRUD + integration test
-migrations/              # 001 up/down SQL + README
+migrations/              # 001 up/down SQL + seed.sql (opsional, manual) + README
 frontend/src/
   lib/                   # api.ts (client), types.ts (tipe + validasi)
   components/            # EntityMap/List/Detail/Form/ConfirmDialog

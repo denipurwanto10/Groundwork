@@ -124,7 +124,10 @@ export default function EntityForm({
         <div className="form-body">
           <div className="field">
             <label htmlFor={fid('name')} className="label-text">
-              Name
+              Name{' '}
+              <span className="muted">
+                {name.length}/255
+              </span>
             </label>
             <input
               id={fid('name')}
@@ -141,7 +144,10 @@ export default function EntityForm({
 
           <div className="field">
             <label htmlFor={fid('type')} className="label-text">
-              Type
+              Type{' '}
+              <span className="muted">
+                {type.length}/100
+              </span>
             </label>
             <input
               id={fid('type')}

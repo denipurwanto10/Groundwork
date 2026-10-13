@@ -207,7 +207,10 @@ export default function App() {
             <span className="brand-mark">
               <IconLayers width={20} height={20} />
             </span>
-            <h1>Entity Manager</h1>
+            <div className="brand-text">
+              <h1>Entity Manager</h1>
+              <span className="brand-sub">Location workspace</span>
+            </div>
           </div>
           <div className="brandbar-tools">
             <div

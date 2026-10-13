@@ -132,6 +132,11 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
                 </button>
               ))}
             </div>
+            {(query.trim() !== '' || filter !== 'all') && (
+              <p className="hint" role="status">
+                Showing {filtered.length} of {entities.length}
+              </p>
+            )}
           </>
         )}
 

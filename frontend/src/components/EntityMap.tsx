@@ -41,6 +41,35 @@ function ClickPicker({ picking, onPick }: { picking: boolean; onPick: (lat: numb
   return null
 }
 
+/** "Show all" button under the zoom control; flies to the bounds of all entities. */
+function FitAllControl({ entities }: { entities: Entity[] }) {
+  const map = useMap()
+  useEffect(() => {
+    if (entities.length === 0) return
+    const Control = L.Control.extend({
+      onAdd() {
+        const btn = L.DomUtil.create('button', 'fit-all-btn')
+        btn.type = 'button'
+        btn.title = 'Show all entities'
+        btn.setAttribute('aria-label', 'Show all entities')
+        btn.textContent = '⤢'
+        L.DomEvent.on(btn, 'click', (e) => {
+          L.DomEvent.stop(e)
+          const bounds = L.latLngBounds(entities.map((x) => [x.latitude, x.longitude] as [number, number]))
+          if (bounds.isValid()) map.flyToBounds(bounds.pad(0.15), { duration: 0.6 })
+        })
+        return btn
+      },
+    })
+    const ctrl = new Control({ position: 'topright' })
+    ctrl.addTo(map)
+    return () => {
+      ctrl.remove()
+    }
+  }, [map, entities])
+  return null
+}
+
 /** Pan to the selected entity, keeping the pin clear of the detail card / bottom sheet. */
 function FlyToSelected({ entity }: { entity: Entity | undefined }) {
   const map = useMap()
@@ -119,6 +148,7 @@ export default function EntityMap({ entities, selected, onSelect, picking, draft
       )}
       <ZoomControl position="topright" />
       <AttributionControl position="bottomright" prefix={false} />
+      <FitAllControl entities={entities} />
       <ClickPicker picking={picking} onPick={onPick} />
       <FlyToSelected entity={selected} />
     </MapContainer>

@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import type { Entity } from '../lib/types'
-import { IconClose, IconEdit, IconPin, IconTrash } from './Icons'
+import { IconCheck, IconClose, IconCopy, IconEdit, IconPin, IconTrash } from './Icons'
 
 interface Props {
   entity: Entity | undefined
@@ -15,8 +16,27 @@ function formatDate(iso: string): string {
 }
 
 export default function EntityDetail({ entity, deleting, onEdit, onDelete, onClose }: Props) {
+  const [copied, setCopied] = useState(false)
   // The detail card floats over the map, so nothing is rendered until a selection exists.
   if (!entity) return null
+
+  const coords = `${entity.latitude}, ${entity.longitude}`
+  const copyCoords = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error('no clipboard')
+      await navigator.clipboard.writeText(coords)
+    } catch {
+      // Clipboard API needs a secure context; fall back to execCommand.
+      const ta = document.createElement('textarea')
+      ta.value = coords
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+    }
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 2000)
+  }
 
   return (
     <section className="glass detail-panel" aria-label={`Details for ${entity.name}`}>
@@ -48,13 +68,21 @@ export default function EntityDetail({ entity, deleting, onEdit, onDelete, onClo
           <dt>Type</dt>
           <dd>{entity.type}</dd>
         </div>
-        <div className="cell">
-          <dt>Latitude</dt>
-          <dd className="num">{entity.latitude}</dd>
-        </div>
-        <div className="cell">
-          <dt>Longitude</dt>
-          <dd className="num">{entity.longitude}</dd>
+        <div className="cell cell-coords">
+          <div className="coords-text">
+            <dt>Coordinates</dt>
+            <dd className="num">{coords}</dd>
+          </div>
+          <button
+            type="button"
+            className={copied ? 'copy-chip copied' : 'copy-chip'}
+            onClick={copyCoords}
+            title="Copy coordinates"
+            aria-label="Copy coordinates"
+          >
+            {copied ? <IconCheck width={15} height={15} /> : <IconCopy width={15} height={15} />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
         </div>
         <div className="cell">
           <dt>Created</dt>

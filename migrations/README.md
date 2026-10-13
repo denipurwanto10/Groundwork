@@ -7,6 +7,17 @@ Plain SQL files, applied in filename order. No migration framework
 
 - `001_create_entities.up.sql` — creates `entities` + indexes + `updated_at` trigger.
 - `001_create_entities.down.sql` — drops them (rollback only).
+- `seed.sql` — optional review data (5 Jakarta landmarks). Run manually,
+  once, **after** the migration above. Deliberately *not* numbered `002_*`
+  so a fresh checkout stays empty and the "No entities yet." state is
+  reproducible.
+
+```bash
+PGPASSWORD="$DB_PASSWORD" psql \
+  -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+  -v ON_ERROR_STOP=1 \
+  -f migrations/seed.sql
+```
 
 ## Run (needs PostgreSQL credentials in `.env`)
 
