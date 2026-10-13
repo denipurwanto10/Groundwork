@@ -30,7 +30,6 @@ export default function EntityDetail({ entity, deleting, onEdit, onDelete, onClo
           <h2>{entity.name}</h2>
           <p className="detail-sub">
             <span className="detail-type">{entity.type}</span>
-            <span className="detail-id">#{entity.id}</span>
           </p>
         </div>
         <button className="icon-btn" onClick={onClose} aria-label="Close details">
