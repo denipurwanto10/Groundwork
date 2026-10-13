@@ -1639,14 +1639,15 @@ fieldset.field > legend {
   transform: scale(1.15);
 }
 
-/* Selected pin subtle pulse */
-.pin.selected {
+/* Selected pin subtle pulse — on ::before (the teardrop), NOT on .pin
+   (the span itself is an invisible square; a ring there renders as a box) */
+.pin.selected::before {
   animation: pinPulse 1.5s ease-in-out infinite;
 }
 
 @keyframes pinPulse {
-  0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 14px -3px rgba(11, 20, 38, 0.45); }
-  50% { box-shadow: 0 0 0 6px var(--accent-soft), 0 8px 14px -3px rgba(11, 20, 38, 0.45); }
+  0%, 100% { box-shadow: 0 0 0 4px var(--ring), 0 8px 14px -3px rgba(11, 20, 38, 0.45); }
+  50% { box-shadow: 0 0 0 7px var(--ring), 0 8px 14px -3px rgba(11, 20, 38, 0.45); }
 }
 
 /* Smooth detail panel side on first mount */
