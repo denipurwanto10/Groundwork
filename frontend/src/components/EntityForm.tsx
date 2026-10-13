@@ -250,7 +250,7 @@ export default function EntityForm({
           <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>
             Cancel
           </button>
-          <button type="submit" className="btn primary" disabled={saving || (touched && invalid)}>
+          <button type="submit" className="btn primary" disabled={saving || invalid} title={invalid ? 'Lengkapi Name dan Type dulu' : undefined}>
             {saving ? 'Saving…' : mode === 'create' ? 'Create' : 'Save changes'}
           </button>
         </div>
