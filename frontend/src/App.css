@@ -1599,6 +1599,105 @@ fieldset.field > legend {
   }
 }
 
+@keyframes listIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ==========================================================================
+   Motion polish — staggered entrance & micro interactions
+   ========================================================================== */
+.entity-item {
+  animation: listIn 0.3s var(--ease);
+}
+
+.entity-list > li:nth-child(1) .entity-item { animation-delay: 0ms; }
+.entity-list > li:nth-child(2) .entity-item { animation-delay: 20ms; }
+.entity-list > li:nth-child(3) .entity-item { animation-delay: 40ms; }
+.entity-list > li:nth-child(4) .entity-item { animation-delay: 60ms; }
+.entity-list > li:nth-child(5) .entity-item { animation-delay: 80ms; }
+.entity-list > li:nth-child(6) .entity-item { animation-delay: 100ms; }
+.entity-list > li:nth-child(7) .entity-item { animation-delay: 120ms; }
+.entity-list > li:nth-child(8) .entity-item { animation-delay: 140ms; }
+.entity-list > li:nth-child(9) .entity-item { animation-delay: 160ms; }
+.entity-list > li:nth-child(10) .entity-item { animation-delay: 180ms; }
+.entity-list > li:nth-child(11) .entity-item { animation-delay: 200ms; }
+.entity-list > li:nth-child(12) .entity-item { animation-delay: 220ms; }
+.entity-list > li:nth-child(13) .entity-item { animation-delay: 240ms; }
+.entity-list > li:nth-child(14) .entity-item { animation-delay: 260ms; }
+.entity-list > li:nth-child(15) .entity-item { animation-delay: 280ms; }
+.entity-list > li:nth-child(16) .entity-item { animation-delay: 300ms; }
+.entity-list > li:nth-child(17) .entity-item { animation-delay: 320ms; }
+.entity-list > li:nth-child(18) .entity-item { animation-delay: 340ms; }
+.entity-list > li:nth-child(19) .entity-item { animation-delay: 360ms; }
+.entity-list > li:nth-child(20) .entity-item { animation-delay: 380ms; }
+
+/* Pin hover lift */
+.pin:hover {
+  transform: scale(1.15);
+}
+
+/* Selected pin subtle pulse */
+.pin.selected {
+  animation: pinPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pinPulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 14px -3px rgba(11, 20, 38, 0.45); }
+  50% { box-shadow: 0 0 0 6px var(--accent-soft), 0 8px 14px -3px rgba(11, 20, 38, 0.45); }
+}
+
+/* Smooth detail panel side on first mount */
+.detail-panel {
+  animation: riseIn 0.4s var(--ease);
+}
+
+/* Toast already has fadeDown */
+.toast {
+  animation: fadeDown 0.4s var(--ease);
+}
+
+/* Filter dropdown menu entrance */
+.filter-select-menu {
+  animation: fadeIn 0.15s ease-out;
+}
+
+/* Dialog already has popIn */
+.dialog-card {
+  animation: popIn 0.35s var(--ease);
+}
+
+/* Form dock already has dockIn */
+.overlay.dock .card {
+  animation: dockIn 0.4s var(--ease);
+}
+
+/* Pick hint already has fadeDown */
+.pick-hint {
+  animation: fadeDown 0.35s var(--ease);
+}
+
+/* Skeleton shimmer respects reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .entity-item,
+  .pin,
+  .pin.selected,
+  .detail-panel,
+  .toast,
+  .filter-select-menu,
+  .dialog-card,
+  .overlay.dock .card,
+  .pick-hint,
+  .skeleton-avatar,
+  .skeleton-copy i,
+  .skeleton-badge {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
 /* ==========================================================================
    Large desktop
    ========================================================================== */
