@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from './lib/api'
 import type { Entity, EntityFieldErrors, EntityInput } from './lib/types'
 import EntityMap from './components/EntityMap'
@@ -97,6 +97,15 @@ export default function App() {
 
   const selected = entities.find((e) => e.id === selectedId)
 
+  // The map shows filtered pins, but the open detail's pin must stay visible
+  // even when the current filter would hide it.
+  const mapEntities = useMemo(() => {
+    if (selected && !visibleEntities.some((e) => e.id === selected.id)) {
+      return [...visibleEntities, selected]
+    }
+    return visibleEntities
+  }, [visibleEntities, selected])
+
   // While the form is docked over the list, the list underneath must not be reachable by keyboard.
   useEffect(() => {
     listSlotRef.current?.toggleAttribute('inert', formOpen)
@@ -192,7 +201,7 @@ export default function App() {
     <div className="app">
       <div className="map-stage">
         <EntityMap
-          entities={visibleEntities}
+          entities={mapEntities}
           selected={selected}
           onSelect={setSelectedId}
           picking={picking && formOpen}
