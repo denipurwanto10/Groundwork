@@ -830,14 +830,15 @@ body {
   border-color: #f4f6ff;
 }
 
-/* Pins: green = active, slate = inactive, amber = new point being placed */
+/* Pins: hue = entity type (--pin set inline), inactive is the same hue dimmed,
+   black = new point being placed */
 .pin-wrap {
   background: none;
   border: 0;
 }
 
 .pin {
-  --pin: #0e9f6e;
+  --pin: #64748b;
   --ring: rgba(52, 69, 216, 0.4);
   position: relative;
   display: block;
@@ -848,11 +849,11 @@ body {
 }
 
 .pin.inactive {
-  --pin: #64748b;
+  filter: saturate(0.3) brightness(1.25);
 }
 
 .pin.draft {
-  --pin: #f59e0b;
+  --pin: #111827;
   animation: bob 1.4s ease-in-out infinite;
 }
 

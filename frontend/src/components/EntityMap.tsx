@@ -13,12 +13,22 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Entity } from '../lib/types'
 
-// Custom CSS pin markers (no bundled PNGs needed); colour follows entity status.
-function pinIcon(status: 'active' | 'inactive' | 'draft', selected = false): L.DivIcon {
+// Custom CSS pin markers (no bundled PNGs needed); colour follows entity type
+// (stable hash → hue), inactive is the same hue dimmed, new point is black.
+function typeColor(type: string): string {
+  const s = type.trim().toLowerCase()
+  if (!s) return '#64748b'
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360
+  return `hsl(${h} 65% 45%)`
+}
+
+function pinIcon(status: 'active' | 'inactive' | 'draft', type: string, selected = false): L.DivIcon {
   const size = selected ? 46 : 36
+  const color = status === 'draft' ? '#111827' : typeColor(type)
   return L.divIcon({
     className: 'pin-wrap',
-    html: `<span class="pin ${status}${selected ? ' selected' : ''}"><i></i></span>`,
+    html: `<span class="pin ${status}${selected ? ' selected' : ''}" style="--pin:${color}"><i></i></span>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size - 2],
     popupAnchor: [0, -size + 6],
@@ -124,7 +134,7 @@ export default function EntityMap({ entities, selected, onSelect, picking, draft
         <Marker
           key={e.id}
           position={[e.latitude, e.longitude]}
-          icon={pinIcon(e.status, e.id === selected?.id)}
+          icon={pinIcon(e.status, e.type, e.id === selected?.id)}
           zIndexOffset={e.id === selected?.id ? 1000 : 0}
           eventHandlers={{ click: () => onSelect(e.id) }}
           keyboard
@@ -142,7 +152,7 @@ export default function EntityMap({ entities, selected, onSelect, picking, draft
         </Marker>
       ))}
       {draftCoords != null && (
-        <Marker position={[draftCoords.latitude, draftCoords.longitude]} icon={pinIcon('draft', true)}>
+        <Marker position={[draftCoords.latitude, draftCoords.longitude]} icon={pinIcon('draft', '', true)}>
           <Popup>New point</Popup>
         </Marker>
       )}
