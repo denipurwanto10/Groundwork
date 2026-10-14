@@ -126,8 +126,10 @@ npm run dev            # default http://localhost:5173
 npm run dev -- --port 5174   # bila 5173 sudah dipakai aplikasi lain
 ```
 
-Buka URL dev di browser. Indikator hijau `Backend connected`
-di header berarti frontend mencapai backend via proxy.
+Buka URL dev di browser. Indikator `API online` (hijau) di header berarti
+frontend mencapai backend via proxy; saat memuat tampil `API checking`,
+saat backend tak terjangkau tampil `API offline` dan frontend mencoba
+lagi otomatis tiap 15 detik sampai pulih.
 
 ## Endpoint API
 
@@ -202,7 +204,7 @@ npm run lint      # oxlint
 | Frontend (static) | `tsc` bersih, `vite build` sukses, `lint` exit 0 (1 warning non-blocking fetch-on-mount di `App.tsx`) |
 | API via curl | Siklus CRUD penuh: 201/200/400/404/204 |
 | UI headless (desktop + mobile) | CRUD 7/7 sinkron ke backend; interaksi peta 4/4 |
-| Error-path | Backend mati → badge offline + banner + retry + toast; backend nyala → retry memulihkan list (0 JS error) |
+| Error-path | Backend mati → badge offline + banner + retry manual + auto-retry tiap 15 dtk; backend nyala → retry/auto-retry memulihkan list (0 JS error) |
 | Skeleton loading | API dilambatkan 2 dtk → 4 baris skeleton + `aria-busy=true`, hilang setelah data tampil |
 | Preview produksi (`dist/`) | 6/6: 5 marker, klik marker buka detail, create → edit → delete sinkron, 0 JS error |
 | Clone bersih | 45 file disalin terpisah → `gofmt`/`vet`/`build` OK, unit PASS, `tsc`/`lint`/`build` OK |
@@ -268,7 +270,7 @@ tidak menyentuh proses milik aplikasi lain.
 ## Keterbatasan
 
 - `migrations/*.sql` ikut repo — diperlukan reviewer untuk membuat database yang sama.
-- `migrations/seed.sql` opsional (8 landmark Jakarta, satu per type, dijalankan manual sekali;
+- `migrations/seed.sql` opsional (8 landmark se-Indonesia, satu per type, dijalankan manual sekali;
   sengaja bukan `002_*` agar migration dari nol tetap kosong dan empty state
   "No entities yet." bisa direproduksi reviewer).
 

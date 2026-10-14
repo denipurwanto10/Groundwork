@@ -56,4 +56,5 @@ Take-home test untuk posisi Software Developer (tenggat 2 hari). Backend Go + Gi
 - ✅ CRUD backend: `GET/POST /api/entities`, `GET/PUT/DELETE /api/entities/:id`
 - ✅ Validasi di `internal/entity` (mencerminkan CHECK di DB) + query pgx berparameter
 - ✅ Unit test (`internal/entity`) + integration test (`internal/handler`, tag `integration`)
-- ✅ Frontend `frontend/` (React + TS + Vite + Leaflet): `VITE_API_BASE_URL`, klien Fetch API, proxy Vite untuk `/api` + `/health`, EntityMap/List/Detail/Form/ConfirmDialog, CRUD penuh tersinkron dengan backend, state loading/empty/error/toast, layout responsif — terverifikasi live (Playwright headless, desktop + mobile)
+- ✅ Frontend `frontend/` (React + TS + Vite + Leaflet): `VITE_API_BASE_URL`, klien Fetch API, proxy Vite untuk `/api` + `/health`, EntityMap/List/Detail/Form/ConfirmDialog, CRUD penuh tersinkron dengan backend, state loading/empty/error/toast, indikator API 3-state
+(checking/online/offline) + auto-retry tiap 15 dtk saat offline, layout responsif — terverifikasi live (Playwright headless, desktop + mobile)

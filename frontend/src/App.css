@@ -266,6 +266,11 @@ body {
   background: var(--danger-soft);
 }
 
+.backend-status.checking {
+  color: var(--idle);
+  background: var(--idle-soft);
+}
+
 .dot {
   width: 8px;
   height: 8px;
@@ -277,6 +282,11 @@ body {
 .dot.down {
   background: var(--danger);
   box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.dot.checking {
+  background: var(--idle);
+  box-shadow: 0 0 0 3px var(--idle-soft);
 }
 
 /* ==========================================================================

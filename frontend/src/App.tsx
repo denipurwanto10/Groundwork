@@ -11,6 +11,13 @@ import './App.css'
 
 type Toast = { kind: 'success' | 'error'; text: string } | null
 type Theme = 'light' | 'dark'
+type ApiState = 'checking' | 'online' | 'offline'
+
+const API_STATE_UI: Record<ApiState, { label: string; title: string; cls: string }> = {
+  checking: { label: 'API checking', title: 'Checking the backend connection', cls: 'checking' },
+  online: { label: 'API online', title: 'Connected to the backend', cls: 'up' },
+  offline: { label: 'API offline', title: 'The backend is not reachable', cls: 'down' },
+}
 
 const THEME_KEY = 'entity-manager:theme'
 
@@ -30,7 +37,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [backendDown, setBackendDown] = useState(false)
+  const [apiState, setApiState] = useState<ApiState>('checking')
   const [toast, setToast] = useState<Toast>(null)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
 
@@ -74,17 +81,18 @@ export default function App() {
   }, [toast])
 
   const refresh = useCallback(async () => {
+    // Offline polls call refresh too — only the initial mount shows "checking".
     setLoading(true)
     setLoadError(null)
     try {
       const data = await api.listEntities()
       setEntities(data)
-      setBackendDown(false)
+      setApiState('online')
       setSelectedId((prev) => (prev != null && !data.some((e) => e.id === prev) ? null : prev))
     } catch (err) {
       // Gagal memuat daftar = backend bermasalah (mati, 5xx, dsb),
       // apa pun jenis error-nya — badge harus ikut offline.
-      setBackendDown(true)
+      setApiState('offline')
       setLoadError(err instanceof Error ? err.message : 'Could not load entities.')
     } finally {
       setLoading(false)
@@ -94,6 +102,13 @@ export default function App() {
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  // Auto-retry while offline; stops as soon as a poll succeeds.
+  useEffect(() => {
+    if (apiState !== 'offline') return
+    const id = setInterval(() => void refresh(), 15000)
+    return () => clearInterval(id)
+  }, [apiState, refresh])
 
   const selected = entities.find((e) => e.id === selectedId)
 
@@ -223,13 +238,9 @@ export default function App() {
             </div>
           </div>
           <div className="brandbar-tools">
-            <div
-              className={backendDown ? 'backend-status down' : 'backend-status up'}
-              role="status"
-              title={backendDown ? 'The backend is not reachable' : 'Connected to the backend'}
-            >
-              <span className={backendDown ? 'dot down' : 'dot up'} aria-hidden="true" />
-              <span className="status-label">{backendDown ? 'API offline' : 'API online'}</span>
+            <div className={`backend-status ${API_STATE_UI[apiState].cls}`} role="status" title={API_STATE_UI[apiState].title}>
+              <span className={`dot ${API_STATE_UI[apiState].cls}`} aria-hidden="true" />
+              <span className="status-label">{API_STATE_UI[apiState].label}</span>
             </div>
             <button
               className="icon-btn"
