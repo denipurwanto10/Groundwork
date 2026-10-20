@@ -178,6 +178,8 @@ body {
   flex: 1;
   min-height: 0;
   display: flex;
+  flex-direction: column;
+  gap: 10px;
   pointer-events: none;
 }
 
@@ -827,9 +829,15 @@ body {
   color: var(--muted);
 }
 
-/* Dark basemap: invert the light OSM tiles and tone them down */
-.leaflet-layer.tiles-dark {
-  filter: invert(1) hue-rotate(185deg) brightness(0.8) contrast(0.95) saturate(0.45);
+/* Black-and-white basemap: OpenStreetMap raster tiles, desaturated here so no
+   extra tile provider (and no vector renderer) is needed. Dark theme inverts
+   the same tiles, which keeps white lines on black instead of grey on white. */
+.leaflet-layer.tiles-mono {
+  filter: grayscale(1) contrast(1.06) brightness(1.02);
+}
+
+:root[data-theme='dark'] .leaflet-layer.tiles-mono {
+  filter: grayscale(1) invert(1) brightness(0.86) contrast(1.08);
 }
 
 :root[data-theme='dark'] .map {
@@ -3017,3 +3025,1339 @@ html, body { background: var(--bg); color: var(--text); }
   .filter-select-menu { max-height: 34vh; }
 }
 @media (prefers-reduced-motion: reduce) { .filter-select-chevron, .filter-select-menu { animation: none; transition: none; } }
+
+/* ==========================================================================
+   Sidebar tabs
+   ========================================================================== */
+.sidebar-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 6px;
+  margin-bottom: 4px;
+}
+
+.sidebar-tabs button[role='tab'] {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  white-space: nowrap;
+}
+
+.sidebar-tabs button[role='tab']:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.sidebar-tabs button[role='tab'][aria-selected='true'] {
+  color: var(--text);
+  background: var(--panel-solid);
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(11, 20, 38, 0.1), 0 0 0 1px var(--line);
+}
+
+.tab-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  background: var(--panel-2);
+  color: var(--muted);
+  border-radius: 999px;
+}
+
+.sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ==========================================================================
+   ZonePanel styles
+   ========================================================================== */
+.zone-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px 8px;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+}
+
+.zone-panel-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+  margin-bottom: 12px;
+}
+
+.zone-panel-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 750;
+}
+
+.zone-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 4px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* The card, not the inner button, owns the border/fill so the pencil and bin
+   sit inside the same card instead of a detached toolbar underneath it. */
+.zone-list > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.zone-list > li:hover {
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+
+.zone-list > li.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.zone-list-item {
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.zone-list-item:hover {
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+
+.zone-list-item.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* Inside a zone card the actions column belongs to the card, so the button
+   drops its own third column and its own fill/border. */
+.zone-list > li > .zone-list-item {
+  grid-template-columns: 32px minmax(0, 1fr);
+  padding: 8px 4px 8px 10px;
+}
+
+.zone-list > li > .zone-list-item,
+.zone-list > li > .zone-list-item:hover,
+.zone-list > li > .zone-list-item.selected {
+  background: transparent;
+  border-color: transparent;
+}
+
+.zone-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 2px solid currentColor;
+}
+
+.zone-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zone-name {
+  font-size: 14px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Separator lives with the item it introduces, so a wrapped line never ends on a dot. */
+.zone-meta > * + *::before {
+  content: '·';
+  margin-right: 10px;
+  opacity: 0.75;
+}
+
+.zone-meta .zone-region {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.zone-meta .zone-counts {
+  /* Own line, so both cards keep the same rhythm instead of wrapping mid-list. */
+  flex-basis: 100%;
+  white-space: nowrap;
+}
+
+.zone-meta .zone-counts::before {
+  content: none;
+}
+
+.zone-counts {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* Names the zone the entity list is scoped to; one click clears the scope. */
+.scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  max-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.scope-chip:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.scope-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-category {
+  text-transform: capitalize;
+}
+
+.zone-actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.zone-actions .icon-btn {
+  width: 32px;
+  height: 32px;
+}
+
+.zone-form-card {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.zone-form-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.zone-form-header h3 {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.zone-form-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.zone-form-field {
+  margin-bottom: 14px;
+}
+
+.zone-form-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.zone-form-input,
+.zone-form-select,
+.zone-form-textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  font-size: 14.5px;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.zone-form-textarea {
+  min-height: 80px;
+  padding: 10px 12px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.zone-form-input:hover,
+.zone-form-select:hover,
+.zone-form-textarea:hover {
+  border-color: var(--text-2);
+}
+
+.zone-form-input:focus,
+.zone-form-select:focus,
+.zone-form-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.zone-form-input[aria-invalid='true'],
+.zone-form-select[aria-invalid='true'],
+.zone-form-textarea[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.zone-form-input[aria-invalid='true']:focus,
+.zone-form-select[aria-invalid='true']:focus,
+.zone-form-textarea[aria-invalid='true']:focus {
+  box-shadow: 0 0 0 4px var(--danger-soft);
+}
+
+.zone-form-error {
+  margin-top: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--danger);
+}
+
+.zone-color-input {
+  width: 100%;
+  height: 42px;
+  padding: 4px;
+  background: var(--field);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+
+.zone-color-input::-webkit-color-swatch-wrapper { padding: 0; }
+.zone-color-input::-webkit-color-swatch { border: 2px solid var(--line); border-radius: 6px; }
+.zone-color-input::-moz-color-swatch { border: 2px solid var(--line); border-radius: 6px; }
+
+.zone-region-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zone-region-select-row {
+  display: flex;
+  gap: 8px;
+}
+
+.zone-region-select-row .zone-form-select {
+  flex: 1;
+}
+
+.zone-import-export {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+}
+
+.zone-import-export label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.zone-import-export input[type='file'] {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.zone-form-footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-solid);
+}
+
+.zone-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.zone-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 18px;
+}
+
+.zone-toast {
+  position: fixed;
+  z-index: 60;
+  bottom: calc(var(--gap) * 2);
+  left: calc(var(--gap) * 2 + var(--sidebar-w) + (100% - var(--sidebar-w) - var(--gap) * 3) / 2);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 18px 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 999px;
+  box-shadow: var(--shadow-pop);
+  animation: fadeDown 0.4s var(--ease);
+}
+
+.zone-toast.success {
+  color: var(--bg);
+  background: var(--text);
+}
+
+.zone-toast.error {
+  color: var(--danger);
+  background: var(--panel-solid);
+  border: 1px solid var(--danger-line);
+}
+
+@media (max-width: 767px) {
+  .zone-toast {
+    left: 50%;
+    bottom: calc(var(--safe-b) + var(--gap) * 2);
+    max-width: calc(100vw - 24px);
+  }
+}
+
+/* ==========================================================================
+   RegionLayer / ZoneLayer map integration
+   ========================================================================== */
+.region-polygon {
+  cursor: pointer;
+  transition: fill-opacity 0.15s, stroke-opacity 0.15s;
+}
+
+.region-polygon:hover {
+  fill-opacity: 0.35 !important;
+  stroke-opacity: 1 !important;
+}
+
+.zone-polygon {
+  cursor: pointer;
+}
+
+.zone-polygon.selected {
+  stroke-width: 3px !important;
+  stroke: var(--accent) !important;
+  fill-opacity: 0.25 !important;
+}
+
+.leaflet-pm-draw-marker {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.leaflet-pm-vertex-marker {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.leaflet-pm-drag-marker {
+  background: var(--muted) !important;
+  border-color: var(--muted) !important;
+}
+
+/* ==========================================================================
+   Zone panel — inline hints, import report, colour picker, geometry status
+   ========================================================================== */
+.zone-hint {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.zone-import-report {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 9px 10px;
+  font-size: 12.5px;
+  color: var(--ok);
+  background: var(--ok-soft);
+  border: 1px solid var(--ok);
+  border-radius: var(--r-md);
+}
+
+.zone-import-report.error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+}
+
+.zone-import-report > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.zone-import-report details {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+
+.zone-import-report ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
+.zone-color-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.zone-color-chip {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid var(--line-strong);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.zone-color-chip:hover {
+  transform: scale(1.08);
+  border-color: var(--text);
+}
+
+.zone-geometry-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.zone-geometry-status.ok {
+  color: var(--ok);
+}
+
+.zone-geometry-status.empty {
+  color: var(--danger);
+}
+
+/* ==========================================================================
+   RegionControls — boundary drill-down panel floating on the map
+   ========================================================================== */
+.region-controls {
+  position: absolute;
+  z-index: 1200;
+  top: 12px;
+  left: 56px;
+  max-width: min(420px, calc(100% - 80px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+  pointer-events: auto;
+}
+
+.region-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.region-controls-label {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+  text-transform: capitalize;
+  margin-right: auto;
+}
+
+.region-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.region-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.region-crumb button {
+  padding: 2px 4px;
+  font: inherit;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.region-crumb button:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.region-crumb button.current {
+  color: var(--text);
+  font-weight: 650;
+  cursor: default;
+}
+
+.region-controls-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+@media (max-width: 767px) {
+  .region-controls {
+    top: 10px;
+    left: 52px;
+    right: 10px;
+    max-width: none;
+  }
+}
+
+/* ==========================================================================
+   Live tracking — vehicle markers and fleet panel
+   ========================================================================== */
+
+/* Marker: a status-coloured disc, no box-shadow depth (flat by design). */
+.veh-wrap {
+  background: transparent;
+  border: 0;
+}
+
+.veh {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--veh, #64748b);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  color: #fff;
+  transition: transform 120ms ease;
+}
+
+.veh .veh-glyph {
+  display: block;
+  line-height: 0;
+}
+
+.veh .veh-glyph svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.veh.idle {
+  border-style: dashed;
+}
+
+.veh.offline {
+  opacity: 0.72;
+}
+
+.veh.selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* A unit that is reporting right now gets a slow halo. */
+.veh.is-moving::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+  border: 2px solid var(--veh, #16a34a);
+  opacity: 0.55;
+  animation: veh-halo 1.8s ease-out infinite;
+}
+
+@keyframes veh-halo {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .veh.is-moving::after {
+    animation: none;
+    opacity: 0.3;
+  }
+}
+
+/* Fleet panel: reuses the zone panel surface, adds the live badge + avatar. */
+.veh-stream {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.veh-stream .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.veh-stream.live {
+  color: var(--ok);
+}
+
+.veh-stream.live .dot {
+  background: var(--ok);
+}
+
+.veh-stream.reconnecting {
+  color: var(--danger);
+}
+
+.veh-stream.reconnecting .dot {
+  background: var(--danger);
+}
+
+.veh-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 20px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.veh-summary-sep {
+  opacity: 0.6;
+}
+
+.veh-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--veh, #64748b);
+  color: #fff;
+  flex: none;
+}
+
+.veh-status {
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
+.veh-status.moving {
+  color: var(--ok);
+}
+
+.veh-status.idle {
+  color: var(--warn, var(--text-2));
+}
+
+.veh-status.offline {
+  color: var(--muted);
+}
+
+.veh-hint {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 8px);
+  word-break: break-all;
+}
+
+.tab-badge.live {
+  color: var(--ok);
+  border-color: currentColor;
+}
+
+/* ---------- Zone from an official boundary (RegionZonePicker) ---------- */
+
+.region-picker {
+  flex: 0 0 auto;
+}
+
+.region-picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.region-picker .seg-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  padding: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 10px);
+}
+
+.region-picker .seg {
+  padding: 6px 4px;
+  font-size: 11.5px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-sm, 8px);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.region-picker .seg.active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.island-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.island-chip {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 8px);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.island-chip:hover {
+  border-color: var(--line-strong);
+}
+
+.island-chip.active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.island-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.island-count {
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  height: 32px;
+  background: var(--field, var(--panel-2));
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 8px);
+  color: var(--muted);
+}
+
+.search-field:focus-within {
+  border-color: var(--accent-line);
+}
+
+.search-field input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.region-results {
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.region-results .zone-list-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm, 8px);
+  cursor: pointer;
+}
+
+.region-results .zone-list-item:hover {
+  background: var(--panel-2);
+}
+
+.region-results .zone-list-item.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.region-picker-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 10px);
+}
+
+.region-picked {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.region-picker-options {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.region-picker .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.region-picker .field input,
+.region-picker .field select {
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 8px);
+}
+
+.color-field input[type='color'] {
+  width: 44px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.region-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+/* ---------- Delivery routes ---------- */
+
+.route-hint,
+.route-error {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.route-error {
+  color: var(--danger);
+}
+
+.route-foot {
+  display: flex;
+  gap: 6px;
+}
+
+.veh-route {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.veh-route-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.veh-route-unit {
+  margin-left: auto;
+  font-family: var(--font-num, inherit);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.route-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 10px);
+}
+
+.route-ends {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.route-end {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.route-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 50%;
+  color: var(--on-btn, #fff);
+  background: var(--accent);
+}
+
+.route-pin.dest {
+  background: var(--danger);
+}
+
+.route-arrow {
+  height: 8px;
+  margin-left: 8px;
+  border-left: 1px dashed var(--line-strong);
+}
+
+.route-meta {
+  display: flex;
+  gap: 10px;
+  font-family: var(--font-num, inherit);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.route-stop-wrap {
+  background: transparent;
+  border: 0;
+}
+
+.route-stop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: #2563eb;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+/* Name chip beside the circle: inside 22 px it would spill over the letter. */
+.route-stop i {
+  position: absolute;
+  left: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-1, #111);
+  white-space: nowrap;
+}
+
+/* Destination reads as a pin, not another waypoint dot. */
+.route-stop.dest {
+  background: #dc2626;
+}
+
+.route-stop.dest::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  margin-top: -4px;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #dc2626;
+}
+
+/* Live puck at the head of the line; the arrow turns with the road. */
+.route-puck-wrap {
+  background: transparent;
+  border: 0;
+}
+
+.route-puck {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2px solid #fff;
+  box-sizing: border-box;
+}
+
+.route-puck i {
+  display: block;
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+  border-bottom-color: #fff;
+}
+
+.route-pick-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 640;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-solid, var(--panel));
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+}
+
+.route-pick-hint button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Route builder: the A/B rows sit under the pick hint until a route exists. */
+.route-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.route-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 10px);
+}
+
+.route-row.picking {
+  border-color: var(--accent);
+}
+
+.route-row .icon-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.route-field {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.route-field input {
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.route-field input:disabled {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+.route-coords {
+  font-family: var(--font-num, inherit);
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* Progress: one bar, driven by the live route frames. */
+.route-progress {
+  height: 4px;
+  overflow: hidden;
+  background: var(--line);
+  border-radius: 999px;
+}
+
+.route-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.route-progress-label {
+  font-family: var(--font-num, inherit);
+  font-size: 11px;
+  color: var(--text-2);
+}

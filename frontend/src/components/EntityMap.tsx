@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   AttributionControl,
   MapContainer,
@@ -11,8 +11,13 @@ import {
 } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { Entity } from '../lib/types'
-import { typeColorFor } from '../lib/types'
+import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
+import type { Entity, RegionCollection, RegionFeature, Vehicle, VehicleRoute, RouteStop, ZoneFeature, ZoneGeometry } from '../lib/types'
+import { hasPosition, typeColorFor } from '../lib/types'
+import ZoneLayer from './ZoneLayer'
+import RegionLayer from './RegionLayer'
+import VehicleLayer from './VehicleLayer'
+import RouteLayer from './RouteLayer'
 
 // Custom CSS pin markers (no bundled PNGs needed); colour follows entity type
 // (fixed palette → hash fallback), inactive is the same hue dimmed, new point is black.
@@ -30,15 +35,32 @@ function pinIcon(status: 'active' | 'inactive' | 'draft', type: string, selected
 
 const JAKARTA: [number, number] = [-6.2, 106.85]
 
-// OpenStreetMap standard tiles need no API key. Dark mode is done with a CSS filter
-// (.tiles-dark in App.css). To use another provider, set VITE_MAP_TILES_URL.
+// OpenStreetMap standard raster tiles: no API key, no extra provider. The pane
+// is desaturated in CSS (.tiles-mono) so the basemap reads black and white.
+// Override the endpoint with VITE_MAP_TILES_URL.
 const TILE_URL =
   (import.meta.env.VITE_MAP_TILES_URL as string | undefined) || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
-function ClickPicker({ picking, onPick }: { picking: boolean; onPick: (lat: number, lng: number) => void }) {
+const MAP_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
+
+function ClickPicker({
+  picking,
+  onPick,
+  routePick,
+  onRoutePoint,
+}: {
+  picking: boolean
+  onPick: (lat: number, lng: number) => void
+  routePick: boolean
+  onRoutePoint: (lat: number, lng: number) => void
+}) {
   useMapEvents({
     click(e) {
-      if (picking) onPick(e.latlng.lat, e.latlng.lng)
+      // A route stop pick wins: while it is armed the map is a coordinate
+      // picker for the delivery form, not for a new entity pin.
+      if (routePick) onRoutePoint(e.latlng.lat, e.latlng.lng)
+      else if (picking) onPick(e.latlng.lat, e.latlng.lng)
     },
   })
   return null
@@ -74,8 +96,10 @@ function FitAllControl({ entities }: { entities: Entity[] }) {
 }
 
 /** Pan to the selected entity, keeping the pin clear of the detail card / bottom sheet. */
-function FlyToSelected({ entity }: { entity: Entity | undefined }) {
+function FlyToSelected({ entity, inset }: { entity: Entity | undefined; inset: MapInset }) {
   const map = useMap()
+  const insetRef = useRef(inset)
+  insetRef.current = inset
   useEffect(() => {
     if (!entity) return
     const zoom = Math.max(map.getZoom(), 13)
@@ -83,9 +107,134 @@ function FlyToSelected({ entity }: { entity: Entity | undefined }) {
     const wide = window.matchMedia('(min-width: 768px)').matches
     // Lift the pin a little so it clears the detail card (desktop) or bottom sheet (phone).
     const dy = wide ? 60 : Math.round(window.innerHeight * 0.17)
-    const centre = map.unproject(map.project(target, zoom).add([0, dy]), zoom)
+    const dx = wide ? -insetRef.current.left / 2 : 0
+    const centre = map.unproject(map.project(target, zoom).add([dx, dy]), zoom)
     map.flyTo(centre, zoom, { duration: 0.6 })
   }, [entity?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
+}
+
+
+/** Screen area covered by floating panels, so the camera centres on what is visible. */
+export interface MapInset {
+  left: number
+  bottom: number
+}
+
+/** Map centre that puts `target` in the middle of the part of the map nobody covers. */
+function centreFor(map: L.Map, target: L.LatLng, zoom: number, inset: MapInset): L.LatLng {
+  return map.unproject(map.project(target, zoom).add([-inset.left / 2, inset.bottom / 2]), zoom)
+}
+
+/**
+ * Live camera for the selected vehicle. Picking a unit flies to it once; while
+ * follow mode is on, every new position pans along. Dragging the map is the
+ * person taking over, so it switches follow off (programmatic pans never fire
+ * dragstart, so the camera cannot cancel itself).
+ */
+function FollowVehicle({
+  vehicle,
+  following,
+  onFollowChange,
+  inset,
+}: {
+  vehicle: Vehicle | undefined
+  following: boolean
+  onFollowChange: (v: boolean) => void
+  inset: MapInset
+}) {
+  const map = useMap()
+  const insetRef = useRef(inset)
+  insetRef.current = inset
+  const lastId = useRef<number | null>(null)
+
+  useMapEvents({
+    dragstart() {
+      if (following) onFollowChange(false)
+    },
+  })
+
+  const lat = vehicle && hasPosition(vehicle) ? vehicle.lat : null
+  const lng = vehicle && hasPosition(vehicle) ? vehicle.lng : null
+  const id = vehicle?.id ?? null
+
+  useEffect(() => {
+    if (id === null) {
+      lastId.current = null
+      return
+    }
+    if (lat === null || lng === null) return
+    const target = L.latLng(lat, lng)
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (lastId.current !== id) {
+      // New selection: always bring the unit into view, follow or not.
+      lastId.current = id
+      const zoom = Math.max(map.getZoom(), 15)
+      map.flyTo(centreFor(map, target, zoom, insetRef.current), zoom, { duration: calm ? 0 : 0.8 })
+      return
+    }
+    if (following) {
+      map.panTo(centreFor(map, target, map.getZoom(), insetRef.current), { animate: !calm, duration: 1.6, easeLinearity: 1 })
+    }
+  }, [id, lat, lng, following, map])
+
+  // Turning follow back on re-centres straight away, even if the unit is parked.
+  useEffect(() => {
+    if (!following || lat === null || lng === null) return
+    map.panTo(centreFor(map, L.latLng(lat, lng), map.getZoom(), insetRef.current), { animate: true, duration: 0.6 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [following])
+
+  return null
+}
+
+/** Fits every located vehicle whenever `signal` changes (the "fit fleet" button). */
+function FitFleet({ vehicles, signal, inset }: { vehicles: Vehicle[]; signal: number; inset: MapInset }) {
+  const map = useMap()
+  const latest = useRef({ vehicles, inset })
+  latest.current = { vehicles, inset }
+  useEffect(() => {
+    if (signal === 0) return
+    const pts = latest.current.vehicles.filter(hasPosition).map((v) => [v.lat, v.lng] as [number, number])
+    if (pts.length === 0) return
+    const { inset: pad } = latest.current
+    map.flyToBounds(L.latLngBounds(pts), {
+      paddingTopLeft: [pad.left + 56, 72],
+      paddingBottomRight: [56, pad.bottom + 56],
+      maxZoom: 16,
+      duration: 0.8,
+    })
+  }, [signal, map])
+  return null
+}
+
+/**
+ * Vehicle markers glide between positions with a CSS transition. During a zoom
+ * or fly the map repositions every marker at once, and the glide would make
+ * them lag behind, so it is switched off for the length of the move.
+ */
+function GlideGuard() {
+  const map = useMap()
+  useEffect(() => {
+    const el = map.getContainer()
+    let t: number | undefined
+    const off = () => {
+      window.clearTimeout(t)
+      el.classList.add('no-glide')
+    }
+    const on = () => {
+      window.clearTimeout(t)
+      t = window.setTimeout(() => el.classList.remove('no-glide'), 160)
+    }
+    map.on('zoomstart', off)
+    map.on('zoomend', on)
+    return () => {
+      window.clearTimeout(t)
+      map.off('zoomstart', off)
+      map.off('zoomend', on)
+      el.classList.remove('no-glide')
+    }
+  }, [map])
   return null
 }
 
@@ -97,9 +246,71 @@ interface Props {
   draftCoords: { latitude: number; longitude: number } | null
   onPick: (lat: number, lng: number) => void
   theme: 'light' | 'dark'
+  // Zones
+  zones: ZoneFeature[]
+  selectedZoneId: number | null
+  onZoneSelect: (id: number | null) => void
+  drawMode: boolean
+  onZoneCreate: (geom: ZoneGeometry) => void
+  onZoneEdit: (id: number, geom: ZoneGeometry) => void
+  onZoneDelete: (id: number) => Promise<void>
+  // Admin regions
+  regionLevel: number
+  regionParentCode: string | null
+  regionData: RegionCollection | null
+  regionVisible: boolean
+  onRegionClick?: (region: RegionFeature) => void
+  // Tracked vehicles (live)
+  vehicles: Vehicle[]
+  selectedVehicleId: number | null
+  onVehicleSelect: (id: number | null) => void
+  vehiclesVisible: boolean
+  following: boolean
+  onFollowChange: (following: boolean) => void
+  fitFleetSignal: number
+  inset: MapInset
+  // Delivery routes (from -> to)
+  routes: VehicleRoute[]
+  routesVisible: boolean
+  routeDraft: { origin: RouteStop | null; destination: RouteStop | null } | null
+  routePick: boolean
+  onRoutePoint: (lat: number, lng: number) => void
 }
 
-export default function EntityMap({ entities, selected, onSelect, picking, draftCoords, onPick, theme }: Props) {
+export default function EntityMap({
+  entities,
+  selected,
+  onSelect,
+  picking,
+  draftCoords,
+  onPick,
+  theme,
+  zones,
+  selectedZoneId,
+  onZoneSelect,
+  drawMode,
+  onZoneCreate,
+  onZoneEdit,
+  onZoneDelete,
+  regionLevel,
+  regionParentCode,
+  regionData,
+  regionVisible,
+  onRegionClick,
+  vehicles,
+  selectedVehicleId,
+  onVehicleSelect,
+  vehiclesVisible,
+  following,
+  onFollowChange,
+  fitFleetSignal,
+  inset,
+  routes,
+  routesVisible,
+  routeDraft,
+  routePick,
+  onRoutePoint,
+}: Props) {
   const center: [number, number] =
     selected != null
       ? [selected.latitude, selected.longitude]
@@ -114,14 +325,33 @@ export default function EntityMap({ entities, selected, onSelect, picking, draft
       scrollWheelZoom
       zoomControl={false}
       attributionControl={false}
-      className={picking ? 'map picking' : 'map'}
+      className={picking || routePick ? 'map picking' : 'map'}
     >
       <TileLayer
         key={theme}
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        attribution={MAP_ATTRIBUTION}
         url={TILE_URL}
-        className={theme === 'dark' ? 'tiles-dark' : undefined}
+        className="tiles-mono"
         maxZoom={19}
+      />
+      {/* Official administrative boundaries (read-only, underneath zones) */}
+      <RegionLayer
+        level={regionLevel}
+        parentCode={regionParentCode}
+        data={regionData}
+        visible={regionVisible}
+        interactive={!drawMode}
+        onRegionClick={onRegionClick}
+      />
+      {/* Operator zones (editable polygons) */}
+      <ZoneLayer
+        zones={zones}
+        selectedId={selectedZoneId}
+        onSelect={onZoneSelect}
+        drawMode={drawMode}
+        onCreate={onZoneCreate}
+        onEdit={onZoneEdit}
+        onDelete={onZoneDelete}
       />
       {entities.map((e) => (
         <Marker
@@ -149,11 +379,33 @@ export default function EntityMap({ entities, selected, onSelect, picking, draft
           <Popup>New point</Popup>
         </Marker>
       )}
+      {/* Delivery routes sit under the vehicles that drive them */}
+      <RouteLayer
+        routes={routes}
+        visible={routesVisible}
+        draft={routeDraft}
+        onSelectVehicle={onVehicleSelect}
+      />
+      {/* Live vehicles on top of every other layer */}
+      <VehicleLayer
+        vehicles={vehicles}
+        selectedId={selectedVehicleId}
+        onSelect={onVehicleSelect}
+        visible={vehiclesVisible}
+      />
+      <FollowVehicle
+        vehicle={vehicles.find((v) => v.id === selectedVehicleId)}
+        following={following}
+        onFollowChange={onFollowChange}
+        inset={inset}
+      />
+      <FitFleet vehicles={vehicles} signal={fitFleetSignal} inset={inset} />
+      <GlideGuard />
       <ZoomControl position="topright" />
       <AttributionControl position="bottomright" prefix={false} />
       <FitAllControl entities={entities} />
-      <ClickPicker picking={picking} onPick={onPick} />
-      <FlyToSelected entity={selected} />
+      <ClickPicker picking={picking} onPick={onPick} routePick={routePick} onRoutePoint={onRoutePoint} />
+      <FlyToSelected entity={selected} inset={inset} />
     </MapContainer>
   )
 }

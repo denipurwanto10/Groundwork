@@ -15,6 +15,9 @@ interface Props {
   onAdd: () => void
   onRetry: () => void
   onVisibleEntitiesChange?: (entities: Entity[]) => void
+  /** Active work area; the header shows it so a short list is explainable. */
+  scopeName?: string | null
+  onClearScope?: () => void
 }
 
 const FILTERS: { key: Filter; label: string }[] = [
@@ -67,7 +70,7 @@ function FilterDropdown({ label, value, options, onChange }: { label: string; va
   )
 }
 
-export default function EntityList({ entities, selectedId, loading, error, onSelect, onAdd, onRetry, onVisibleEntitiesChange }: Props) {
+export default function EntityList({ entities, selectedId, loading, error, onSelect, onAdd, onRetry, onVisibleEntitiesChange, scopeName, onClearScope }: Props) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -169,6 +172,12 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
           Entities
           {entities.length > 0 && <span className="count">{entities.length}</span>}
         </h2>
+        {scopeName && (
+          <button className="scope-chip" onClick={onClearScope} title="Show all entities again">
+            <span className="scope-chip-name">{scopeName}</span>
+            <span aria-hidden="true">×</span>
+          </button>
+        )}
         <button className="btn primary" onClick={onAdd}>
           <IconPlus width={18} height={18} />
           <span>Add</span>

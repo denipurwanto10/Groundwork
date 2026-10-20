@@ -1,0 +1,1839 @@
+/* ==========================================================================
+   Modern layout layer — loaded after App.css, so it wins every tie.
+
+   Shell
+   - Desktop / tablet: the map fills the screen; one floating side panel holds
+     brand, tabs and content, and can be tucked away.
+   - Phone: the map fills the screen; a compact top bar, a bottom navigation
+     bar, and the content in a bottom sheet (closed / half / full).
+
+   Colour: black and white. Green / amber / red appear only as status signals.
+   ========================================================================== */
+
+:root {
+  --live: #15803d;
+  --live-soft: rgba(21, 128, 61, 0.12);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.12);
+
+  --sidebar-w: 380px;
+  --nav-h: 64px;
+  --sheet-half: 46dvh;
+  --sheet-full: 84dvh;
+  --topbar-h: 52px;
+  --edge: 16px;
+
+  --r-xl: 18px;
+  --r-lg: 14px;
+  --r-md: 10px;
+}
+
+:root[data-theme='dark'] {
+  --live: #4ade80;
+  --live-soft: rgba(74, 222, 128, 0.14);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.14);
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --sidebar-w: 416px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --sidebar-w: 340px;
+    --edge: 12px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Desktop + tablet shell
+   -------------------------------------------------------------------------- */
+.app .map-stage {
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app .sidebar {
+  top: var(--edge);
+  bottom: var(--edge);
+  left: var(--edge);
+  width: var(--sidebar-w);
+  gap: 0;
+  overflow: hidden;
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: var(--shadow-pop);
+  transition:
+    transform 0.4s var(--ease),
+    opacity 0.25s ease,
+    visibility 0s;
+}
+
+.app.is-collapsed .sidebar {
+  transform: translateX(calc(-100% - 32px));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 0.4s var(--ease),
+    opacity 0.25s ease,
+    visibility 0s 0.4s;
+}
+
+/* Panels lose their own card: the sidebar is the single surface. */
+.app .sidebar .list-panel,
+.app .sidebar .zone-panel {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.app .sidebar .zone-panel + .zone-panel {
+  border-top: 1px solid var(--line) !important;
+}
+
+.app .brandbar {
+  flex: none;
+  height: auto;
+  min-height: 68px;
+  padding: 14px 14px 10px 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app .brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+}
+
+.app .brandbar h1 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.app .brandbar-tools {
+  gap: 6px;
+}
+
+.app .backend-status {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+/* Segmented tabs */
+.app .sidebar-tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  margin: 0 14px 12px;
+  padding: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.app .sidebar-tabs button[role='tab'] {
+  position: relative;
+  height: 38px;
+  gap: 7px;
+  padding: 0 8px;
+  font-size: 13px;
+  border: 0;
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.app .sidebar-tabs button[role='tab'] svg {
+  width: 17px;
+  height: 17px;
+}
+
+.app .sidebar-tabs button[role='tab'][aria-selected='true'] {
+  color: var(--text);
+  background: var(--panel-solid);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 0 0 1px var(--line);
+}
+
+.app .tab-badge {
+  min-width: 20px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  text-align: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+  background: var(--btn);
+  border-color: var(--btn);
+  color: var(--on-btn);
+}
+
+.app .sidebar-tabs .tab-badge.live {
+  color: var(--live);
+  border-color: currentColor;
+  background: var(--live-soft);
+}
+
+.app .list-slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-top: 1px solid var(--line);
+  pointer-events: auto;
+}
+
+.sheet-grab {
+  display: none;
+}
+
+/* Region picker + zone panel share one column on the Zones tab */
+.app .region-picker {
+  flex: 0 0 auto;
+}
+
+/* Floating things on the map */
+.app .region-controls {
+  top: var(--edge);
+  left: calc(var(--sidebar-w) + var(--edge) * 2);
+  max-width: min(440px, calc(100% - var(--sidebar-w) - 140px));
+  padding: 8px 10px;
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+  transition: left 0.4s var(--ease);
+}
+
+.app.is-collapsed .region-controls {
+  left: 124px;
+}
+
+.sidebar-reopen {
+  position: absolute;
+  z-index: 1250;
+  top: var(--edge);
+  left: var(--edge);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 16px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-btn);
+  background: var(--btn);
+  border: 0;
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+  cursor: pointer;
+  animation: fadeDown 0.35s var(--ease);
+}
+
+.sidebar-reopen:hover {
+  background: var(--btn-hover);
+}
+
+.app .detail-panel {
+  left: calc(var(--sidebar-w) + var(--edge) * 2);
+  bottom: var(--edge);
+  width: min(440px, calc(100% - var(--sidebar-w) - var(--edge) * 4));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow-pop);
+}
+
+.app.is-collapsed .detail-panel {
+  left: var(--edge);
+}
+
+/* Entity / zone forms replace the whole side panel while they are open */
+.app .overlay.dock {
+  top: var(--edge);
+  bottom: var(--edge);
+  left: var(--edge);
+  width: var(--sidebar-w);
+}
+
+.overlay.dock {
+  top: var(--edge);
+  bottom: var(--edge);
+  left: var(--edge);
+  width: var(--sidebar-w);
+}
+
+.overlay.dock .card {
+  border-radius: 20px;
+  box-shadow: var(--shadow-pop);
+}
+
+.pick-hint {
+  left: calc(var(--sidebar-w) + var(--edge) * 2 + (100% - var(--sidebar-w) - var(--edge) * 3) / 2);
+  top: var(--edge);
+  background: var(--btn);
+  color: var(--on-btn);
+}
+
+.pick-hint button {
+  color: var(--btn);
+  background: var(--on-btn);
+}
+
+.toast {
+  left: calc(var(--sidebar-w) + var(--edge) * 2 + (100% - var(--sidebar-w) - var(--edge) * 3) / 2);
+  top: var(--edge);
+}
+
+.route-pick-hint {
+  bottom: 72px;
+  background: var(--btn);
+  color: var(--on-btn);
+  border: 0;
+  box-shadow: var(--shadow-pop);
+}
+
+.route-pick-hint button {
+  color: var(--on-btn);
+  text-decoration: underline;
+}
+
+/* Leaflet chrome */
+.leaflet-top.leaflet-right {
+  margin-top: var(--edge);
+  margin-right: var(--edge);
+}
+
+.leaflet-bar,
+.leaflet-touch .leaflet-bar {
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-pop) !important;
+  overflow: hidden;
+}
+
+.leaflet-bar a {
+  border-color: var(--line) !important;
+}
+
+.fit-all-btn {
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+}
+
+/* --------------------------------------------------------------------------
+   Live HUD on the map
+   -------------------------------------------------------------------------- */
+.live-hud {
+  position: absolute;
+  z-index: 1100;
+  bottom: 24px;
+  left: calc(var(--sidebar-w) + var(--edge) * 2 + (100% - var(--sidebar-w) - var(--edge) * 3) / 2);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 16px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-pop);
+  animation: fadeDown 0.35s var(--ease);
+  transition: left 0.4s var(--ease);
+}
+
+.app.is-collapsed .live-hud {
+  left: 50%;
+}
+
+.live-hud b {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.hud-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding-right: 14px;
+  font-weight: 700;
+  color: var(--text);
+  border-right: 1px solid var(--line);
+}
+
+.hud-live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.hud-live.live i {
+  background: var(--live);
+  animation: lt-pulse 2s ease-out infinite;
+}
+
+.hud-live.reconnecting i {
+  background: var(--warn);
+}
+
+.hud-n::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.hud-n.moving::before {
+  background: var(--live);
+}
+
+.hud-n.idle::before {
+  background: var(--warn);
+}
+
+@keyframes lt-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--live-soft), 0 0 0 0 var(--live);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent, 0 0 0 0 transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Live tracking panel
+   -------------------------------------------------------------------------- */
+.lt {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 14px 0;
+}
+
+.lt-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lt-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lt-title h2 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.lt-stream {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.lt-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.lt-stream.live {
+  color: var(--live);
+}
+
+.lt-stream.live .lt-pulse {
+  background: var(--live);
+  animation: lt-pulse 2s ease-out infinite;
+}
+
+.lt-stream.reconnecting {
+  color: var(--warn);
+}
+
+.lt-stream.reconnecting .lt-pulse {
+  background: var(--warn);
+}
+
+.lt-tools {
+  display: flex;
+  gap: 6px;
+}
+
+.lt-tools .icon-btn {
+  width: 36px;
+  height: 36px;
+}
+
+.lt-tools .icon-btn.active {
+  color: var(--on-btn);
+  background: var(--btn);
+  border-color: var(--btn);
+}
+
+/* Status tiles double as filters */
+.lt-stats {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.lt-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 11px;
+  color: var(--text);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.lt-stat:hover {
+  background: var(--panel-2);
+  border-color: var(--line-strong);
+}
+
+.lt-stat b {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-stat span {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.lt-stat.moving span::before,
+.lt-stat.idle span::before,
+.lt-stat.offline span::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.lt-stat.moving span::before {
+  background: var(--live);
+}
+
+.lt-stat.idle span::before {
+  background: var(--warn);
+}
+
+.lt-stat.on {
+  color: var(--on-btn);
+  background: var(--btn);
+  border-color: var(--btn);
+}
+
+.lt-stat.on span {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.lt-search {
+  flex: none;
+}
+
+.lt-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 -14px;
+  padding: 2px 14px 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.lt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lt-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: inherit;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.lt-card:hover {
+  background: var(--panel-2);
+}
+
+.lt-card.selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
+}
+
+.lt-avatar {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.lt-avatar::after {
+  content: '';
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  background: var(--veh, var(--muted));
+  border: 2.5px solid var(--panel-solid);
+  border-radius: 50%;
+}
+
+.lt-avatar.moving,
+.lt-avatar.lg {
+  color: var(--on-btn);
+  background: var(--btn);
+  border-color: var(--btn);
+}
+
+.lt-avatar.lg {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+}
+
+.lt-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lt-card-name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-card-sub {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-card-sub.dim {
+  opacity: 0.85;
+}
+
+.lt-card-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.lt-card-route em {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-card-end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.lt-speed {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.lt small {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.lt-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-2);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.lt-chip.moving {
+  color: var(--live);
+  background: var(--live-soft);
+  border-color: transparent;
+}
+
+.lt-chip.idle {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: transparent;
+}
+
+.lt-chip.offline {
+  color: var(--muted);
+}
+
+.lt-bar {
+  flex: 1;
+  height: 6px;
+  overflow: hidden;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.lt-bar.slim {
+  height: 5px;
+}
+
+.lt-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--text);
+  border-radius: 999px;
+  transition: width 0.8s var(--ease);
+}
+
+/* Selected unit */
+.lt-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-panel);
+  animation: riseIn 0.35s var(--ease);
+}
+
+.lt-detail-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lt-detail-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lt-detail-id h3 {
+  overflow: hidden;
+  font-size: 15.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-detail-id span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.icon-btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.lt-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.lt-facts > div {
+  padding: 9px 12px;
+  background: var(--panel-2);
+  border-radius: 11px;
+}
+
+.lt-facts .wide {
+  grid-column: 1 / -1;
+}
+
+.lt-facts dt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.lt-facts dd {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-facts dd.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.lt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lt-actions .btn {
+  flex: 1;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+}
+
+.lt-route {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.lt-route-ends {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.lt-route-ends > span:not(.lt-route-line) {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.lt-route-line {
+  height: 10px;
+  margin-left: 9px;
+  border-left: 2px dotted var(--line-strong);
+}
+
+.lt-route-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.lt-route-stats b {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-route-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.lt-route-foot .text-action {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.lt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lt-form p {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.lt-stop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  transition: border-color 0.15s;
+}
+
+.lt-stop.picking {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
+}
+
+.lt-stop-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.lt-stop-field input {
+  width: 100%;
+  padding: 3px 0;
+  font-size: 13.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.lt-stop-field input:disabled {
+  color: var(--muted);
+}
+
+.lt-stop-field span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lt-stop .icon-btn.active {
+  color: var(--on-btn);
+  background: var(--btn);
+  border-color: var(--btn);
+}
+
+.lt-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+.lt-error svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.lt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 16px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+}
+
+.lt-empty p {
+  font-size: 13px;
+}
+
+.lt-skeleton {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.lt-skeleton i {
+  display: block;
+  background: var(--panel-2);
+  border-radius: 8px;
+  animation: lt-shimmer 1.4s ease-in-out infinite;
+}
+
+.lt-skeleton > i {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+
+.lt-skeleton > span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.lt-skeleton > span > i {
+  height: 10px;
+  width: 60%;
+}
+
+.lt-skeleton > span > i + i {
+  width: 38%;
+}
+
+@keyframes lt-shimmer {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Route pins in the panel (A = outline, B = solid) */
+.route-pin {
+  width: 20px;
+  height: 20px;
+  font-size: 10.5px;
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 1.5px solid var(--text);
+}
+
+.route-pin.dest {
+  color: var(--panel-solid);
+  background: var(--text);
+}
+
+/* --------------------------------------------------------------------------
+   Map: vehicles, routes
+   -------------------------------------------------------------------------- */
+
+/* Map ink: the interface stays black and white, the basemap carries the colour. */
+:root {
+  --map-ink: #0a0a0a;
+  --map-on-ink: #ffffff;
+  --map-ring: #ffffff;
+  --route: #0a0a0a;
+  --route-casing: #ffffff;
+  --route-done: #a3a8ae;
+}
+
+:root[data-theme='dark'] {
+  --map-ink: #ffffff;
+  --map-on-ink: #0a0a0a;
+  --map-ring: #15171b;
+  --route: #ffffff;
+  --route-casing: rgba(10, 11, 13, 0.92);
+  --route-done: #5f6368;
+}
+
+/* Markers glide between two position reports instead of teleporting. */
+.veh-wrap.leaflet-marker-icon {
+  transition: transform 1.6s linear;
+}
+
+.no-glide .veh-wrap.leaflet-marker-icon {
+  transition: none;
+}
+
+/* Live unit: black badge, white ring, status colour only on the dot and halo. */
+.veh {
+  position: relative;
+  color: var(--map-on-ink);
+  background: var(--map-ink);
+  border: 3px solid var(--map-ring);
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.28),
+    0 1px 3px rgba(0, 0, 0, 0.2);
+  transition:
+    transform 0.2s var(--ease),
+    box-shadow 0.2s;
+}
+
+.veh:hover {
+  transform: scale(1.08);
+}
+
+.veh.idle {
+  border-style: solid;
+}
+
+.veh.offline {
+  opacity: 0.6;
+  filter: grayscale(1);
+}
+
+.veh.selected {
+  outline: 0;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--map-ink) 16%, transparent),
+    0 10px 22px rgba(0, 0, 0, 0.32);
+}
+
+/* Heading cone: points where the unit is travelling, turns smoothly. */
+.veh-heading {
+  position: absolute;
+  inset: -13px;
+  pointer-events: none;
+  opacity: var(--hd-on, 0);
+  transform: rotate(var(--hd, 0deg));
+  transition:
+    transform 0.9s ease,
+    opacity 0.3s;
+}
+
+.veh-heading::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  margin-left: -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 11px solid var(--map-ink);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+}
+
+.veh.offline .veh-heading,
+.veh.idle .veh-heading {
+  display: none;
+}
+
+.veh-dot {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 14px;
+  height: 14px;
+  background: var(--veh, var(--muted));
+  border: 2.5px solid var(--map-ring);
+  border-radius: 50%;
+}
+
+/* Name chip under the selected unit. */
+.veh-label {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 11px;
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 0;
+  border-radius: 999px;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.18),
+    0 0 0 1px var(--line);
+  pointer-events: none;
+}
+
+.veh.is-moving::after {
+  inset: -7px;
+  border-color: var(--veh, #16a34a);
+}
+
+/* Delivery route: ink line with a paper casing, travelled part dotted. */
+.route-casing {
+  stroke: var(--route-casing);
+}
+
+.route-ahead {
+  stroke: var(--route);
+}
+
+.route-done {
+  stroke: var(--route-done);
+}
+
+/* A = ring, B = solid pin. */
+.route-stop {
+  width: 28px;
+  height: 28px;
+  color: var(--map-ink);
+  background: var(--map-ring);
+  border: 3px solid var(--map-ink);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+}
+
+.route-stop.dest {
+  color: var(--map-on-ink);
+  background: var(--map-ink);
+  border-color: var(--map-ring);
+  box-shadow:
+    0 0 0 1.5px var(--map-ink),
+    0 6px 14px rgba(0, 0, 0, 0.3);
+}
+
+.route-stop.dest::after {
+  display: none;
+}
+
+.route-stop i {
+  left: 36px;
+  padding: 3px 10px;
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 0;
+  border-radius: 999px;
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.18),
+    0 0 0 1px var(--line);
+}
+
+/* The unit marker already shows the live position, so the line's puck is hidden. */
+.route-puck-wrap {
+  display: none;
+}
+
+/* Map chrome: quiet glass, soft depth. */
+.leaflet-bar,
+.leaflet-touch .leaflet-bar {
+  border: 0 !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.14),
+    0 0 0 1px var(--line) !important;
+  backdrop-filter: blur(12px);
+}
+
+.leaflet-bar a,
+.leaflet-touch .leaflet-bar a {
+  width: 38px !important;
+  height: 38px !important;
+  line-height: 38px !important;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+
+.leaflet-bar a:hover {
+  background: var(--panel-solid) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  border: 0;
+  border-radius: 16px;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.22),
+    0 0 0 1px var(--line);
+}
+
+.leaflet-popup-content {
+  margin: 12px 16px;
+}
+
+.leaflet-tooltip {
+  padding: 6px 10px;
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 0;
+  border-radius: 10px;
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.18),
+    0 0 0 1px var(--line);
+}
+
+.leaflet-tooltip::before {
+  display: none;
+}
+
+.leaflet-control-attribution {
+  padding: 2px 8px;
+  font-size: 10.5px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-solid) 78%, transparent) !important;
+  backdrop-filter: blur(8px);
+  border-radius: 8px 0 0 0;
+}
+
+/* Maplibre canvas sits under Leaflet's panes; keep it crisp on retina. */
+.maplibregl-canvas {
+  outline: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Phone shell
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  :root {
+    --edge: 10px;
+  }
+
+  .app .sidebar,
+  .app.is-collapsed .sidebar {
+    display: contents;
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .app .map-stage {
+    inset: 0;
+  }
+
+  /* Top bar */
+  .app .brandbar {
+    position: absolute;
+    z-index: 12;
+    top: calc(var(--safe-t) + var(--edge));
+    left: var(--edge);
+    right: var(--edge);
+    min-height: 0;
+    height: var(--topbar-h);
+    padding: 0 8px 0 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow-pop);
+  }
+
+  .app .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .app .brandbar h1 {
+    font-size: 15px;
+  }
+
+  .app .brand-sub,
+  .app .collapse-btn {
+    display: none;
+  }
+
+  .app .backend-status {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .app .backend-status .status-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* Bottom navigation */
+  .app .sidebar-tabs {
+    position: fixed;
+    z-index: 25;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    height: calc(var(--nav-h) + var(--safe-b));
+    margin: 0;
+    padding: 0 6px var(--safe-b);
+    background: var(--panel);
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: 0 -8px 24px -16px rgba(0, 0, 0, 0.35);
+  }
+
+  .app .sidebar-tabs button[role='tab'] {
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    height: 100%;
+    padding: 0;
+    font-size: 11px;
+    font-weight: 600;
+    background: transparent;
+    border-radius: 12px;
+    box-shadow: none;
+  }
+
+  .app .sidebar-tabs button[role='tab']:hover {
+    background: transparent;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] {
+    color: var(--text);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true']::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 50%;
+    width: 28px;
+    height: 3px;
+    transform: translateX(-50%);
+    background: var(--text);
+    border-radius: 0 0 3px 3px;
+  }
+
+  .app .sidebar-tabs button[role='tab'] svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .app .tab-badge {
+    position: absolute;
+    top: 7px;
+    left: calc(50% + 8px);
+    min-width: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 16px;
+    color: var(--on-btn);
+    background: var(--btn);
+    border: 2px solid var(--panel);
+    box-sizing: content-box;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+    background: var(--btn);
+  }
+
+  .app .sidebar-tabs .tab-badge.live {
+    color: #fff;
+    background: var(--live);
+    border-color: var(--panel);
+  }
+
+  /* Bottom sheet */
+  .app .list-slot {
+    position: fixed;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--nav-h) + var(--safe-b));
+    height: var(--sheet-half);
+    overflow: hidden;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -12px 32px -14px rgba(0, 0, 0, 0.4);
+    transition:
+      height 0.4s var(--ease),
+      transform 0.4s var(--ease),
+      visibility 0s;
+  }
+
+  .app .list-slot[data-state='full'] {
+    height: var(--sheet-full);
+  }
+
+  .app .list-slot[data-state='closed'] {
+    transform: translateY(calc(100% + var(--nav-h)));
+    visibility: hidden;
+    transition:
+      height 0.4s var(--ease),
+      transform 0.4s var(--ease),
+      visibility 0s 0.4s;
+  }
+
+  .app .sidebar.is-covered .list-slot {
+    display: none;
+  }
+
+  .sheet-grab {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 26px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .sheet-grab span {
+    width: 40px;
+    height: 5px;
+    background: var(--line-strong);
+    border-radius: 5px;
+  }
+
+  /* The entity list's own sheet behaviour is replaced by the shared sheet */
+  .app .list-slot .list-panel {
+    position: static;
+    flex: 1;
+    width: auto;
+    height: auto;
+    max-height: none;
+    padding: 0 10px 8px;
+    animation: none;
+  }
+
+  .app .list-slot .list-panel .list-body {
+    display: flex;
+  }
+
+  .app .list-slot .list-panel .sheet-handle {
+    display: none;
+  }
+
+  .app .list-slot .panel-header {
+    margin-bottom: 10px;
+    padding: 0 6px;
+  }
+
+  .app .list-slot .lt {
+    padding: 4px 12px 0;
+  }
+
+  .app .list-slot .lt-scroll {
+    margin: 0 -12px;
+    padding: 2px 12px calc(14px + var(--safe-b) * 0);
+  }
+
+  .app .list-slot .lt-stat {
+    padding: 8px 9px;
+  }
+
+  .app .list-slot .lt-stat b {
+    font-size: 19px;
+  }
+
+  /* Zones tab stacks two panels: let the whole sheet scroll */
+  .app[data-tab='zones'] .list-slot {
+    overflow-y: auto;
+    display: block;
+  }
+
+  .app[data-tab='zones'] .list-slot .sheet-grab {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--panel);
+  }
+
+  .app[data-tab='zones'] .list-slot .zone-panel {
+    overflow: visible;
+  }
+
+  .app[data-tab='zones'] .list-slot .zone-list {
+    overflow: visible;
+  }
+
+  /* Map overlays sit under the top bar */
+  .app .region-controls {
+    top: calc(var(--safe-t) + var(--edge) + var(--topbar-h) + 8px);
+    left: var(--edge);
+    right: var(--edge);
+    max-width: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+  }
+
+  .app.is-collapsed .region-controls {
+    left: var(--edge);
+  }
+
+  .app .region-controls .region-controls-row {
+    flex: none;
+  }
+
+  .app .region-controls .region-controls-label {
+    margin-right: 4px;
+  }
+
+  .app .region-controls .region-breadcrumb {
+    flex: 1;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+
+  .app .region-controls .region-controls-note {
+    display: none;
+  }
+
+  .pick-hint,
+  .route-pick-hint {
+    position: absolute;
+    top: calc(var(--safe-t) + var(--edge) + var(--topbar-h) + 62px);
+    bottom: auto;
+    left: 50%;
+    max-width: calc(100% - 24px);
+    transform: translateX(-50%);
+  }
+
+  .toast {
+    top: calc(var(--safe-t) + var(--edge) + var(--topbar-h) + 8px);
+    left: 50%;
+  }
+
+  .leaflet-bottom.leaflet-right {
+    top: calc(var(--safe-t) + var(--edge) + var(--topbar-h) + 60px);
+    bottom: auto;
+    right: auto;
+    left: var(--edge);
+  }
+
+  .live-hud {
+    bottom: calc(var(--nav-h) + var(--safe-b) + 12px);
+    left: 50%;
+    gap: 10px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+
+  .app.is-collapsed .live-hud {
+    left: 50%;
+  }
+
+  .app.sheet-open .live-hud {
+    display: none;
+  }
+
+  /* Detail / form sheets sit above the navigation bar */
+  .app .detail-panel {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    z-index: 35;
+    border-radius: 22px 22px 0 0;
+  }
+
+  .overlay.dock,
+  .app .overlay.dock {
+    z-index: 35;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+  }
+
+  .overlay.dock .card {
+    border-radius: 22px 22px 0 0;
+  }
+
+  .lt-stop-field input,
+  .lt-search input {
+    font-size: 16px;
+  }
+
+  .lt-actions .btn {
+    min-height: 42px;
+  }
+}
+
+/* Very small phones */
+@media (max-width: 360px) {
+  .lt-stats {
+    gap: 4px;
+  }
+
+  .lt-stat {
+    padding: 8px 7px;
+  }
+
+  .lt-card {
+    gap: 9px;
+    padding: 9px 10px;
+  }
+}
+
+/* Short landscape screens: keep the sheet from eating the whole map */
+@media (max-width: 767px) and (max-height: 520px) {
+  :root {
+    --sheet-half: 62dvh;
+    --sheet-full: 78dvh;
+  }
+}
+
+@media (min-width: 768px) and (max-height: 640px) {
+  .app .brandbar {
+    min-height: 56px;
+    padding-top: 10px;
+  }
+
+  .lt-stats {
+    gap: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .veh-wrap.leaflet-marker-icon,
+  .lt-bar > span,
+  .app .sidebar,
+  .app .list-slot {
+    transition: none;
+  }
+
+  .lt-pulse,
+  .hud-live i {
+    animation: none !important;
+  }
+}
+
+.popup-meta,
+.popup-title,
+.popup-coords {
+  text-transform: none;
+}
+
+/* Basemap: black-and-white OSM raster tiles (see .tiles-mono in App.css). */
+.leaflet-container {
+  background: #f3f2ee;
+}
+
+:root[data-theme='dark'] .map {
+  background: #15171b;
+}
+
+.app .filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* Tablet: the side panel is narrow, so trim what does not fit */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app .brand-sub {
+    display: none;
+  }
+
+  .app .backend-status {
+    width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .app .sidebar-tabs button[role='tab'] {
+    gap: 5px;
+    font-size: 12.5px;
+  }
+
+  .app .sidebar-tabs button[role='tab'] .tab-badge {
+    display: none;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+    display: inline-block;
+  }
+}
