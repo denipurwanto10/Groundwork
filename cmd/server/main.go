@@ -12,6 +12,7 @@ import (
 	"entity-management/internal/config"
 	"entity-management/internal/db"
 	"entity-management/internal/handler"
+	"entity-management/internal/ws"
 	"github.com/gin-gonic/gin"
 )
 
@@ -43,6 +44,44 @@ func main() {
 		api.POST("/entities", entityHandler.Create)
 		api.PUT("/entities/:id", entityHandler.Update)
 		api.DELETE("/entities/:id", entityHandler.Delete)
+	}
+
+	regionHandler := handler.NewRegionHandler(pool)
+	{
+		api.GET("/regions", regionHandler.List)
+		api.GET("/regions/count", regionHandler.Count)
+		api.GET("/regions/:code", regionHandler.Get)
+	}
+
+	zoneHandler := handler.NewZoneHandler(pool)
+	{
+		api.GET("/zones", zoneHandler.List)
+		api.POST("/zones", zoneHandler.Create)
+		api.POST("/zones/import", zoneHandler.Import)
+		api.POST("/zones/from-region", zoneHandler.FromRegion)
+		api.GET("/islands", zoneHandler.Islands)
+		api.POST("/zones/from-island", zoneHandler.FromIsland)
+		api.GET("/zones/:id", zoneHandler.Get)
+		api.PUT("/zones/:id", zoneHandler.Update)
+		api.DELETE("/zones/:id", zoneHandler.Delete)
+	}
+
+	hub := ws.NewHub()
+
+	vehicleHandler := handler.NewVehicleHandler(pool, hub)
+	{
+		api.GET("/vehicles", vehicleHandler.List)
+		api.POST("/vehicles", vehicleHandler.Create)
+		api.POST("/vehicles/:id/position", vehicleHandler.UpdatePosition)
+		api.GET("/vehicles/stream", vehicleHandler.Stream)
+	}
+
+	routeHandler := handler.NewRouteHandler(pool, hub)
+	{
+		api.GET("/routes", routeHandler.List)
+		api.GET("/vehicles/:id/routes", routeHandler.History)
+		api.POST("/vehicles/:id/route", routeHandler.Set)
+		api.DELETE("/vehicles/:id/route", routeHandler.Clear)
 	}
 
 	srv := &http.Server{
