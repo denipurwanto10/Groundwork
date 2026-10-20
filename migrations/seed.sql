@@ -13,7 +13,7 @@ INSERT INTO entities (name, type, status, latitude, longitude) VALUES
     ('Monas', 'monument', 'active', -6.1754, 106.8272),
     ('Benteng Rotterdam', 'historic', 'active', -5.1340, 119.4050),
     ('Tanjung Puting', 'park', 'active', -3.0000, 111.9500),
-    ('Danau Toba', 'recreation', 'active', -2.6840, 98.8750),
+    ('Danau Toba', 'recreation', 'active', 2.6840, 98.8750),
     ('Gembira Loka', 'zoo', 'active', -7.8030, 110.3970),
     ('Sate Padang Ajo Ramon', 'culinary', 'active', -0.9470, 100.3560),
     ('Hotel Novotel Balikpapan', 'lodging', 'active', -1.2650, 116.8320);

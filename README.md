@@ -1,293 +1,296 @@
-# Entity Management — Take-Home Test
+# Groundwork — Field Operations, Mapped
 
-Aplikasi web untuk menampilkan dan mengelola entitas geografis
-(nama, tipe, status, latitude, longitude) di atas peta Leaflet,
-dengan REST API Go dan database PostgreSQL.
+Platform operasi wilayah untuk Indonesia: peta sebagai antarmuka kerja.
+Setiap aset punya lokasi, setiap operasi punya wilayah, setiap pergerakan
+punya rute. Go + Gin + PostgreSQL/PostGIS di backend, React + Vite +
+TypeScript + Leaflet di frontend.
+
+- **Entitas** — titik aset (destinasi, monumen, kuliner, …) dengan CRUD penuh.
+- **Wilayah administratif** — batas resmi provinsi/kabupaten/kecamatan (L0–L3).
+- **Zona operasional** — polygon buatan sendiri, atau dibuat langsung dari
+  wilayah administratif / gugus pulau.
+- **Armada** — posisi kendaraan real-time lewat WebSocket, dengan simulator
+  sebagai sumber data.
+- **Rute** — jalur dari–ke per kendaraan (OSRM), ditutup otomatis saat tiba.
 
 ## Daftar Isi
 
-- [Fitur](#fitur)
 - [Tech Stack](#tech-stack)
+- [Basemap](#basemap)
 - [Arsitektur](#arsitektur)
 - [Mulai Cepat](#mulai-cepat)
+- [Data Wilayah](#data-wilayah)
 - [Endpoint API](#endpoint-api)
+- [Perilaku Zona](#perilaku-zona)
 - [Pengujian](#pengujian)
-- [Alasan Pemilihan Teknologi](#alasan-pemilihan-teknologi)
-- [Workflow Agentic AI](#workflow-agentic-ai)
 - [Keterbatasan](#keterbatasan)
 - [Struktur Proyek](#struktur-proyek)
 
-## Fitur
-
-- Entitas tampil di peta (marker + popup)
-- Tambah, ubah, hapus entitas (hapus pakai dialog konfirmasi)
-- Lihat detail entitas
-- Validasi di frontend dan backend
-- Tombol "show all" untuk melihat semua marker sekaligus
-- CI GitHub Actions (backend: gofmt/vet/build/test; frontend: tsc/build)
-
 ## Tech Stack
 
-| Lapisan  | Teknologi                                             |
-| -------- | ----------------------------------------------------- |
-| Backend  | Go, Gin, PostgreSQL, pgx (`jackc/pgx/v5`), `godotenv` |
-| Frontend | React 19, TypeScript, Vite, Leaflet + React-Leaflet   |
-| Database | PostgreSQL, migration plain SQL di `migrations/`      |
+| Lapisan  | Teknologi |
+| -------- | --------- |
+| Backend  | Go 1.27, Gin, pgx/v5 (`pgxpool`), `coder/websocket`, `godotenv` |
+| Frontend | React 19, TypeScript, Vite 8, Leaflet 1.9 + React-Leaflet 5, Leaflet-Geoman |
+| Database | PostgreSQL 18 + PostGIS (`geometry(MultiPolygon,4326)`, `geography(Point,4326)`) |
+| Routing  | OSRM publik (`router.project-osrm.org`), fallback garis lurus bila dimatikan |
+| Migrasi  | SQL polos di `migrations/`, tanpa framework |
+
+## Basemap
+
+Tile raster OpenStreetMap apa adanya, lalu didesaturasi di CSS:
+
+- URL: `https://tile.openstreetmap.org/{z}/{x}/{y}.png` (tanpa API key)
+- Kelas `tiles-mono` — tema terang `grayscale(1) contrast(1.06)`,
+  tema gelap `grayscale(1) invert(1)` (lihat `frontend/src/App.css`)
+- Provider lain lewat `VITE_MAP_TILES_URL` di `frontend/.env`
+- Atribusi "© OpenStreetMap contributors" wajib tetap tampil (sudah ada di peta)
 
 ## Arsitektur
 
 ```text
-frontend/ (React + Vite) --HTTP/JSON--> Go + Gin (:8080) --pgx--> PostgreSQL (entities)
+frontend/ (React + Vite :5173)
+  │  fetch /api/*  +  WebSocket /api/vehicles/stream
+  ▼  (dev proxy: Vite, Gin tanpa CORS)
+Go + Gin (:8080 default, :8091 di mesin ini) ── pgxpool ──► PostgreSQL + PostGIS
+  └── internal/routing ──HTTP──► OSRM
 ```
 
-- **Backend** — struktur flat: `cmd/server` (entry), `internal/config`,
-  `internal/db` (pgxpool + health check), `internal/entity`
-  (model + `Normalize`/`Validate`), `internal/handler` (health + CRUD).
-  Semua query berparameter `$1…`, timeout 5 detik per query,
-  error DB hanya dilog di server (klien menerima `internal_error`).
-- **Frontend** — Fetch API + React hooks + state sederhana:
-  `src/lib/api.ts` (client + `ApiError`), `src/lib/types.ts`
-  (tipe + validasi mirror backend), komponen `EntityMap` /
-  `EntityList` / `EntityDetail` / `EntityForm` / `ConfirmDialog`,
-  state di `App.tsx`.
-- **Dev vs produksi** — backend tanpa CORS. Saat development,
-  Vite mem-proxy `/api` + `/health` ke `http://localhost:8080`;
-  saat produksi, origin backend diatur via `VITE_API_BASE_URL`.
+**Backend** (`cmd/` + `internal/`)
+
+| Paket | Isi |
+| ----- | --- |
+| `cmd/server` | entry point, Gin, graceful shutdown, registrasi route |
+| `cmd/import-regions` | importer dataset COD-AB (zip/geojson) → `admin_regions` |
+| `cmd/simulator` | pengirim posisi palsu untuk armada (sumber data live tracking) |
+| `internal/config`, `internal/db` | `.env` + DSN, `pgxpool` + health check |
+| `internal/entity`, `internal/vehicle` | model + `Normalize`/`Validate` + unit test |
+| `internal/handler` | entities, zones, vehicles, routes, regions, islands, zone-from-region, health |
+| `internal/routing` | klien OSRM (`OSRM_BASE_URL`, `off` = fallback `direct`) |
+| `internal/ws` | hub fan-out untuk stream posisi kendaraan |
+
+**Frontend** (`frontend/src/`)
+
+`App.tsx` memegang state dan tiga tab (Places / Zones / Live);
+`EntityMap` menyusun layer peta: `RegionLayer` (batas administratif),
+`ZoneLayer` (polygon + editor Geoman), `VehicleLayer` (puck armada),
+`RouteLayer` (jalur). Panel: `EntityList`/`EntityDetail`/`EntityForm`/
+`ZonePanel`/`RegionZonePicker`/`VehiclePanel`. Kontrak API di `lib/types.ts`,
+client di `lib/api.ts`, stream di `lib/vehicleStream.ts`.
+
+REST untuk snapshot, WebSocket untuk stream posisi. Tanpa auth — aplikasi
+lokal satu pengguna (lihat `AGENT.md`).
 
 ## Mulai Cepat
 
 ### Prasyarat
 
-- Windows + Git (perintah di bawah memakai Git Bash)
+- Windows + Git Bash (perintah di bawah memakai Git Bash)
 - Go 1.27+ (`go version`)
-- Node.js + npm (`node --version`)
-- PostgreSQL 14+ di `localhost:5432`
+- Node.js 20+ (`node --version`)
+- PostgreSQL 14+ **dengan PostGIS** (yang dipakai di sini: PostgreSQL 18.6)
 
-### 1. Siapkan database dan `.env`
+### 1. Database dan `.env`
 
 ```bash
-# Buat database sekali saja (via psql / pgAdmin):
+# Buat database sekali saja:
 CREATE DATABASE entity_management;
 
-# Salin konfigurasi (jangan commit file .env):
-cp .env.example .env
-# Isi DB_PASSWORD, sesuaikan DB_HOST/DB_PORT/DB_USER/DB_NAME bila perlu.
+cp .env.example .env      # lalu isi DB_PASSWORD
 ```
 
 | Variable | Default | Keterangan |
 | -------- | ------- | ---------- |
-| `SERVER_PORT` | `8080` | Port backend |
+| `SERVER_PORT` | `8080` | Port backend (di mesin ini dipakai `8091`) |
 | `DB_HOST` / `DB_PORT` | `localhost` / `5432` | Koneksi Postgres |
 | `DB_USER` / `DB_NAME` | `postgres` / `entity_management` | Koneksi Postgres |
 | `DB_PASSWORD` | _(kosong)_ | Wajib diisi lokal, jangan commit |
-| `VITE_API_BASE_URL` (`frontend/.env`) | _(kosong)_ | Origin backend produksi; kosongkan saat dev (proxy Vite) |
+| `DB_SSL_MODE` | `disable` | `require` untuk server ber-TLS |
+| `OSRM_BASE_URL` | `https://router.project-osrm.org` | Set `off` untuk rute garis lurus |
+| `VITE_BACKEND` (`frontend/`) | `http://localhost:8091` | Target proxy Vite saat dev |
+| `VITE_API_BASE_URL` (`frontend/`) | _(kosong)_ | Origin backend untuk build produksi |
+| `VITE_MAP_TILES_URL` (`frontend/`) | tile OSM | Provider tile lain |
 
-### 2. Terapkan migration
+### 2. Migrasi
 
-Migration adalah plain SQL idempotent (`IF NOT EXISTS` / `OR REPLACE`),
-dijalankan sesuai urutan nama file. Detail: `migrations/README.md`.
+Plain SQL, dijalankan berurutan. Detail per file: `migrations/README.md`.
 
 ```bash
-# Dari root repo, dengan .env sudah terisi (Git Bash):
 export $(grep -v '^#' .env | xargs)
-PGPASSWORD="$DB_PASSWORD" psql \
-  -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-  -v ON_ERROR_STOP=1 \
-  -f migrations/001_create_entities.up.sql
+for f in migrations/0*.up.sql; do
+  PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" \
+    -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$f" || break
+done
 
-# Verifikasi: \d entities menampilkan kolom, index,
-# CHECK (name/type/status/latitude/longitude), dan trigger updated_at.
+# Opsional: 8 landmark se-Indonesia untuk review (manual, sekali)
+PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" \
+  -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f migrations/seed.sql
 ```
 
-Rollback (menghancurkan tabel + data, hanya bila diperlukan):
+Rollback: jalankan `migrations/*.down.sql` dengan urutan terbalik — menghapus
+tabel beserta datanya.
+
+### 3. Data wilayah (sekali saja)
+
+Lihat [Data Wilayah](#data-wilayah). Tanpa langkah ini aplikasi tetap jalan,
+hanya layer batas administratif dan "zona dari wilayah" yang kosong.
+
+### 4. Backend
 
 ```bash
-PGPASSWORD="$DB_PASSWORD" psql \
-  -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-  -v ON_ERROR_STOP=1 \
-  -f migrations/001_create_entities.down.sql
+go build -o bin/server.exe ./cmd/server
+SERVER_PORT=8091 ./bin/server.exe        # :8080 bila .env tidak diubah
+curl http://localhost:8091/health
 ```
 
-### 3. Jalankan backend dan frontend
-
-Terminal 1 — backend (dari root repo):
+Simulator armada (terminal lain) — membuat kendaraan yang belum ada, lalu
+mengirim satu posisi per interval:
 
 ```bash
-go run ./cmd/server
-# → server starting on port 8080
-curl http://localhost:8080/health
+go run ./cmd/simulator -api http://localhost:8091 -count 5 -interval 2s
 ```
 
-Terminal 2 — frontend (dari `frontend/`):
+### 5. Frontend
 
 ```bash
+cd frontend
 npm install
-npm run dev            # default http://localhost:5173
-npm run dev -- --port 5174   # bila 5173 sudah dipakai aplikasi lain
+npm run dev            # http://localhost:5173
 ```
 
-Buka URL dev di browser. Indikator `API online` (hijau) di header berarti
-frontend mencapai backend via proxy; saat memuat tampil `API checking`,
-saat backend tak terjangkau tampil `API offline` dan frontend mencoba
-lagi otomatis tiap 15 detik sampai pulih.
+Vite mem-proxy `/api` dan `/health` ke `VITE_BACKEND` (default `:8091`),
+termasuk upgrade WebSocket (`ws: true`). Badge di header menunjukkan
+`API online` / `API checking` / `API offline`; saat offline frontend mencoba
+lagi otomatis tiap 15 detik.
+
+## Data Wilayah
+
+Batas administratif berasal dari **HDX COD-AB Indonesia** (`cod-ab-idn`,
+CC BY-IGO, sumber BPS). Arsipnya ±456 MB dan **tidak ikut repo** (`/data`
+ada di `.gitignore`) — unduh ulang dari HDX bila perlu.
+
+```bash
+# Probe dulu (tanpa menulis), lalu impor per level
+go run ./cmd/import-regions -file data/idn_admin_boundaries.geojson.zip -probe
+go run ./cmd/import-regions -file data/idn_admin_boundaries.geojson.zip -levels 0,1,2
+go run ./cmd/import-regions -file data/idn_admin_boundaries.geojson.zip -levels 3
+
+# Hasil di mesin ini: 7.626 baris (L0=1, L1=34, L2=522, L3=7.069), 0 orphan
+```
 
 ## Endpoint API
 
-| Method | Path | Sukses | Error |
-| ------ | ---- | ------ | ----- |
-| `GET` | `/health` | `200` status + checks | `503` bila DB tidak sehat |
-| `GET` | `/api/entities` | `200 {"data":[...]}` (`[]` bila kosong) | `500 internal_error` |
-| `GET` | `/api/entities/:id` | `200 {"data":{…}}` | `400 invalid_id` · `404 not_found` |
-| `POST` | `/api/entities` | `201 {"data":{…}}` | `400 invalid_json` · `400 validation_failed` + `fields` |
-| `PUT` | `/api/entities/:id` | `200 {"data":{…}}` | `400 invalid_id` · `400 invalid_json` · `400 validation_failed` · `404 not_found` |
-| `DELETE` | `/api/entities/:id` | `204` tanpa body | `400 invalid_id` · `404 not_found` |
+| Method | Path | Keterangan |
+| ------ | ---- | ---------- |
+| `GET` | `/health` | `200` bila DB sehat, `503` bila tidak |
+| `GET` | `/api/entities` | daftar aset; `?zone=<id>` memfilter yang di dalam zona (`ST_Covers`) |
+| `GET` `POST` | `/api/entities`, `/api/entities/:id` | baca satu / buat |
+| `PUT` `DELETE` | `/api/entities/:id` | ubah penuh / hapus (`204`) |
+| `GET` | `/api/regions` | batas administratif; wajib `?level=0..4`, opsional `parent`, `code`, `q` |
+| `GET` | `/api/regions/count`, `/api/regions/:code` | jumlah / satu wilayah |
+| `GET` `POST` | `/api/zones` | daftar (GeoJSON FeatureCollection) / buat (geometry wajib) |
+| `GET` `PUT` `DELETE` | `/api/zones/:id` | baca / ubah / hapus |
+| `POST` | `/api/zones/import` | impor GeoJSON FeatureCollection → banyak zona |
+| `POST` | `/api/zones/from-region` | buat zona dari kode wilayah administratif |
+| `GET` | `/api/islands` | gugus pulau yang bisa dijadikan zona |
+| `POST` | `/api/zones/from-island` | buat zona dari gugus pulau |
+| `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir / daftar unit baru |
+| `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `status` opsional) → disiar ke WS |
+| `GET` | `/api/vehicles/stream` | WebSocket: frame `snapshot` saat connect, lalu `position` |
+| `GET` | `/api/routes` | semua rute |
+| `GET` | `/api/vehicles/:id/routes` | riwayat rute satu kendaraan |
+| `POST` | `/api/vehicles/:id/route` | rencanakan rute `{origin:{lat,lng,name}, destination:{…}}` |
+| `DELETE` | `/api/vehicles/:id/route` | batalkan rute aktif |
 
 Bentuk entity:
 
 ```json
-{"id": 1, "name": "…", "type": "…", "status": "active",
- "latitude": -6.1, "longitude": 106.8,
+{"id": 1, "name": "Monas", "type": "monument", "status": "active",
+ "latitude": -6.1754, "longitude": 106.8272,
  "created_at": "…", "updated_at": "…"}
 ```
 
-Aturan validasi: name/type wajib non-kosong (maks 255/100),
-status `active`/`inactive`, latitude −90…90, longitude −180…180.
-`PUT` adalah full replace (kirim semua field).
-
-Contoh request/response:
+Validasi: `name`/`type` wajib (maks 255/100), `status` `active`/`inactive`,
+latitude −90…90, longitude −180…180. `PUT` adalah full replace.
+Error selalu `{"error":{"code":"…","message":"…"}}`, dengan `fields` untuk
+`validation_failed`.
 
 ```bash
-# Buat entitas
-curl -X POST http://localhost:8080/api/entities \
+curl -X POST http://localhost:8091/api/entities \
   -H 'Content-Type: application/json' \
   -d '{"name":"Monas","type":"monument","status":"active","latitude":-6.1754,"longitude":106.8272}'
-# → 201 {"data":{"id":1,"name":"Monas","type":"monument","status":"active",
-#     "latitude":-6.1754,"longitude":106.8272,"created_at":"…","updated_at":"…"}}
 
-# Validasi gagal
-curl -X POST http://localhost:8080/api/entities \
-  -H 'Content-Type: application/json' -d '{"name":"","type":"x","status":"active","latitude":0,"longitude":0}'
-# → 400 {"error":{"code":"validation_failed","message":"validation failed",
-#     "fields":{"name":"…"}}}
-
-# ID bukan angka / tidak ada
-curl http://localhost:8080/api/entities/abc   # → 400 {"error":{"code":"invalid_id",…}}
-curl http://localhost:8080/api/entities/9999  # → 404 {"error":{"code":"not_found",…}}
+curl 'http://localhost:8091/api/entities?zone=11'
 ```
+
+## Perilaku Zona
+
+- Kategori: `operational`, `restricted`, `planned`, `other`; warna bebas
+  (`#rrggbb`), dipakai di peta dan kartu zona.
+- Geometry di respons adalah **salinan tampilan**: polygon di atas 2.000 titik
+  disederhanakan (`ST_SimplifyPreserveTopology`, toleransi `0.0005°`) supaya
+  respons tidak membengkak. Terukur: zona 227 ribu titik turun dari ±5 MB ke
+  ±540 KB. Data di database tetap utuh.
+- Editor vertex hanya aktif sampai `MAX_EDITABLE_VERTICES = 2.000`; di atas itu
+  polygon tidak bisa diedit (menghindari freeze browser).
+- `PUT` **tanpa** `geometry` hanya mengubah atribut — bentuk tersimpan tidak
+  ditulis ulang. Frontend membandingkan geometry saat load vs saat simpan dan
+  hanya mengirim geometry bila benar-benar berubah.
 
 ## Pengujian
 
-Backend (dari root; Go harus di PATH):
-
 ```bash
 gofmt -l .                                        # harus tanpa output
-go vet ./...                                      # harus lolos
-go build ./...                                    # harus sukses
-go test ./internal/entity/ -v                     # unit: Normalize/Validate
-go test -tags integration ./internal/handler/ -v  # butuh DB + migration
+go vet ./... && go build ./...
+go test ./internal/entity/ ./internal/vehicle/ ./internal/ws/
+go test -tags integration ./internal/handler/     # butuh DB + migrasi
 ```
-
-Frontend (dari `frontend/`):
 
 ```bash
+cd frontend
 npx tsc -b        # typecheck
-npm run build     # build produksi → dist/
 npm run lint      # oxlint
+npm run build     # tsc -b && vite build → dist/
 ```
 
-<details>
-<summary>Hasil yang terverifikasi (klik untuk membuka)</summary>
-
-| Area | Hasil |
-| ---- | ----- |
-| Backend (static + unit) | `gofmt` bersih, `vet`/`build` OK, unit PASS, integration PASS lawan PostgreSQL asli |
-| Frontend (static) | `tsc` bersih, `vite build` sukses, `lint` exit 0 (1 warning non-blocking fetch-on-mount di `App.tsx`) |
-| API via curl | Siklus CRUD penuh: 201/200/400/404/204 |
-| UI headless (desktop + mobile) | CRUD 7/7 sinkron ke backend; interaksi peta 4/4 |
-| Error-path | Backend mati → badge offline + banner + retry manual + auto-retry tiap 15 dtk; backend nyala → retry/auto-retry memulihkan list (0 JS error) |
-| Skeleton loading | API dilambatkan 2 dtk → 4 baris skeleton + `aria-busy=true`, hilang setelah data tampil |
-| Preview produksi (`dist/`) | 6/6: 5 marker, klik marker buka detail, create → edit → delete sinkron, 0 JS error |
-| Clone bersih | 45 file disalin terpisah → `gofmt`/`vet`/`build` OK, unit PASS, `tsc`/`lint`/`build` OK |
-
-</details>
-
-## Alasan Pemilihan Teknologi
-
-Setiap teknologi di bawah benar-benar dipakai (lihat `go.mod`,
-`frontend/package.json`, dan source terkait). Prinsipnya: pilih yang
-paling sederhana untuk requirement, tanpa dependensi tak perlu.
-
-**Backend**
-
-| Teknologi | Kenapa dipakai | Dipakai di |
-| --------- | -------------- | ---------- |
-| Go | Biner tunggal, kompilasi cepat, stdlib (`net/http`, `context`) cukup untuk REST kecil | `cmd/` + `internal/` |
-| Gin | Router ringan: grouping `/api`, binding JSON, middleware Recovery/Logger | `cmd/server/main.go`, `internal/handler/` |
-| PostgreSQL | Requirement take-home test; `CHECK` + trigger menjaga validitas koordinat dan `updated_at` | `migrations/001_create_entities.up.sql` |
-| pgx | Driver Postgres native + pool `pgxpool`; semua query berparameter `$1…` (aman dari SQL injection) | `internal/db/db.go` |
-| godotenv | Memuat `.env` lokal agar kredensial tidak tertulis di kode | `internal/config/config.go` |
-
-**Frontend**
-
-| Teknologi | Kenapa dipakai | Dipakai di |
-| --------- | -------------- | ---------- |
-| React | Requirement; komponen (`EntityMap`, `EntityList`, `EntityDetail`, `EntityForm`, `ConfirmDialog`) memetakan langsung ke CRUD | `frontend/src/components/` |
-| TypeScript | Tipe `Entity`/`EntityInput` mengikat kontrak JSON backend di level kompilasi | `src/lib/types.ts` |
-| Vite | Requirement; dev server cepat + proxy `/api` + `/health` menyelesaikan CORS saat dev | `vite.config.ts` |
-| Leaflet | Peta ringan tanpa API key; render peta, marker, popup | `src/components/EntityMap.tsx` |
-| React-Leaflet | Binding React resmi (`MapContainer`, `Marker`, `Popup`, `useMapEvents`) tanpa DOM manual | `src/components/EntityMap.tsx` |
-| OpenStreetMap | Tile default gratis tanpa API key; kode mendukung `VITE_MAP_TILES_URL` untuk provider lain | `src/components/EntityMap.tsx` |
-| Fetch API | Requirement; client tipis `ApiError{code,status,fields}` cukup untuk 5 endpoint | `src/lib/api.ts` |
-
-## Workflow Agentic AI
-
-Satu agen AI bekerja di repository lokal, user sebagai reviewer.
-Alur per tahap:
-
-1. Agen membaca file yang ada (`AGENT.md`, source, log sesi)
-2. Menulis perubahan terkecil yang layak
-3. Menjalankan verifikasi (`gofmt`, `vet`, `build`, `test`, `tsc`, `vite build`, `oxlint`, curl, Playwright headless)
-4. Melaporkan hasil aktual + keterbatasannya
-5. Menunggu persetujuan user (backend → frontend → audit → submission)
-
-Peran konkret AI:
-
-- **Implementasi** — config, pool pgx, handler health + 5 handler CRUD,
-  model + validasi, migration SQL, API client + tipe + validasi mirror,
-  5 komponen React, `App.tsx`, stylesheet.
-- **Debugging dari bukti** — mis. overlay modal menelan klik Leaflet
-  (dibuktikan `elementFromPoint`, diperbaiki via `pointer-events`),
-  overflow grid mobile (akar `min-width:auto`), port 5173 bentrok
-  (terdeteksi via `netstat`), selector Playwright usang.
-- **Pengujian** — semua klaim di tabel di atas dijalankan, bukan asumsi.
-- **Dokumentasi** — README root + `frontend` + `migrations` +
-  `AGENT.md`, ditulis dari file/perintah yang benar-benar ada.
-
-Batasan: arsitektur, kontrak API, dan persetujuan tiap tahap di tangan
-user. AI tidak commit/push tanpa izin, tidak menebak password DB,
-tidak menyentuh proses milik aplikasi lain.
+CI (`.github/workflows/ci.yml`): gofmt/vet/build/unit test + `tsc -b` + build.
 
 ## Keterbatasan
 
-- `migrations/*.sql` ikut repo — diperlukan reviewer untuk membuat database yang sama.
-- `migrations/seed.sql` opsional (8 landmark se-Indonesia, satu per type, dijalankan manual sekali;
-  sengaja bukan `002_*` agar migration dari nol tetap kosong dan empty state
-  "No entities yet." bisa direproduksi reviewer).
+- **Tanpa auth** — untuk satu pengguna di mesin lokal; jangan diekspos ke
+  internet apa adanya.
+- **Tanpa kompresi HTTP** — respons JSON dikirim apa adanya. Yang besar hanya
+  geometry zona, dan itu sudah diringkas di SQL.
+- **`GET /api/zones/:id` untuk zona sangat besar masih lambat** (±5 detik untuk
+  polygon 227 ribu titik) meski query yang sama di `psql` ±0,8 detik. Akar
+  penyebabnya belum ditemukan; penyederhanaan geometry memangkas payload, bukan
+  latensi query.
+- `heading` kendaraan tidak disimpan; hanya `lat`, `lng`, `speed_kmh`, waktu.
+- Warna rute masih tetap (`#2563eb`), belum bisa diatur per kendaraan.
+- Hitungan entitas/kendaraan per zona tidak auto-refresh setelah mutasi entitas
+  — daftar zona perlu dimuat ulang.
+- Dataset COD-AB (456 MB) tidak ikut repo; tanpa impor, layer wilayah kosong.
+- `migrations/seed.sql` sengaja tidak bernomor agar migrasi dari nol tetap
+  kosong dan empty state "No entities yet." bisa direproduksi.
 
 ## Struktur Proyek
 
 ```text
-cmd/server/              # entry point Gin + graceful shutdown
+cmd/
+  server/                 # entry point Gin + graceful shutdown
+  simulator/              # sumber data live tracking (armada palsu)
+  import-regions/         # importer COD-AB → admin_regions
 internal/
-  config/                # config via .env + DSN builder
-  db/                    # pgxpool + HealthCheck
-  entity/                # model + validasi + unit test
-  handler/               # /health + CRUD + integration test
-migrations/              # 001 up/down SQL + seed.sql (opsional, manual) + README
+  config/ db/             # .env + DSN, pgxpool + health
+  entity/ vehicle/        # model + validasi + unit test
+  handler/                # entities, zones, vehicles, routes, regions, islands
+  routing/                # klien OSRM + fallback direct
+  ws/                     # hub WebSocket
+migrations/               # 001–007 up/down + seed.sql (opsional) + README
 frontend/src/
-  lib/                   # api.ts (client), types.ts (tipe + validasi)
-  components/            # EntityMap/List/Detail/Form/ConfirmDialog
-  App.tsx                # state, toast, error banner
-AGENT.md                 # aturan kerja + status proyek
-README.md                # file ini
+  lib/                    # api.ts, types.ts, vehicleStream.ts
+  components/             # map layers, panel, form, dialog
+  App.tsx                 # state, tab, toast, sheet mobile
+AGENT.md                  # aturan kerja proyek
+README.md                 # file ini
 ```

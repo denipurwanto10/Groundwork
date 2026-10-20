@@ -8,6 +8,7 @@
 /dist
 /*.exe
 *.test
+*.zip
 
 # IDE
 .idea/
@@ -24,3 +25,10 @@ Thumbs.db
 
 # Go
 go.work
+
+# Datasets: large and re-downloadable from the HDX source noted in AGENT.md
+/data
+
+# Local probe output and CLI state
+/scratch
+/.playwright-cli
