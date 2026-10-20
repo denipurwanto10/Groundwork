@@ -136,4 +136,3 @@ func (h *ZoneHandler) FromRegion(c *gin.Context) {
 
 	h.respondZone(c, id, http.StatusCreated)
 }
-
