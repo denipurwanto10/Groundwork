@@ -75,13 +75,28 @@ func scanEntity(row pgx.Row) (entity.Entity, error) {
 	return e, err
 }
 
-// List handles GET /api/entities.
+// List handles GET /api/entities. An optional ?zone=<id> keeps only the
+// entities whose point falls inside that zone (ST_Covers, so a point exactly on
+// the boundary still counts — the operator drew that edge deliberately).
 func (h *EntityHandler) List(c *gin.Context) {
 	ctx, cancel := h.ctxWithTimeout(c)
 	defer cancel()
 
-	rows, err := h.db.Query(ctx, `SELECT id, name, type, status, latitude, longitude, created_at, updated_at
-		FROM entities ORDER BY id ASC`)
+	var zoneID *int64
+	if raw := c.Query("zone"); raw != "" {
+		id, ok := parseID(raw)
+		if !ok {
+			c.JSON(http.StatusBadRequest, errorBody("invalid_zone", "invalid zone id"))
+			return
+		}
+		zoneID = &id
+	}
+
+	rows, err := h.db.Query(ctx, `SELECT e.id, e.name, e.type, e.status, e.latitude, e.longitude, e.created_at, e.updated_at
+		FROM entities e
+		WHERE $1::bigint IS NULL
+		   OR EXISTS (SELECT 1 FROM zones z WHERE z.id = $1 AND ST_Covers(z.geom, e.geom::geometry))
+		ORDER BY e.id ASC`, zoneID)
 	if err != nil {
 		log.Printf("entities: list query failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
