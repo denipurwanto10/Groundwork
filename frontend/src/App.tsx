@@ -53,7 +53,6 @@ import {
   IconUsers,
 } from './components/Icons'
 import type { MapInset } from './components/EntityMap'
-import type { BasemapId } from './components/EntityMap'
 import './App.css'
 import './modern.css'
 import './vibrant.css'
@@ -195,8 +194,6 @@ export default function App() {
   const [routeSaving, setRouteSaving] = useState(false)
   /** The route the camera has to show: the one that was just planned. */
   const [routeFocus, setRouteFocus] = useState<{ id: number; n: number } | null>(null)
-  // Which basemap the map shows: a free street map, satellite or terrain.
-  const [basemap, setBasemap] = useState<BasemapId>('streets')
 
   // Which page of the dashboard is open, and whether the nav rail is slimmed to icons.
   const [view, setView] = useState<Tab>('overview')
@@ -1338,8 +1335,6 @@ export default function App() {
               routePick={routePick !== null}
               onRoutePoint={handleRoutePoint}
               focusRoute={routeFocus}
-              basemap={basemap}
-              onBasemapChange={setBasemap}
             />
             {view !== 'overview' && (
               <RegionControls

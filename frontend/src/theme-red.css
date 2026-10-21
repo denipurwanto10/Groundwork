@@ -473,43 +473,12 @@ textarea,
 .route-stop.dest { background: var(--route); color: #fff; }
 .route-stop.dest::after { border-top-color: var(--route); }
 
-/* basemap switcher: the same three choices the big map providers offer */
-.basemap-switch {
-  display: flex;
-  flex-direction: column;
-  margin: 10px 10px 0 0;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  background: var(--panel-solid);
-}
-.basemap-btn {
-  height: 28px;
-  padding: 0 10px;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-2);
-  background: var(--panel-solid);
-  border: 0;
-  cursor: pointer;
-}
-.basemap-btn + .basemap-btn { border-top: 1px solid var(--line); }
-.basemap-btn:hover { background: var(--panel-2); color: var(--text); }
-.basemap-btn.on { color: var(--accent); background: var(--accent-soft); }
-
-/* Basemap tiles. The street map already has the right palette, so it is left
-   alone in the light theme. The dark theme turns the map layers into their
-   negative (the satellite photo keeps its colours, a negative photo would
-   only look wrong). */
+/* Map tiles. The Google road map already has the right palette, so it is
+   left alone in the light theme. The dark theme turns the map into its
+   negative, so the map does not glow in a dark interface. */
 .leaflet-layer.tiles-gmaps { filter: none; }
-:root[data-theme='dark'] .leaflet-layer.tiles-gmaps { filter: none; }
-:root[data-theme='dark'] .leaflet-layer.tiles-streets,
-:root[data-theme='dark'] .leaflet-layer.tiles-terrain {
+:root[data-theme='dark'] .leaflet-layer.tiles-gmaps {
   filter: invert(1) hue-rotate(180deg) saturate(0.55) brightness(0.86) contrast(1.05);
-}
-:root[data-theme='dark'] .leaflet-layer.tiles-satellite {
-  filter: brightness(0.9) contrast(1.03);
 }
 
 /* The tile credit stays in its corner instead of spreading over the map. */
