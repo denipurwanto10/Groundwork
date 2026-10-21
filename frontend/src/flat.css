@@ -928,11 +928,13 @@
   border-radius: 10px;
   overflow: hidden;
 }
+/* The destination pin belongs to the route, so it wears the route colour:
+   the whole path (line + endpoints) reads as one blue line on the map. */
 .route-stop.dest {
-  background: var(--danger);
+  background: var(--route);
 }
 .route-stop.dest::after {
-  border-top-color: var(--danger);
+  border-top-color: var(--route);
 }
 ::selection {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
