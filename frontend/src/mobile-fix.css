@@ -1,0 +1,201 @@
+/* ==========================================================================
+   Mobile fixes — loaded last, so it wins over the older layers.
+   1. Bottom navigation  2. Route stop form (A / B)  3. Sign-in fields
+   ========================================================================== */
+
+/* ---- 1. Bottom navigation ------------------------------------------------ */
+@media (max-width: 1099px) {
+  .dash .bottom-nav {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(64px + var(--safe-b));
+    padding: 6px 4px var(--safe-b);
+    gap: 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--panel-solid, var(--panel));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: 0 -6px 20px -14px rgb(14 18 23 / 28%);
+  }
+
+  .dash .bottom-nav button {
+    position: relative;
+    min-height: 0;
+    min-width: 0;
+    padding: 2px 0 0;
+    gap: 4px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: 0;
+    color: var(--muted);
+    background: transparent;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .dash .bottom-nav button > span:last-child {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dash .bottom-nav button.active {
+    color: var(--accent);
+    background: transparent;
+    font-weight: 700;
+  }
+
+  /* The old red bar stuck out above the bar; the icon pill is the only marker now. */
+  .dash .bottom-nav button.active::before {
+    content: none;
+  }
+
+  .dash .bottom-nav .bn-icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 32px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background 0.18s ease;
+  }
+
+  .dash .bottom-nav button.active .bn-icon {
+    background: var(--accent-soft);
+  }
+
+  .dash .bottom-nav .bn-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Count badge: small pill pinned to the icon's corner instead of covering it. */
+  .dash .bottom-nav .bn-icon em {
+    position: absolute;
+    top: -2px;
+    left: calc(50% + 6px);
+    right: auto;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border: 1.5px solid var(--panel-solid, var(--panel));
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 13px;
+    text-align: center;
+    color: #fff;
+    background: var(--muted);
+  }
+
+  .dash .bottom-nav .bn-icon em.live {
+    background: var(--ok);
+  }
+
+  .dash .bottom-nav button.active .bn-icon em:not(.live) {
+    background: var(--accent);
+  }
+}
+
+/* ---- 2. Route stop form (Origin / Destination) --------------------------- */
+.lt-form .lt-stop {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 40px;
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px;
+  border-radius: 14px;
+}
+
+.lt-form .lt-stop .route-pin {
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  flex: none;
+}
+
+.lt-form .lt-stop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lt-form .lt-stop-field input {
+  width: 100%;
+  min-height: 40px;
+  height: 40px;
+  padding: 0 12px;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--field, transparent);
+}
+
+.lt-form .lt-stop-field input:disabled {
+  opacity: 1;
+  background: var(--panel-2, transparent);
+}
+
+.lt-form .lt-stop-field input:focus {
+  border-color: var(--accent-line, var(--accent));
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+
+/* Coordinates line sits under the input, aligned with the text inside it. */
+.lt-form .lt-stop-field span {
+  padding: 0 12px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lt-form .lt-stop > .icon-btn {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  align-self: start;
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 767px) {
+  .lt-form .lt-stop-field input {
+    font-size: 16px; /* avoids iOS zoom on focus */
+  }
+}
+
+/* ---- 3. Sign-in fields --------------------------------------------------- */
+.auth-form .field {
+  margin-bottom: 14px;
+}
+
+.auth-form input::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.auth-form input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.auth-form input[aria-invalid='true']:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft, rgb(208 23 30 / 12%));
+}
+
+.auth-form .field-error {
+  display: block;
+  margin-top: -2px;
+}

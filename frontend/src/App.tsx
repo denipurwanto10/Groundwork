@@ -64,6 +64,7 @@ import './ui-premium.css'
 import './flat.css'
 import './fleet-final.css'
 import './theme-red.css'
+import './mobile-fix.css'
 
 type Toast = { kind: 'success' | 'error'; text: string } | null
 type ApiState = 'checking' | 'online' | 'offline'
