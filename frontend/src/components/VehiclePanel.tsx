@@ -109,6 +109,10 @@ interface Props {
   onPickStart: (stage: 'origin' | 'destination') => void
   onPickCancel: () => void
   onLabelChange: (stage: 'origin' | 'destination', name: string) => void
+  /** The plan starts at the unit's own position; the operator picks the target. */
+  onPlanStart: (vehicleId: number) => void
+  /** A plan is on its way to the server. */
+  routeBusy: boolean
   onClearDraft: () => void
   onRouteSet: (vehicleId: number, origin: RouteStop, destination: RouteStop) => Promise<void>
   onRouteClear: (vehicleId: number) => Promise<void>
@@ -169,6 +173,8 @@ export default function VehiclePanel({
   onPickStart,
   onPickCancel,
   onLabelChange,
+  onPlanStart,
+  routeBusy,
   onClearDraft,
   onRouteSet,
   onRouteClear,
@@ -247,6 +253,7 @@ export default function VehiclePanel({
 
   const clearRoute = async (vehicleId: number) => {
     setRouteError(null)
+    setPlanning(false)
     try {
       await onRouteClear(vehicleId)
     } catch (err) {
@@ -314,6 +321,8 @@ export default function VehiclePanel({
 
   const selectedStatus = selected ? normalizeVehicleStatus(selected.status) : 'offline'
   const showForm = !!selected && !activeRoute && (planning || !!draft?.origin || !!draft?.destination)
+  // The plan is on its way to the server: the form waits for the line.
+  const busy = saving || routeBusy
 
   return (
     <section className="lt" aria-label="Live tracking">
@@ -460,7 +469,17 @@ export default function VehiclePanel({
                 {following ? 'Following' : 'Follow'}
               </button>
               {canEdit && !activeRoute && !showForm && (
-                <button type="button" className="btn small secondary" onClick={() => setPlanning(true)}>
+                <button
+                  type="button"
+                  className="btn small secondary"
+                  onClick={() => {
+                    if (!selected) return
+                    // The plan starts where the unit stands; the operator only
+                    // has to pick the target on the map.
+                    onPlanStart(selected.id)
+                    setPlanning(true)
+                  }}
+                >
                   <IconRoute width={15} height={15} />
                   Plan route
                 </button>
@@ -469,6 +488,12 @@ export default function VehiclePanel({
 
             {activeRoute && (
               <div className="lt-route">
+                <div className="lt-route-heading">
+                  <IconRoute width={14} height={14} />
+                  <span>
+                    Following route to <b>{activeRoute.destination.name || 'the destination'}</b>
+                  </span>
+                </div>
                 <div className="lt-route-ends">
                   <span>
                     <b className="route-pin origin">A</b>
@@ -554,14 +579,15 @@ export default function VehiclePanel({
                   <button
                     type="button"
                     className="btn primary small"
-                    disabled={!draft?.origin || !draft?.destination || saving}
+                    disabled={!draft?.origin || !draft?.destination || busy}
                     onClick={() => void submitRoute()}
                   >
-                    {saving ? 'Building route…' : 'Build route'}
+                    {busy ? 'Building route…' : 'Build route'}
                   </button>
                   <button
                     type="button"
                     className="btn secondary small"
+                    disabled={busy}
                     onClick={() => {
                       onClearDraft()
                       setPlanning(false)
@@ -660,6 +686,10 @@ export default function VehiclePanel({
                     </span>
                     {route && pct !== null ? (
                       <span className="lt-card-route">
+                        <span className="lt-card-route-name">
+                          <IconRoute width={12} height={12} />
+                          Following route to <b>{route.destination.name || 'the destination'}</b>
+                        </span>
                         <span className="lt-bar slim" aria-hidden="true">
                           <span style={{ width: `${pct}%` }} />
                         </span>

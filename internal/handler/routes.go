@@ -13,6 +13,7 @@ import (
 
 	"entity-management/internal/db"
 	"entity-management/internal/routing"
+	"entity-management/internal/vehicle"
 	"entity-management/internal/ws"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -36,11 +37,7 @@ func NewRouteHandler(pool *db.Pool, hub *ws.Hub) *RouteHandler {
 const arrivalRadiusM = 150.0
 
 // routeStop is one end of a route.
-type routeStop struct {
-	Lat  float64 `json:"lat"`
-	Lng  float64 `json:"lng"`
-	Name string  `json:"name"`
-}
+type routeStop = vehicle.RouteStop
 
 // setRouteInput is the body of POST /api/vehicles/:id/route.
 type setRouteInput struct {
@@ -83,11 +80,9 @@ func (in setRouteInput) validate() map[string]string {
 	return fields
 }
 
-// routeCols already carries the SELECT keyword (same convention as zoneCols):
-// it is only ever the head of a route query.
-//
-// progress is how far along the line the vehicle's last position sits, computed
-// by PostGIS so the UI never has to re-derive it from the geometry.
+// routeProgressSQL is how far along the line the vehicle's last position
+// sits, computed by PostGIS so the UI never has to re-derive it from the
+// geometry.
 //
 // Two guards keep it honest. A route is not "100% covered" just because the
 // truck happens to be parked 600 km away: progress only counts once the vehicle
@@ -95,54 +90,45 @@ func (in setRouteInput) validate() map[string]string {
 // within 3 km of the path (roughly the width of a city). Otherwise the
 // projection would snap to whichever vertex of the line is closest and report a
 // meaningless number.
+//
+// It is shared by the route queries and by the fleet list, which carries the
+// active route of every unit.
+const routeProgressSQL = `CASE
+            WHEN rt.status = 'completed' THEN 1
+            -- A closed route must not keep moving. Progress is a projection of
+            -- the live position, and the truck drives on to other deliveries, so
+            -- reading today's position against an old line would rewrite history
+            -- (a route cancelled at 27% later read 90%). Closed routes replay the
+            -- last position logged before they ended instead.
+            WHEN rt.status <> 'active' THEN COALESCE((
+                SELECT LEAST(1, GREATEST(0, ST_LineLocatePoint(
+                           rt.geom, ST_SetSRID(ST_MakePoint(p.lng, p.lat), 4326))))
+                  FROM vehicle_positions p
+                 WHERE p.vehicle_id = rt.vehicle_id
+                   AND p.recorded_at <= COALESCE(rt.ended_at, now())
+                 ORDER BY p.recorded_at DESC
+                 LIMIT 1), 0)
+            WHEN v.last_lat IS NULL OR v.last_lng IS NULL THEN 0
+            WHEN v.last_seen_at IS NULL OR v.last_seen_at < rt.created_at THEN 0
+            WHEN v.last_geom IS NULL THEN 0
+            WHEN ST_Distance(v.last_geom, rt.geom::geography) > 3000 THEN 0
+            ELSE LEAST(1, GREATEST(0, ST_LineLocatePoint(
+                     rt.geom, ST_SetSRID(ST_MakePoint(v.last_lng, v.last_lat), 4326))))
+        END`
 
 const routeCols = `SELECT rt.id, rt.vehicle_id, rt.origin_name, rt.dest_name,
        rt.origin_lat, rt.origin_lng, rt.dest_lat, rt.dest_lng,
        ST_AsGeoJSON(rt.geom, 6)::json, rt.distance_m, rt.duration_s,
        rt.source, rt.status, rt.created_at, rt.ended_at,
-       CASE
-           WHEN rt.status = 'completed' THEN 1
-           -- A closed route must not keep moving. Progress is a projection of
-           -- the live position, and the truck drives on to other deliveries, so
-           -- reading today's position against an old line would rewrite history
-           -- (a route cancelled at 27% later read 90%). Closed routes replay the
-           -- last position logged before they ended instead.
-           WHEN rt.status <> 'active' THEN COALESCE((
-               SELECT LEAST(1, GREATEST(0, ST_LineLocatePoint(
-                          rt.geom, ST_SetSRID(ST_MakePoint(p.lng, p.lat), 4326))))
-                 FROM vehicle_positions p
-                WHERE p.vehicle_id = rt.vehicle_id
-                  AND p.recorded_at <= COALESCE(rt.ended_at, now())
-                ORDER BY p.recorded_at DESC
-                LIMIT 1), 0)
-           WHEN v.last_lat IS NULL OR v.last_lng IS NULL THEN 0
-           WHEN v.last_seen_at IS NULL OR v.last_seen_at < rt.created_at THEN 0
-           WHEN v.last_geom IS NULL THEN 0
-           WHEN ST_Distance(v.last_geom, rt.geom::geography) > 3000 THEN 0
-           ELSE LEAST(1, GREATEST(0, ST_LineLocatePoint(
-                    rt.geom, ST_SetSRID(ST_MakePoint(v.last_lng, v.last_lat), 4326))))
-       END
+       ` + routeProgressSQL + `
   FROM vehicle_routes rt
   JOIN vehicles v ON v.id = rt.vehicle_id`
 
 // routeView is one route as the client sees it. The geometry is PostGIS'
 // GeoJSON, passed through untouched.
-type routeView struct {
-	ID          int64           `json:"id"`
-	VehicleID   int64           `json:"vehicle_id"`
-	Origin      routeStop       `json:"origin"`
-	Destination routeStop       `json:"destination"`
-	Geometry    json.RawMessage `json:"geometry"`
-	DistanceM   float64         `json:"distance_m"`
-	DurationS   float64         `json:"duration_s"`
-	Source      string          `json:"source"`
-	Status      string          `json:"status"`
-	Progress    float64         `json:"progress"`
-	RemainingM  float64         `json:"remaining_m"`
-	CreatedAt   time.Time       `json:"created_at"`
-	EndedAt     *time.Time      `json:"ended_at"`
-}
+type routeView = vehicle.Route
 
+// scanRoute reads one route row.
 func scanRoute(row rowScanner) (routeView, error) {
 	var (
 		v       routeView
@@ -253,20 +239,51 @@ func (h *RouteHandler) Set(c *gin.Context) {
 		log.Printf("routes: engine fallback to straight line: %v", planErr)
 	}
 
-	line, err := lineStringGeoJSON(plan.Points)
+	// A line that PostGIS refuses to store would fail the whole request with
+	// an opaque 500, so the points are cleaned up first: a repeated point is
+	// dropped, and a line that is left with fewer than two distinct points
+	// (the engine snapped both ends to the same road node) becomes the
+	// straight connection between the two stops.
+	points := routing.Dedupe(plan.Points)
+	if len(points) < 2 {
+		log.Printf("routes: degenerate geometry, using the straight line")
+		fallback := routing.DirectRoute(from, to)
+		points = fallback.Points
+		plan.DistanceM = fallback.DistanceM
+		plan.DurationS = fallback.DurationS
+		plan.Source = routing.SourceDirect
+	}
+
+	line, err := lineStringGeoJSON(points)
 	if err != nil {
 		log.Printf("routes: build geometry failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
 		return
 	}
 
+	// The old route is cancelled and the new one stored in one transaction.
+	// A single statement cannot do it: a data-modifying CTE runs next to the
+	// insert, so the partial unique index still holds the old "active" row
+	// and the insert is rejected as a duplicate.
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		log.Printf("routes: begin failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `
+        UPDATE vehicle_routes
+           SET status = 'cancelled', ended_at = now()
+         WHERE vehicle_id = $1 AND status = 'active'`, id); err != nil {
+		log.Printf("routes: cancel previous failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
 	var newID int64
-	err = h.db.QueryRow(ctx, `
-        WITH closed AS (
-            UPDATE vehicle_routes
-               SET status = 'cancelled', ended_at = now()
-             WHERE vehicle_id = $1 AND status = 'active'
-        )
+	err = tx.QueryRow(ctx, `
         INSERT INTO vehicle_routes
                (vehicle_id, origin_name, dest_name, origin_lat, origin_lng,
                 dest_lat, dest_lng, geom, distance_m, duration_s, source)
@@ -278,6 +295,12 @@ func (h *RouteHandler) Set(c *gin.Context) {
 		string(line), plan.DistanceM, plan.DurationS, plan.Source).Scan(&newID)
 	if err != nil {
 		log.Printf("routes: insert failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		log.Printf("routes: commit failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
 		return
 	}
@@ -329,17 +352,28 @@ func (h *RouteHandler) Clear(c *gin.Context) {
 // completeRouteIfArrived closes the active route once a reported position is
 // inside the arrival radius of its destination. Called from UpdatePosition, so
 // a route ends where the vehicle actually stops, not on a timer.
+//
+// The end of the drawn line counts as an arrival too. The routing engine snaps
+// the requested destination to the closest road it knows, which can be a few
+// hundred metres away from the point the operator picked; the unit drives to
+// the end of that line, so the line is where the delivery really ends.
 func (h *VehicleHandler) completeRouteIfArrived(ctx context.Context, vehicleID int64, lat, lng float64) {
 	var routeID int64
 	err := h.db.QueryRow(ctx, `
-        UPDATE vehicle_routes
+        UPDATE vehicle_routes rt
            SET status = 'completed', ended_at = now()
-         WHERE vehicle_id = $1 AND status = 'active'
-           AND ST_Distance(
-                   ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
-                   ST_SetSRID(ST_MakePoint(dest_lng, dest_lat), 4326)::geography
-               ) <= $4
-        RETURNING id`, vehicleID, lat, lng, arrivalRadiusM).Scan(&routeID)
+         WHERE rt.vehicle_id = $1 AND rt.status = 'active'
+           AND LEAST(
+                ST_Distance(
+                    ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+                    ST_SetSRID(ST_MakePoint(rt.dest_lng, rt.dest_lat), 4326)::geography
+                ),
+                ST_Distance(
+                    ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+                    ST_Endpoint(rt.geom)::geography
+                )
+           ) <= $4
+        RETURNING rt.id`, vehicleID, lat, lng, arrivalRadiusM).Scan(&routeID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return

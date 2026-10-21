@@ -43,6 +43,30 @@ const vehicleCols = `SELECT v.id, v.code, v.name, v.kind, v.status, v.driver_id,
 
 const vehicleFrom = ` FROM vehicles v`
 
+// vehicleColsWithRoute adds the delivery route every unit is following to
+// the fleet list, so the map can draw the line and the fleet card can say
+// where the unit is heading without a second request.
+//
+// The route is picked with a lateral join: one unit has at most one active
+// route, and the join keeps the fleet list a single round trip.
+const vehicleColsWithRoute = `SELECT v.id, v.code, v.name, v.kind, v.status, v.driver_id,
+       v.last_lat, v.last_lng, v.last_speed_kmh, v.last_seen_at,
+       rt.id, rt.origin_name, rt.origin_lat, rt.origin_lng,
+       rt.dest_name, rt.dest_lat, rt.dest_lng,
+       COALESCE(ST_AsGeoJSON(rt.geom, 6)::json, '{}'::json),
+       rt.distance_m, rt.duration_s, rt.source, rt.status, rt.created_at, rt.progress
+  FROM vehicles v
+  LEFT JOIN LATERAL (
+       SELECT rt.id, rt.origin_name, rt.origin_lat, rt.origin_lng,
+              rt.dest_name, rt.dest_lat, rt.dest_lng, rt.geom, rt.distance_m,
+              rt.duration_s, rt.source, rt.status, rt.created_at,
+              ` + routeProgressSQL + ` AS progress
+         FROM vehicle_routes rt
+        WHERE rt.vehicle_id = v.id AND rt.status = 'active'
+        ORDER BY rt.id DESC
+        LIMIT 1
+  ) rt ON true`
+
 // rowScanner is satisfied by both pgx.Row and pgx.Rows, so one scan function
 // serves the list, the snapshot and the post-update read-back.
 type rowScanner interface {
@@ -60,6 +84,61 @@ func scanVehicle(row rowScanner, extra ...any) (vehicle.Vehicle, error) {
 	if err := row.Scan(dest...); err != nil {
 		return vehicle.Vehicle{}, err
 	}
+
+	return v, nil
+}
+
+// scanVehicleWithRoute reads a fleet row that also carries the delivery route
+// the unit is following. The route columns are nullable: a unit without a
+// route leaves them empty and the vehicle travels on without one.
+func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
+	var (
+		v          vehicle.Vehicle
+		routeID    *int64
+		originName *string
+		originLat  *float64
+		originLng  *float64
+		destName   *string
+		destLat    *float64
+		destLng    *float64
+		geojson    []byte
+		distanceM  *float64
+		durationS  *float64
+		source     *string
+		status     *string
+		createdAt  *time.Time
+		progress   *float64
+	)
+
+	if err := row.Scan(&v.ID, &v.Code, &v.Name, &v.Kind, &v.Status, &v.DriverID,
+		&v.Lat, &v.Lng, &v.SpeedKmh, &v.LastSeenAt,
+		&routeID, &originName, &originLat, &originLng,
+		&destName, &destLat, &destLng,
+		&geojson, &distanceM, &durationS, &source, &status, &createdAt, &progress); err != nil {
+		return vehicle.Vehicle{}, err
+	}
+
+	if routeID == nil {
+		return v, nil
+	}
+
+	route := &vehicle.Route{
+		ID:          *routeID,
+		VehicleID:   v.ID,
+		Origin:      vehicle.RouteStop{Name: *originName, Lat: *originLat, Lng: *originLng},
+		Destination: vehicle.RouteStop{Name: *destName, Lat: *destLat, Lng: *destLng},
+		Geometry:    json.RawMessage(geojson),
+		DistanceM:   *distanceM,
+		DurationS:   *durationS,
+		Source:      *source,
+		Status:      *status,
+		CreatedAt:   *createdAt,
+	}
+	if progress != nil {
+		route.Progress = round4(*progress)
+		route.RemainingM = round2(route.DistanceM * (1 - route.Progress))
+	}
+	v.ActiveRoute = route
 
 	return v, nil
 }
@@ -86,14 +165,15 @@ func fleetWhere(driverID *int64) (string, []any) {
 	return " WHERE v.driver_id = $1", []any{*driverID}
 }
 
-// List returns the fleet together with the latest known position of each unit.
-// A driver only receives the vehicles assigned to them.
+// List returns the fleet together with the latest known position of each unit
+// and the delivery route it is following. A driver only receives the vehicles
+// assigned to them.
 func (h *VehicleHandler) List(c *gin.Context) {
 	ctx, cancel := h.ctxWithTimeout(c)
 	defer cancel()
 
 	where, args := fleetWhere(driverScope(c))
-	rows, err := h.db.Query(ctx, vehicleCols+vehicleFrom+where+" ORDER BY v.id", args...)
+	rows, err := h.db.Query(ctx, vehicleColsWithRoute+where+" ORDER BY v.id", args...)
 	if err != nil {
 		log.Printf("vehicles: list query failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
@@ -103,7 +183,7 @@ func (h *VehicleHandler) List(c *gin.Context) {
 
 	vehicles := make([]vehicle.Vehicle, 0)
 	for rows.Next() {
-		v, err := scanVehicle(rows)
+		v, err := scanVehicleWithRoute(rows)
 		if err != nil {
 			log.Printf("vehicles: list scan failed: %v", err)
 			c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
@@ -435,7 +515,7 @@ func (h *VehicleHandler) Stream(c *gin.Context) {
 // A driver only gets the units assigned to them.
 func (h *VehicleHandler) snapshot(ctx context.Context, driverID *int64) ([]byte, error) {
 	where, args := fleetWhere(driverID)
-	rows, err := h.db.Query(ctx, vehicleCols+vehicleFrom+where+" ORDER BY v.id", args...)
+	rows, err := h.db.Query(ctx, vehicleColsWithRoute+where+" ORDER BY v.id", args...)
 	if err != nil {
 		return nil, fmt.Errorf("query fleet: %w", err)
 	}
@@ -443,7 +523,7 @@ func (h *VehicleHandler) snapshot(ctx context.Context, driverID *int64) ([]byte,
 
 	vehicles := make([]vehicle.Vehicle, 0)
 	for rows.Next() {
-		v, err := scanVehicle(rows)
+		v, err := scanVehicleWithRoute(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan vehicle: %w", err)
 		}

@@ -67,12 +67,12 @@ func NewClient() *Client {
 // when it is non-nil the route is the straight-line fallback and Source says so.
 func (c *Client) Plan(ctx context.Context, from, to Point) (Route, error) {
 	if c.disabled || c.baseURL == "" {
-		return directRoute(from, to), nil
+		return DirectRoute(from, to), nil
 	}
 
 	route, err := c.fetch(ctx, from, to)
 	if err != nil {
-		return directRoute(from, to), err
+		return DirectRoute(from, to), err
 	}
 
 	return route, nil
@@ -132,8 +132,16 @@ func (c *Client) fetch(ctx context.Context, from, to Point) (Route, error) {
 	for _, pair := range coordsIn {
 		points = append(points, Point{Lat: pair[1], Lng: pair[0]})
 	}
+
+	// The engine snaps a coordinate to the closest road it knows. Two stops
+	// that are a few metres apart, or that lie outside the road network, are
+	// therefore snapped to the very same node: the answer is a line that goes
+	// nowhere (distance 0) and PostGIS refuses to store it. Such a line is
+	// not a route, so it is rejected here and the caller falls back to the
+	// straight connection between the two stops.
+	points = Dedupe(points)
 	if len(points) < 2 {
-		return Route{}, fmt.Errorf("osrm returned a geometry with %d points", len(points))
+		return Route{}, fmt.Errorf("osrm returned a geometry with %d distinct point(s)", len(points))
 	}
 
 	return Route{
@@ -144,10 +152,41 @@ func (c *Client) fetch(ctx context.Context, from, to Point) (Route, error) {
 	}, nil
 }
 
+// Dedupe drops the points that repeat their predecessor. A routing engine can
+// return the same coordinate twice in a row, and a line with a repeated point
+// is invalid in PostGIS ("too few points in geometry component"), which the
+// CHECK constraint on vehicle_routes turns into a failed insert.
+func Dedupe(points []Point) []Point {
+	out := make([]Point, 0, len(points))
+	for _, p := range points {
+		if len(out) > 0 && SameSpot(out[len(out)-1], p) {
+			continue
+		}
+		out = append(out, p)
+	}
+
+	return out
+}
+
+// SameSpot reports whether two coordinates point at the same place. The
+// tolerance is a centimetre, so two stops on the same road corner count as
+// one point while a real step of a few metres does not.
+func SameSpot(a, b Point) bool {
+	return math.Abs(a.Lat-b.Lat) < 1e-7 && math.Abs(a.Lng-b.Lng) < 1e-7
+}
+
 // coord formats a coordinate the way the OSRM URL expects, without exponent
 // notation for small values.
 func coord(v float64) string {
 	return strconv.FormatFloat(v, 'f', 6, 64)
+}
+
+// DirectRoute is the straight-line fallback: a two-point line with a
+// haversine distance and an ETA at a constant speed. It is exported so the
+// caller can rebuild the same geometry when the engine returns a line that
+// cannot be stored (two stops snapped to the same road node).
+func DirectRoute(from, to Point) Route {
+	return directRoute(from, to)
 }
 
 // directRoute is the offline fallback: a two-point line with a haversine

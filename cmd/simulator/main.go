@@ -6,6 +6,12 @@
 //
 // It creates the missing vehicles once and then reports one position per
 // vehicle per interval until it is stopped with Ctrl+C.
+//
+// Every tick the simulator asks the API which vehicles have an active
+// delivery route (GET /api/routes). A unit without a route wanders the way a
+// GPS feed of a road vehicle looks; a unit with a route drives the planned
+// line step by step, from the first point to the last one, and the server
+// closes the route when it arrives.
 package main
 
 import (
@@ -64,6 +70,9 @@ type unit struct {
 	// route set from the browser is actually driven instead of ignored.
 	routeID  int64
 	routePos float64
+	// arrived remembers that the unit reached the end of its route, so the
+	// simulator can make sure the route really is closed in the database.
+	arrived bool
 }
 
 type apiVehicle struct {
@@ -222,10 +231,27 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 	for _, u := range fleet {
 		speed := 0.0
 		tag := ""
+		status := "moving"
 		if plan := plans[u.id]; plan != nil {
 			speed = u.follow(plan, interval)
 			tag = fmt.Sprintf(" rute#%d", plan.id)
+			if speed == 0 {
+				// The unit reached the end of the line: it parks there until
+				// the server closes the delivery.
+				status = "idle"
+			}
 		} else {
+			// No route (any more): the unit wanders again. If it had just
+			// finished a delivery, the route is closed in the database, so the
+			// next tick the map shows no line for this unit.
+			if u.arrived {
+				u.arrived = false
+				if err := clearRoute(client, api, u.id, token); err != nil {
+					log.Printf("%s: could not close the finished route: %v", u.code, err)
+				} else {
+					tag = " rute selesai"
+				}
+			}
 			u.routeID = 0
 			speed = u.step(rng, interval)
 		}
@@ -234,7 +260,7 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 			"lat":       u.lat,
 			"lng":       u.lng,
 			"speed_kmh": math.Round(speed*10) / 10,
-			"status":    "moving",
+			"status":    status,
 		}
 		if err := postJSON(client, fmt.Sprintf("%s/api/vehicles/%d/position", api, u.id), body, nil, token); err != nil {
 			var se *statusError
@@ -251,6 +277,31 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 	log.Printf("%s", joinLines(progress))
 
 	return kept, nil
+}
+
+// clearRoute removes the active route of a vehicle. The server closes a
+// route on its own when the unit arrives, but the simulator does not rely on
+// it: a route left active would keep the line on the map for a delivery that
+// is already over.
+func clearRoute(client *http.Client, api string, vehicleID int64, token string) error {
+	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/vehicles/%d/route", api, vehicleID), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+
+	return fmt.Errorf("DELETE /api/vehicles/%d/route returned %s (%s)", vehicleID, resp.Status, bytes.TrimSpace(raw))
 }
 
 // fetchRoutes returns the active delivery routes keyed by vehicle id.
@@ -305,6 +356,14 @@ func newPathPlan(r apiRoute) *pathPlan {
 		plan.pts = append(plan.pts, [2]float64{pair[1], pair[0]}) // GeoJSON is lng,lat
 	}
 
+	// A line that repeats a point has no length to drive: the unit would sit
+	// on the spot forever. Such a line is dropped, and the unit wanders as
+	// if it had no route at all.
+	plan.pts = dropRepeated(plan.pts)
+	if len(plan.pts) < 2 {
+		return nil
+	}
+
 	plan.cum = append(plan.cum, 0)
 	for i := 1; i < len(plan.pts); i++ {
 		plan.total += haversineMeters(plan.pts[i-1][0], plan.pts[i-1][1], plan.pts[i][0], plan.pts[i][1])
@@ -317,6 +376,22 @@ func newPathPlan(r apiRoute) *pathPlan {
 	return plan
 }
 
+// dropRepeated removes the points that repeat their predecessor.
+func dropRepeated(pts [][2]float64) [][2]float64 {
+	out := make([][2]float64, 0, len(pts))
+	for _, p := range pts {
+		if len(out) > 0 {
+			last := out[len(out)-1]
+			if math.Abs(last[0]-p[0]) < 1e-7 && math.Abs(last[1]-p[1]) < 1e-7 {
+				continue
+			}
+		}
+		out = append(out, p)
+	}
+
+	return out
+}
+
 // follow drives a unit along its route and returns the speed it reports.
 //
 // A new route always starts at its origin. Projecting the truck's current spot
@@ -324,10 +399,14 @@ func newPathPlan(r apiRoute) *pathPlan {
 // whichever endpoint is nearest — usually the destination — so the delivery
 // would "finish" without driving anywhere. A delivery plan begins at the
 // pickup, so that is where the unit is placed when the plan arrives.
+//
+// The speed is 0 on the last step: the unit has arrived, and the server
+// closes the route when it reports that position.
 func (u *unit) follow(plan *pathPlan, interval time.Duration) float64 {
 	if u.routeID != plan.id {
 		u.routeID = plan.id
 		u.routePos = 0
+		u.arrived = false
 	}
 
 	speed := 30 + float64(u.id%4)*6 // 30-48 km/h, stable per unit
@@ -335,6 +414,7 @@ func (u *unit) follow(plan *pathPlan, interval time.Duration) float64 {
 	if u.routePos >= plan.total {
 		u.routePos = plan.total
 		speed = 0 // arrived; the API closes the route on the next position
+		u.arrived = true
 	}
 
 	u.lat, u.lng = pointAt(plan, u.routePos)

@@ -150,6 +150,20 @@ mengirim satu posisi per interval:
 go run ./cmd/simulator -api http://localhost:8091 -count 5 -interval 2s
 ```
 
+#### Alur "Plan route" (Fleet)
+
+1. Admin pilih unit → **Plan route**. Titik awal otomatis diisi dengan posisi
+   terakhir unit tersebut.
+2. Admin klik ikon crosshair pada baris **B** (tujuan), lalu klik peta.
+   Permintaan langsung dikirim ke `POST /api/vehicles/:id/route`.
+3. Backend memanggil OSRM. Bila engine tidak/snapping kedua titik ke simpul
+   yang sama, rute memakai garis lurus (`source: "direct"`), bukan gagal.
+4. Peta menggambar polyline biru tebal dan kamera menyesuai ke jalur baru.
+   Card kendaraan menampilkan *"Following route to [nama tujuan]"*.
+5. Simulator membaca `GET /api/routes` tiap tick: unit tanpa rute bergerak
+   bebas, unit dengan rute menyusuri polyline dan menutup rute (status
+   `completed`) ketika tiba di ujung garis.
+
 ### 5. Frontend
 
 ```bash
@@ -194,7 +208,7 @@ go run ./cmd/import-regions -file data/idn_admin_boundaries.geojson.zip -levels 
 | `POST` | `/api/zones/from-region` | buat zona dari kode wilayah administratif |
 | `GET` | `/api/islands` | gugus pulau yang bisa dijadikan zona |
 | `POST` | `/api/zones/from-island` | buat zona dari gugus pulau |
-| `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir / daftar unit baru |
+| `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir + rute aktif (`active_route`) / daftar unit baru |
 | `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `status` opsional) → disiar ke WS |
 | `GET` | `/api/vehicles/stream` | WebSocket: frame `snapshot` saat connect, lalu `position` |
 | `GET` | `/api/routes` | semua rute |

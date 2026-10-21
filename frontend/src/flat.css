@@ -48,8 +48,8 @@
   --danger-line: rgb(180 35 31 / 32%);
 
   --scrim: rgb(14 15 18 / 46%);
-  --route: #c8161d;
-  --route-done: #bdbfc6;
+  --route: #1d4ed8;
+  --route-done: #94a3b8;
   --map-ink: #17181b;
 }
 
@@ -90,8 +90,8 @@
   --danger-line: rgb(224 100 92 / 36%);
 
   --scrim: rgb(4 4 6 / 66%);
-  --route: #ef6a70;
-  --route-done: #4c4f57;
+  --route: #60a5fa;
+  --route-done: #475569;
   --map-ink: #ececee;
 }
 

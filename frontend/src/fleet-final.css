@@ -43,8 +43,8 @@
   --danger-line: rgb(180 35 31 / 32%);
 
   --scrim: rgb(15 18 25 / 46%);
-  --route: #c8161d;
-  --route-done: #c3c7cf;
+  --route: #1d4ed8;
+  --route-done: #94a3b8;
   --map-ink: #14171c;
   --elev-1: 0 1px 2px rgb(16 24 40 / 5%), 0 1px 3px rgb(16 24 40 / 7%);
   --elev-2: 0 4px 12px -2px rgb(16 24 40 / 10%), 0 2px 4px -2px rgb(16 24 40 / 6%);
@@ -85,8 +85,8 @@
   --danger-line: rgb(240 119 122 / 38%);
 
   --scrim: rgb(3 4 8 / 66%);
-  --route: #ef6a70;
-  --route-done: #4a4f5a;
+  --route: #60a5fa;
+  --route-done: #475569;
   --map-ink: #eceef3;
   --elev-1: none;
   --elev-2: 0 8px 24px -6px rgb(0 0 0 / 55%);

@@ -6,6 +6,7 @@
 package vehicle
 
 import (
+	"encoding/json"
 	"math"
 	"sort"
 	"strings"
@@ -71,6 +72,36 @@ type Vehicle struct {
 	SpeedKmh   float64    `json:"speed_kmh"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	DriverID   *int64     `json:"driver_id"`
+	// The delivery route the unit is following right now, if any. It travels
+	// with the fleet list so the map can draw the line and the fleet card can
+	// say where the unit is heading without a second request.
+	ActiveRoute *Route `json:"active_route"`
+}
+
+// RouteStop is one end of a delivery route.
+type RouteStop struct {
+	Lat  float64 `json:"lat"`
+	Lng  float64 `json:"lng"`
+	Name string  `json:"name"`
+}
+
+// Route is a planned delivery path: the line the map draws and the unit
+// drives. The geometry is PostGIS' GeoJSON (coordinates are lng, lat) and is
+// passed through untouched.
+type Route struct {
+	ID          int64           `json:"id"`
+	VehicleID   int64           `json:"vehicle_id"`
+	Origin      RouteStop       `json:"origin"`
+	Destination RouteStop       `json:"destination"`
+	Geometry    json.RawMessage `json:"geometry"`
+	DistanceM   float64         `json:"distance_m"`
+	DurationS   float64         `json:"duration_s"`
+	Source      string          `json:"source"`
+	Status      string          `json:"status"`
+	Progress    float64         `json:"progress"`
+	RemainingM  float64         `json:"remaining_m"`
+	CreatedAt   time.Time       `json:"created_at"`
+	EndedAt     *time.Time      `json:"ended_at"`
 }
 
 // CreateInput is the body of POST /api/vehicles.
