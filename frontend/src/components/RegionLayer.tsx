@@ -23,36 +23,44 @@ interface RegionLayerProps {
 
 function regionStyle(level: number, hovered: boolean): L.PathOptions {
   const base: L.PathOptions = {
-    color: '#334155',
-    weight: 1.2,
+    color: '#64748b',
+    weight: 1.1,
     fill: true,
+    fillColor: '#64748b',
     fillOpacity: 0.02,
-    opacity: 0.75,
+    opacity: 0.6,
+    lineJoin: 'round',
     className: 'region-polygon',
   }
   if (level === 0) {
-    base.color = '#0f172a'
-    base.weight = 2.4
-    base.fillOpacity = 0
-    base.opacity = 0.85
-  } else if (level === 1) {
-    base.color = '#1e293b'
-    base.weight = 1.6
-    base.fillOpacity = 0.03
-  } else if (level === 2) {
     base.color = '#475569'
-    base.weight = 1
-    base.fillOpacity = 0.02
+    base.weight = 2
+    base.fillOpacity = 0
+    base.opacity = 0.8
+  } else if (level === 1) {
+    base.color = '#a3191f'
+    base.fillColor = '#a3191f'
+    base.weight = 1.5
+    base.fillOpacity = 0.035
+    base.dashArray = '6 5'
+  } else if (level === 2) {
+    base.color = '#b4636a'
+    base.fillColor = '#b4636a'
+    base.weight = 1.1
+    base.fillOpacity = 0.03
   } else {
-    base.color = '#64748b'
-    base.weight = 0.7
-    base.fillOpacity = 0.015
+    base.color = '#8b8f99'
+    base.fillColor = '#8b8f99'
+    base.weight = 0.8
+    base.fillOpacity = 0.025
   }
   if (hovered) {
-    base.color = '#f97316'
+    base.color = '#e0343b'
+    base.fillColor = '#e0343b'
     base.weight = (base.weight ?? 1) + 1
     base.opacity = 1
-    base.fillOpacity = 0.08
+    base.fillOpacity = 0.12
+    base.dashArray = undefined
   }
   return base
 }

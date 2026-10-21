@@ -1,4 +1,5 @@
 import type { SVGProps } from 'react'
+import type { VehicleKind } from '../lib/types'
 
 type P = SVGProps<SVGSVGElement>
 
@@ -175,14 +176,58 @@ export const IconFile = (p: P) => (
   </svg>
 )
 
-export const IconTruck = (p: P) => (
+/**
+ * Stroke geometry per vehicle kind, drawn on a 24×24 grid. The React icons below
+ * and the Leaflet marker HTML in VehicleLayer both render this one list, so a
+ * van can never look like a truck on the map and like a van in the list.
+ */
+type KindShape = { d: string } | { cx: number; cy: number; r: number }
+
+export const VEHICLE_KIND_SHAPES: Record<VehicleKind, KindShape[]> = {
+  // Tall cargo box with a low cab: the boxy one, roof at the very top.
+  truck: [
+    { d: 'M3 17V5.5h8.5V17' },
+    { d: 'M11.5 17v-5.5h5l3 3.5V17' },
+    { cx: 6.5, cy: 17.5, r: 2 },
+    { cx: 16.5, cy: 17.5, r: 2 },
+  ],
+  // One continuous body, long flat roof, short nose: the lowest, widest shape.
+  van: [
+    { d: 'M2.5 17V9.5h14.5l2.5 2.5V17' },
+    { d: 'M9.5 9.5v7.5' },
+    { cx: 6.5, cy: 17.5, r: 1.8 },
+    { cx: 16, cy: 17.5, r: 1.8 },
+  ],
+  motorcycle: [
+    { cx: 5.5, cy: 16.5, r: 2.6 },
+    { cx: 18.5, cy: 16.5, r: 2.6 },
+    { d: 'M8 16.5l3.5-6h4l3 6' },
+    { d: 'M9.5 10.5h5' },
+  ],
+  // Cab up front, open tray behind: the top edge steps down after the cab.
+  pickup: [
+    { d: 'M3 17V9h4.6l2.4 4H10V17' },
+    { d: 'M11 17v-2.5h8.5V17' },
+    { cx: 6, cy: 17.5, r: 1.8 },
+    { cx: 17, cy: 17.5, r: 1.8 },
+  ],
+}
+
+const kindIcon = (kind: VehicleKind) => (p: P) => (
   <svg {...base(p)}>
-    <path d="M2.5 16.5V7h10.5v9.5" />
-    <path d="M13 10.5h4.2L20.5 14v2.5h-7.5" />
-    <circle cx="6.5" cy="17.5" r="1.7" />
-    <circle cx="17" cy="17.5" r="1.7" />
+    {VEHICLE_KIND_SHAPES[kind].map((s, i) =>
+      'd' in s ? <path key={i} d={s.d} /> : <circle key={i} cx={s.cx} cy={s.cy} r={s.r} />,
+    )}
   </svg>
 )
+
+export const IconTruck = kindIcon('truck')
+
+export const IconVan = kindIcon('van')
+
+export const IconMotorcycle = kindIcon('motorcycle')
+
+export const IconPickup = kindIcon('pickup')
 
 export const IconRoute = (p: P) => (
   <svg {...base(p)}>
@@ -243,5 +288,55 @@ export const IconClock = (p: P) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="8.5" />
     <path d="M12 7.5V12l3 2" />
+  </svg>
+)
+
+export const IconLogout = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />
+    <path d="M10 8 6 12l4 4" />
+    <path d="M6 12h9" />
+  </svg>
+)
+
+export const IconDashboard = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="3" y="3" width="7.5" height="9" rx="1.8" />
+    <rect x="13.5" y="3" width="7.5" height="5.5" rx="1.8" />
+    <rect x="13.5" y="12" width="7.5" height="9" rx="1.8" />
+    <rect x="3" y="15.5" width="7.5" height="5.5" rx="1.8" />
+  </svg>
+)
+
+export const IconArrowRight = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+)
+
+export const IconMaximize = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+  </svg>
+)
+
+export const IconActivity = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M3 12h4l3-8 4 16 3-8h4" />
+  </svg>
+)
+
+export const IconUsers = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3.5 20a5.5 5.5 0 0 1 11 0" />
+    <path d="M16.4 5.6a3.2 3.2 0 0 1 0 4.8M17.5 14.4A5.5 5.5 0 0 1 20.5 20" />
+  </svg>
+)
+
+export const IconShield = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M12 3 5 6v5.5c0 4.4 3 7.6 7 9.5 4-1.9 7-5.1 7-9.5V6l-7-3Z" />
+    <path d="m9 12 2.2 2.2L15.5 10" />
   </svg>
 )

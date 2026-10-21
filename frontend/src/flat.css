@@ -1,0 +1,973 @@
+/* ==========================================================================
+   Flat layer — loaded LAST (after ui-premium.css).
+   Flat UI: solid fills, hairline borders, no glow, no drop shadows, no hover
+   lift. Part 2 (bottom of this file) adds the premium refinements: type,
+   spacing, tinted icon chips, whisper-thin gradients and responsive tuning.
+   Remove the `import './flat.css'` line in App.tsx to revert.
+   ========================================================================== */
+
+/* ==========================================================================
+   COLOUR SYSTEM — one deep brand red on neutral greys (corporate, calm).
+   Green / amber / blue stay as functional status colours only.
+   Declared here (last in the cascade) so every page picks them up.
+   ========================================================================== */
+:root,
+:root:not([data-theme='dark']) .dash {
+  color-scheme: light;
+  --bg: #f5f5f6;
+  --panel: #fafafa;
+  --panel-solid: #ffffff;
+  --panel-2: #f1f1f3;
+  --field: #ffffff;
+  --line: #e6e6e9;
+  --line-strong: #d2d3d8;
+
+  --text: #17181b;
+  --text-2: #3d3f45;
+  --muted: #6c6f78;
+
+  --accent: #c8161d;
+  --accent-hover: #a91017;
+  --accent-soft: rgb(200 22 29 / 7%);
+  --accent-line: rgb(200 22 29 / 36%);
+  --btn: #c8161d;
+  --btn-hover: #a91017;
+  --on-btn: #ffffff;
+
+  --ok: var(--accent);
+  --ok-soft: var(--accent-soft);
+  --live: var(--accent);
+  --live-soft: var(--accent-soft);
+  --info: #566070;
+  --warn: #b7791f;
+  --warn-soft: rgb(183 121 31 / 11%);
+  --idle: #7a7e88;
+  --idle-soft: rgb(122 126 136 / 12%);
+  --danger: #b4231f;
+  --danger-soft: rgb(180 35 31 / 8%);
+  --danger-line: rgb(180 35 31 / 32%);
+
+  --scrim: rgb(14 15 18 / 46%);
+  --route: #c8161d;
+  --route-done: #bdbfc6;
+  --map-ink: #17181b;
+}
+
+:root[data-theme='dark'],
+:root[data-theme='dark'] .dash {
+  color-scheme: dark;
+  --bg: #0e0f11;
+  --panel: #141517;
+  --panel-solid: #191b1e;
+  --panel-2: #212327;
+  --field: #121315;
+  --line: rgb(255 255 255 / 7%);
+  --line-strong: rgb(255 255 255 / 13%);
+
+  --text: #ececee;
+  --text-2: #c6c8cd;
+  --muted: #8e9199;
+
+  --accent: #ef6a70;
+  --accent-hover: #f48c91;
+  --accent-soft: rgb(239 106 112 / 11%);
+  --accent-line: rgb(239 106 112 / 36%);
+  --btn: #c8242b;
+  --btn-hover: #dc3037;
+  --on-btn: #ffffff;
+
+  --ok: var(--accent);
+  --ok-soft: var(--accent-soft);
+  --live: var(--accent);
+  --live-soft: var(--accent-soft);
+  --info: #9aa3b2;
+  --warn: #d9a441;
+  --warn-soft: rgb(217 164 65 / 12%);
+  --idle: #9a9ea8;
+  --idle-soft: rgb(154 158 168 / 12%);
+  --danger: #e0645c;
+  --danger-soft: rgb(224 100 92 / 12%);
+  --danger-line: rgb(224 100 92 / 36%);
+
+  --scrim: rgb(4 4 6 / 66%);
+  --route: #ef6a70;
+  --route-done: #4c4f57;
+  --map-ink: #ececee;
+}
+
+/* shared data colours (tones for KPI / filters / roles) */
+.dash .kpi:has(.kpi-icon.ok) { --k: var(--ok); }
+.dash .kpi:has(.kpi-icon.warn) { --k: var(--warn); }
+.dash .kpi:has(.kpi-icon.info) { --k: var(--info); }
+.dash .um-stat.admin { --k: var(--accent); }
+.dash .um-stat.viewer { --k: #7d8693; }
+.dash .um-stat.driver { --k: var(--warn); }
+.lt-stat.moving { --k: var(--accent); }
+.lt-stat.idle { --k: #d49a3a; }
+.lt-stat.offline { --k: #7d8693; }
+
+:root,
+:root[data-theme='dark'],
+.dash,
+:root[data-theme='dark'] .dash {
+  --d-shadow: none;
+  --d-shadow-hover: none;
+  --shadow-panel: none;
+  --shadow-card: none;
+  --shadow-btn: none;
+  --grad: var(--btn);
+  --grad-hover: var(--btn-hover);
+}
+
+/* ---- backgrounds: solid ---- */
+.app,
+:root[data-theme='dark'] .app,
+.auth-screen,
+.dash,
+.dash .main,
+.dash .stage {
+  background: var(--bg);
+}
+
+/* ---- surfaces: solid fill + hairline ---- */
+.dash .rail,
+.dash .topbar,
+.dash .d-card,
+.dash .um-card,
+.dash .map-card,
+.dash .panel-pane,
+.detail-panel,
+.entity-item.selected,
+.lt-card,
+.lt-detail,
+.um-modal,
+.dialog-card,
+.sel-menu,
+.toast,
+.dash .toast,
+.auth-form,
+.auth-card {
+  background: var(--panel-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none !important;
+}
+
+.dash .rail {
+  background: var(--panel);
+}
+
+.dash .rail,
+.dash .topbar {
+  border-color: var(--line);
+}
+
+.dash .d-card,
+.dash .um-card,
+.lt-card,
+.lt-detail,
+.dash .map-card {
+  border: 1px solid var(--line);
+}
+
+.entity-item.selected {
+  background: var(--accent-soft);
+}
+
+.um-modal::before,
+.um-modal-head {
+  background: none;
+}
+
+/* overlays: plain dim, no blur */
+.um-overlay,
+.overlay,
+.dialog-overlay {
+  background: var(--scrim);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ---- stat cards: white, hairline, no tint, no lift ---- */
+.dash .kpi,
+.dash .um-stat,
+.lt-stat {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  transform: none;
+  animation: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.dash .kpi::before,
+.dash .kpi::after,
+.dash .um-stat::before,
+.dash .um-stat::after {
+  display: none;
+}
+
+.dash .kpi:hover,
+.dash .um-stat:hover,
+.lt-stat:hover,
+.lt-card:hover,
+.dash .d-card:hover,
+.dash .um-card:hover,
+.dash .rail-item:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.dash .kpi:hover,
+.dash .um-stat:hover,
+.lt-stat:hover,
+.lt-card:hover {
+  border-color: var(--line-strong);
+}
+
+.dash .kpi:active,
+.dash .um-stat:active,
+.lt-stat:active {
+  transform: none;
+}
+
+.dash .kpi-sub {
+  border-top: 1px solid var(--line);
+}
+
+/* selected filter: light tint + coloured border, no ring or glow */
+.dash .um-stat.on,
+.lt-stat.on {
+  background: color-mix(in srgb, var(--k, var(--accent)) 8%, var(--panel-solid));
+  border-color: var(--k, var(--accent));
+  box-shadow: none;
+}
+
+.lt-stat {
+  --k: var(--accent);
+}
+.lt-stat.moving {
+  --k: var(--accent);
+}
+.lt-stat.idle {
+  --k: #d49a3a;
+}
+.lt-stat.offline {
+  --k: #7d8693;
+}
+
+/* icon tiles: solid colour, no gloss */
+.dash .kpi-icon,
+.dash .um-stat-icon {
+  background: var(--k);
+  box-shadow: none;
+  transition: none;
+}
+
+.dash .kpi-icon svg,
+.dash .um-stat-icon svg {
+  filter: none;
+}
+
+.dash .kpi:hover .kpi-icon,
+.dash .um-stat:hover .um-stat-icon {
+  transform: none;
+}
+
+/* status bar on filter tiles: solid */
+.lt-stat .lt-stat-bar {
+  height: 3px;
+  box-shadow: none;
+  background: var(--k);
+}
+
+/* ---- brand mark, avatars: solid ---- */
+.brand-mark,
+.dash .brand-mark,
+:root[data-theme='dark'] .dash .brand-mark {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+
+.um-avatar,
+.um-modal-avatar {
+  background: var(--accent);
+  box-shadow: none;
+}
+.um-avatar.viewer,
+.um-modal-avatar.viewer {
+  background: #7d8693;
+}
+.um-avatar.driver,
+.um-modal-avatar.driver {
+  background: var(--warn);
+}
+.d-avatar,
+.lt-avatar,
+.entity-avatar,
+.fleet-art {
+  box-shadow: none;
+}
+.lt-avatar,
+.fleet-art {
+  background: color-mix(in srgb, var(--vb, var(--accent)) 14%, var(--panel-solid));
+}
+.entity-avatar {
+  background: var(--ok-soft);
+}
+.entity-avatar.inactive {
+  background: var(--idle-soft);
+}
+
+.lt-bar > span {
+  background: var(--accent);
+}
+.lt-detail.moving::before {
+  background: var(--accent);
+}
+.lt-detail.idle::before {
+  background: #d49a3a;
+}
+
+/* ---- navigation ---- */
+.dash .rail-item.active,
+:root[data-theme='dark'] .dash .rail-item.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
+.dash .rail-item.active svg {
+  color: var(--accent);
+  filter: none;
+}
+
+.dash .rail-item.active .rail-count {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.dash .rail-item.active::before {
+  display: block;
+}
+
+/* ---- buttons: solid ---- */
+:root .dash .btn.primary,
+:root[data-theme='dark'] .dash .btn.primary,
+:root[data-theme='dark'] .btn.primary,
+.btn.primary {
+  background: var(--btn) !important;
+  border: 1px solid var(--btn) !important;
+  color: var(--on-btn) !important;
+  box-shadow: none !important;
+  filter: none;
+  transform: none !important;
+}
+
+:root .dash .btn.primary:hover:not(:disabled),
+:root[data-theme='dark'] .dash .btn.primary:hover:not(:disabled),
+:root[data-theme='dark'] .btn.primary:hover:not(:disabled),
+.btn.primary:hover:not(:disabled) {
+  background: var(--btn-hover) !important;
+  border-color: var(--btn-hover) !important;
+  box-shadow: none !important;
+  filter: none;
+  transform: none !important;
+}
+
+:root[data-theme='dark'] .dash .btn.primary {
+  color: var(--on-btn) !important;
+}
+
+.btn.danger-solid {
+  background: var(--danger);
+  box-shadow: none;
+}
+
+.dash .btn.secondary,
+.btn.secondary,
+.dash .icon-btn,
+.dash .rail-tool {
+  box-shadow: none;
+  transform: none;
+}
+
+/* ---- inputs: flat, simple focus border ---- */
+.dash .search,
+.dash input,
+.dash select,
+.dash textarea,
+.field input,
+.field select,
+.field textarea,
+.um-search,
+.um-modal input,
+.um-modal textarea {
+  background: var(--field);
+  box-shadow: none;
+}
+
+.dash .search:focus-within,
+.dash input:focus,
+.dash select:focus,
+.dash textarea:focus,
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.um-search:focus-within,
+.um-modal input:focus,
+.um-modal textarea:focus {
+  border-color: var(--accent);
+  box-shadow: none;
+  outline: none;
+}
+
+.dash .pane-switch {
+  box-shadow: none;
+}
+
+/* chips / badges */
+.dash .role-badge,
+.lt-chip,
+.dash .d-badge,
+.dash .status-pill {
+  box-shadow: none;
+}
+
+/* no entrance animation */
+.dash .kpi,
+.dash .d-card,
+.dash .um-stat {
+  animation: none;
+}
+
+/* viewer / driver icon tiles: keep a solid, readable colour */
+.dash .um-stat.viewer .um-stat-icon {
+  background: #7d8693;
+  opacity: 1;
+}
+.dash .um-stat.driver .um-stat-icon {
+  background: var(--warn);
+  opacity: 1;
+}
+
+/* ==========================================================================
+   PART 2 — Premium refinements (still flat: gradients are <= 4% tint)
+   ========================================================================== */
+:root {
+  --p-radius: 16px;
+  --p-radius-sm: 10px;
+  --p-hair: color-mix(in srgb, var(--line) 80%, transparent);
+  /* whisper gradient: panel colour -> panel colour + 3% of accent */
+  --p-sheen: linear-gradient(180deg, var(--panel-solid) 0%, color-mix(in srgb, var(--accent) 2%, var(--panel-solid)) 100%);
+  --p-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* ---- page: barely-there top tint so the canvas isn't dead-flat ---- */
+.dash,
+.dash .main {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 2.5%, var(--bg)) 0, var(--bg) 320px);
+}
+
+/* ---- type ---- */
+.dash {
+  font-feature-settings: 'cv11', 'ss01', 'tnum';
+}
+.dash h1,
+.dash h2,
+.dash h3 {
+  letter-spacing: -0.02em;
+}
+.dash .kpi-label,
+.dash .rail-section {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dash .kpi-value,
+.dash .um-stat-text b,
+.lt-stat b {
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+.dash .kpi-value {
+  font-size: clamp(30px, 2.3vw, 36px);
+  line-height: 1.05;
+}
+.dash .kpi-sub,
+.dash .um-stat-text span,
+.lt-stat span {
+  font-weight: 500;
+}
+
+/* ---- surfaces ---- */
+.dash .d-card,
+.dash .um-card,
+.dash .kpi,
+.dash .um-stat,
+.dash .map-card,
+.dash .panel-pane,
+.lt-detail,
+.lt-card {
+  border-radius: var(--p-radius);
+  border-color: var(--p-hair);
+}
+
+.dash .d-card,
+.dash .um-card,
+.dash .kpi,
+.dash .um-stat,
+.lt-stat,
+.lt-card {
+  background: var(--p-sheen);
+}
+
+/* a single crisp 1px lift line under cards, no blur */
+.dash .d-card,
+.dash .kpi,
+.dash .um-stat,
+.dash .um-card {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--line) 70%, transparent) !important;
+}
+
+.dash .d-card {
+  padding: 20px 22px 14px;
+}
+
+.dash .d-card-head {
+  padding-bottom: 14px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--p-hair);
+}
+
+.dash .d-card-head h2 {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.dash .d-link {
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin-right: -8px;
+  transition: background-color 0.15s ease;
+}
+.dash .d-link:hover {
+  background: var(--accent-soft);
+}
+
+/* ---- icon chips: tinted square, coloured glyph (modern, calm) ---- */
+.dash .kpi-icon,
+.dash .um-stat-icon,
+.dash .um-stat.viewer .um-stat-icon,
+.dash .um-stat.driver .um-stat-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  color: var(--k);
+  background: color-mix(in srgb, var(--k) 13%, var(--panel-solid));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 22%, transparent);
+}
+.dash .kpi-icon svg,
+.dash .um-stat-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.dash .um-stat.viewer .um-stat-icon,
+.dash .kpi-icon.accent {
+  color: var(--k);
+}
+.dash .kpi-icon.ok,
+.dash .kpi-icon.warn,
+.dash .kpi-icon.info,
+.dash .kpi-icon.accent {
+  color: var(--k);
+}
+
+/* hover: border takes the card's colour, nothing moves */
+.dash .kpi:hover,
+.dash .um-stat:hover {
+  border-color: color-mix(in srgb, var(--k) 45%, var(--line));
+}
+
+/* selected */
+.dash .um-stat.on,
+.lt-stat.on {
+  background: color-mix(in srgb, var(--k, var(--accent)) 7%, var(--panel-solid));
+  border-color: color-mix(in srgb, var(--k, var(--accent)) 70%, transparent);
+  box-shadow: none !important;
+}
+.dash .um-stat.on .um-stat-icon {
+  background: var(--k);
+  color: #fff;
+  box-shadow: none;
+}
+
+/* filter tiles: slim status bar becomes a rounded underline inset from edges */
+.lt-stat {
+  border-radius: 12px;
+}
+.lt-stat .lt-stat-bar {
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  opacity: 0.85;
+}
+.lt-stat.on .lt-stat-bar {
+  opacity: 1;
+}
+
+/* ---- rail / nav ---- */
+.dash .rail {
+  background: var(--panel);
+  padding: 20px 14px 14px;
+}
+.dash .brand-mark {
+  border-radius: 12px;
+}
+.dash .rail-item {
+  height: 44px;
+  border-radius: 12px;
+  font-weight: 500;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.dash .rail-item:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  color: var(--text);
+}
+.dash .rail-item.active,
+:root[data-theme='dark'] .dash .rail-item.active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-weight: 600;
+}
+.dash .rail-item.active::before {
+  left: -14px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+}
+
+.dash .topbar {
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}
+
+/* ---- buttons ---- */
+:root .dash .btn.primary,
+:root[data-theme='dark'] .dash .btn.primary,
+:root[data-theme='dark'] .btn.primary,
+.btn.primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--btn) 92%, #fff) 0%, var(--btn) 100%) !important;
+  border: 1px solid color-mix(in srgb, var(--btn) 86%, #000) !important;
+  border-radius: var(--p-radius-sm);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+:root .dash .btn.primary:hover:not(:disabled),
+:root[data-theme='dark'] .dash .btn.primary:hover:not(:disabled),
+:root[data-theme='dark'] .btn.primary:hover:not(:disabled),
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--btn-hover) 92%, #fff) 0%, var(--btn-hover) 100%) !important;
+}
+.btn.primary:focus-visible,
+.btn.secondary:focus-visible,
+.dash .icon-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--p-ring) !important;
+}
+.dash .btn.secondary,
+.btn.secondary,
+.dash .icon-btn {
+  border-radius: var(--p-radius-sm);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  font-weight: 600;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.dash .btn.secondary:hover:not(:disabled),
+.btn.secondary:hover:not(:disabled),
+.dash .icon-btn:hover {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--line-strong) 80%, var(--text));
+}
+
+/* ---- inputs ---- */
+.dash .search,
+.dash input,
+.dash select,
+.dash textarea,
+.field input,
+.field select,
+.field textarea,
+.um-search,
+.um-modal input,
+.um-modal textarea {
+  border-radius: var(--p-radius-sm);
+  border: 1px solid var(--line-strong);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.dash .search:focus-within,
+.dash input:focus,
+.dash select:focus,
+.dash textarea:focus,
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.um-search:focus-within,
+.um-modal input:focus,
+.um-modal textarea:focus {
+  border-color: var(--accent);
+  box-shadow: var(--p-ring);
+}
+
+/* ---- chips ---- */
+.dash .role-badge,
+.lt-chip,
+.dash .d-badge,
+.dash .status-pill {
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ---- floating layers: only these get a soft shadow, so they read as above ---- */
+.um-modal,
+.dialog-card,
+.sel-menu {
+  border-radius: 20px;
+  border: 1px solid var(--p-hair);
+  box-shadow: 0 24px 60px -24px rgb(16 24 40 / 35%) !important;
+}
+:root[data-theme='dark'] .um-modal,
+:root[data-theme='dark'] .dialog-card,
+:root[data-theme='dark'] .sel-menu {
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / 70%) !important;
+}
+.sel-menu {
+  border-radius: 14px;
+}
+.sel-option {
+  border-radius: 8px;
+}
+.sel-option:hover,
+.sel-option[aria-selected='true'] {
+  background: var(--accent-soft);
+}
+.um-overlay,
+.overlay,
+.dialog-overlay {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+/* ---- scrollbars ---- */
+.dash *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.dash *::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 38%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+.dash *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- gentle entrance (opacity only) ---- */
+@keyframes p-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.dash .kpi,
+.dash .um-stat,
+.dash .d-card {
+  animation: p-fade 0.4s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash .kpi,
+  .dash .um-stat,
+  .dash .d-card {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   Responsive tuning
+   ========================================================================== */
+@media (max-width: 1099px) {
+  .dash {
+    --d-gap: 16px;
+    --d-pad: 22px;
+  }
+}
+
+@media (max-width: 767px) {
+  .dash {
+    --d-gap: 12px;
+    --d-pad: 14px;
+  }
+  .dash .d-card {
+    padding: 16px 16px 10px;
+  }
+  .dash .d-card-head {
+    padding-bottom: 12px;
+  }
+  .dash .kpi,
+  .dash .um-stat {
+    border-radius: 14px;
+  }
+  .dash .kpi-icon,
+  .dash .um-stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .dash .kpi-icon svg,
+  .dash .um-stat-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+  .dash .kpi-value {
+    font-size: 26px;
+  }
+  .dash .kpi-label,
+  .dash .rail-section {
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+  }
+  .dash .bottom-nav {
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    border-top: 1px solid var(--p-hair);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+  .um-modal,
+  .dialog-card {
+    border-radius: 20px 20px 0 0;
+  }
+  .lt-stats {
+    gap: 6px;
+  }
+  .lt-stat {
+    padding: 9px 9px 12px;
+  }
+  .lt-stat b {
+    font-size: 19px;
+  }
+  .lt-stat span {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 380px) {
+  .dash .kpi-value {
+    font-size: 23px;
+  }
+  .dash .um-stat {
+    padding: 10px;
+  }
+  .lt-stat span {
+    font-size: 10.5px;
+  }
+}
+
+/* wide screens: keep content from stretching into a wall of cards */
+@media (min-width: 1700px) {
+  .dash .stage,
+  .dash .main > .stage {
+    max-width: 1680px;
+    margin-inline: auto;
+  }
+}
+
+/* ==========================================================================
+   Map chrome follows the theme tokens (popups, zoom controls, destination pin)
+   ========================================================================== */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip,
+:root[data-theme='dark'] .leaflet-popup-content-wrapper,
+:root[data-theme='dark'] .leaflet-popup-tip {
+  background: var(--panel-solid);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  box-shadow: 0 10px 28px -12px rgb(0 0 0 / 35%);
+}
+.leaflet-popup-tip {
+  box-shadow: none;
+}
+.leaflet-popup-content a,
+:root[data-theme='dark'] .leaflet-popup-content a {
+  color: var(--accent);
+}
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  background: var(--panel-solid);
+  color: var(--text);
+  border-bottom-color: var(--line);
+}
+.leaflet-bar a:hover {
+  background: var(--panel-2);
+}
+.leaflet-bar {
+  border: 1px solid var(--line-strong);
+  box-shadow: none;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.route-stop.dest {
+  background: var(--danger);
+}
+.route-stop.dest::after {
+  border-top-color: var(--danger);
+}
+::selection {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+/* dark mode: filled chips / avatars use the deep red with a white glyph */
+:root[data-theme='dark'] .dash .um-stat.on .um-stat-icon {
+  background: var(--btn);
+  color: #fff;
+}
+:root[data-theme='dark'] .dash .brand-mark,
+:root[data-theme='dark'] .um-avatar,
+:root[data-theme='dark'] .um-modal-avatar {
+  background: var(--btn);
+  color: #fff;
+}
+:root[data-theme='dark'] .um-avatar.viewer,
+:root[data-theme='dark'] .um-modal-avatar.viewer {
+  background: #5d616b;
+}
+:root[data-theme='dark'] .um-avatar.driver,
+:root[data-theme='dark'] .um-modal-avatar.driver {
+  background: var(--warn);
+}
+
+/* ---- final tuning for the red brand ---- */
+:root[data-theme='dark'] .dash .rail,
+:root[data-theme='dark'] .map-card {
+  background: var(--panel);
+}
+.dash .um-stat.on,
+.lt-stat.on {
+  background: color-mix(in srgb, var(--k, var(--accent)) 5%, var(--panel-solid));
+}
+.dash .rail-item.active,
+:root[data-theme='dark'] .dash .rail-item.active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}

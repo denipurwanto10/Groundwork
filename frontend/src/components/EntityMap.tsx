@@ -35,9 +35,9 @@ function pinIcon(status: 'active' | 'inactive' | 'draft', type: string, selected
 
 const JAKARTA: [number, number] = [-6.2, 106.85]
 
-// OpenStreetMap standard raster tiles: no API key, no extra provider. The pane
-// is desaturated in CSS (.tiles-mono) so the basemap reads black and white.
-// Override the endpoint with VITE_MAP_TILES_URL.
+// OpenStreetMap standard raster tiles: free, no API key. Tinted in CSS
+// (.tiles-gmaps) towards the Google Maps palette. Override the endpoint with
+// VITE_MAP_TILES_URL.
 const TILE_URL =
   (import.meta.env.VITE_MAP_TILES_URL as string | undefined) || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
@@ -95,7 +95,30 @@ function FitAllControl({ entities }: { entities: Entity[] }) {
   return null
 }
 
-/** Pan to the selected entity, keeping the pin clear of the detail card / bottom sheet. */
+/**
+ * The map lives in a card whose size changes with the page (nav rail, view
+ * switch, phone layout). Leaflet only reads its container size on window
+ * resize, so tell it whenever the card itself changes.
+ */
+function InvalidateOnResize() {
+  const map = useMap()
+  useEffect(() => {
+    const el = map.getContainer()
+    let frame = 0
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => map.invalidateSize({ animate: false }))
+    })
+    ro.observe(el)
+    return () => {
+      cancelAnimationFrame(frame)
+      ro.disconnect()
+    }
+  }, [map])
+  return null
+}
+
+/** Pan to the selected entity, keeping the pin clear of any inset. */
 function FlyToSelected({ entity, inset }: { entity: Entity | undefined; inset: MapInset }) {
   const map = useMap()
   const insetRef = useRef(inset)
@@ -265,6 +288,9 @@ interface Props {
   selectedVehicleId: number | null
   onVehicleSelect: (id: number | null) => void
   vehiclesVisible: boolean
+  /** Whether this account may drive a given unit by dragging its marker. */
+  canDrive: (v: Vehicle) => boolean
+  onDrive: (id: number, lat: number, lng: number) => void
   following: boolean
   onFollowChange: (following: boolean) => void
   fitFleetSignal: number
@@ -301,6 +327,8 @@ export default function EntityMap({
   selectedVehicleId,
   onVehicleSelect,
   vehiclesVisible,
+  canDrive,
+  onDrive,
   following,
   onFollowChange,
   fitFleetSignal,
@@ -327,13 +355,7 @@ export default function EntityMap({
       attributionControl={false}
       className={picking || routePick ? 'map picking' : 'map'}
     >
-      <TileLayer
-        key={theme}
-        attribution={MAP_ATTRIBUTION}
-        url={TILE_URL}
-        className="tiles-mono"
-        maxZoom={19}
-      />
+      <TileLayer key={theme} attribution={MAP_ATTRIBUTION} url={TILE_URL} className="tiles-gmaps" maxZoom={19} />
       {/* Official administrative boundaries (read-only, underneath zones) */}
       <RegionLayer
         level={regionLevel}
@@ -392,6 +414,8 @@ export default function EntityMap({
         selectedId={selectedVehicleId}
         onSelect={onVehicleSelect}
         visible={vehiclesVisible}
+        canDrive={canDrive}
+        onDrive={onDrive}
       />
       <FollowVehicle
         vehicle={vehicles.find((v) => v.id === selectedVehicleId)}
@@ -399,6 +423,7 @@ export default function EntityMap({
         onFollowChange={onFollowChange}
         inset={inset}
       />
+      <InvalidateOnResize />
       <FitFleet vehicles={vehicles} signal={fitFleetSignal} inset={inset} />
       <GlideGuard />
       <ZoomControl position="topright" />

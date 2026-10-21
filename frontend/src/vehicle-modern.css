@@ -1,0 +1,1019 @@
+/* ==========================================================================
+   Vehicle modern — illustrated map markers (ride-hailing style) + tidy
+   live-tracking panel. Imported LAST so it overrides earlier layers.
+   ========================================================================== */
+
+/* Colour tokens derived from the status colour (--veh) */
+.veh,
+.lt-avatar {
+  --vb: var(--veh, #7d8693);
+  --vb-light: color-mix(in srgb, var(--vb) 55%, #fff);
+  --vb-dark: color-mix(in srgb, var(--vb) 72%, #000);
+}
+
+/* --------------------------------------------------------------------------
+   1. Map marker: top-down vehicle that turns toward its heading
+   -------------------------------------------------------------------------- */
+.veh-wrap.leaflet-marker-icon {
+  transition: transform 1.6s linear;
+  overflow: visible;
+}
+
+.veh {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: inherit;
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0;
+  box-shadow: none !important;
+  outline: 0;
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.veh::after,
+.veh.is-moving::after {
+  display: none !important;
+}
+
+.veh:hover {
+  transform: scale(1.08);
+}
+
+.veh-body {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 30px;
+  height: 45px;
+  margin: -22.5px 0 0 -15px;
+  transform: rotate(var(--hd, 0deg));
+  transition: transform 0.9s ease;
+}
+
+.veh-body svg {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 5px 5px rgb(8 12 20 / 38%)) drop-shadow(0 0 1px rgb(8 12 20 / 55%));
+}
+
+.veh.motorcycle .veh-body {
+  width: 26px;
+  height: 39px;
+  margin: -19.5px 0 0 -13px;
+}
+
+.veh.truck .veh-body {
+  width: 28px;
+  height: 46px;
+  margin: -23px 0 0 -14px;
+}
+
+.veh.selected .veh-body {
+  width: 38px;
+  height: 57px;
+  margin: -28.5px 0 0 -19px;
+}
+
+.veh.selected.motorcycle .veh-body {
+  width: 33px;
+  height: 50px;
+  margin: -25px 0 0 -16.5px;
+}
+
+.veh.selected.truck .veh-body {
+  width: 35px;
+  height: 58px;
+  margin: -29px 0 0 -17.5px;
+}
+
+/* Soft ground disc under the vehicle, in the status colour */
+.veh-ground {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--vb) 34%, transparent) 0%, color-mix(in srgb, var(--vb) 12%, transparent) 62%, transparent 70%);
+  pointer-events: none;
+}
+
+.veh.selected .veh-ground {
+  inset: -2px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--vb) 42%, transparent) 0%, color-mix(in srgb, var(--vb) 16%, transparent) 62%, transparent 70%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--vb) 55%, transparent);
+}
+
+/* Headlight beam: a soft light cone ahead of a moving unit */
+.veh-beam,
+.veh-trail {
+  position: absolute;
+  left: 50%;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.veh-beam {
+  top: -40px;
+  width: 54px;
+  height: 46px;
+  margin-left: -27px;
+  background: linear-gradient(to top, rgb(255 244 190 / 70%) 0%, rgb(255 244 190 / 22%) 55%, rgb(255 244 190 / 0%) 100%);
+  clip-path: polygon(38% 100%, 62% 100%, 100% 0, 0 0);
+  filter: blur(1.5px);
+  transform-origin: 50% 100%;
+}
+
+/* Motion streaks behind the unit */
+.veh-trail {
+  top: 100%;
+  width: 22px;
+  height: 30px;
+  margin: -2px 0 0 -11px;
+  background:
+    linear-gradient(to bottom, var(--vb), transparent) 3px 0 / 2px 100% no-repeat,
+    linear-gradient(to bottom, var(--vb), transparent) 10px 0 / 2px 100% no-repeat,
+    linear-gradient(to bottom, var(--vb), transparent) 17px 0 / 2px 100% no-repeat;
+  transform-origin: 50% 0;
+}
+
+.veh.is-moving .veh-beam {
+  opacity: 1;
+  animation: veh-beam 2.2s ease-in-out infinite;
+}
+
+.veh.is-moving .veh-trail {
+  opacity: 0.75;
+  animation: veh-trail 0.9s linear infinite;
+}
+
+@keyframes veh-beam {
+  50% {
+    opacity: 0.72;
+    transform: scaleY(1.12);
+  }
+}
+
+@keyframes veh-trail {
+  0% {
+    transform: scaleY(0.5);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scaleY(1.2);
+    opacity: 0;
+  }
+}
+
+.veh.motorcycle .veh-beam {
+  width: 40px;
+  margin-left: -20px;
+  top: -34px;
+  height: 38px;
+}
+
+.veh.motorcycle .veh-trail {
+  width: 12px;
+  margin-left: -6px;
+  background:
+    linear-gradient(to bottom, var(--vb), transparent) 2px 0 / 2px 100% no-repeat,
+    linear-gradient(to bottom, var(--vb), transparent) 8px 0 / 2px 100% no-repeat;
+}
+
+/* Selected: target-lock corner brackets that breathe around the unit */
+.veh-lock {
+  position: absolute;
+  inset: -4px;
+  display: none;
+  pointer-events: none;
+  --k: var(--vb);
+  background:
+    linear-gradient(var(--k), var(--k)) 0 0 / 14px 3px no-repeat,
+    linear-gradient(var(--k), var(--k)) 0 0 / 3px 14px no-repeat,
+    linear-gradient(var(--k), var(--k)) 100% 0 / 14px 3px no-repeat,
+    linear-gradient(var(--k), var(--k)) 100% 0 / 3px 14px no-repeat,
+    linear-gradient(var(--k), var(--k)) 0 100% / 14px 3px no-repeat,
+    linear-gradient(var(--k), var(--k)) 0 100% / 3px 14px no-repeat,
+    linear-gradient(var(--k), var(--k)) 100% 100% / 14px 3px no-repeat,
+    linear-gradient(var(--k), var(--k)) 100% 100% / 3px 14px no-repeat;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--vb) 70%, transparent));
+  animation: veh-lock 1.8s ease-in-out infinite;
+}
+
+.veh.selected .veh-lock {
+  display: block;
+}
+
+@keyframes veh-lock {
+  50% {
+    transform: scale(0.88);
+    opacity: 0.75;
+  }
+}
+
+.veh.offline .veh-body svg {
+  filter: grayscale(0.9) opacity(0.7) drop-shadow(0 3px 3px rgb(8 12 20 / 25%));
+}
+
+.veh.offline .veh-ground {
+  opacity: 0.5;
+}
+
+/* Name chip under the selected unit */
+.veh-label {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 14px 7px;
+  white-space: nowrap;
+  color: #fff;
+  background: linear-gradient(160deg, rgb(26 32 44 / 96%), rgb(10 14 22 / 96%));
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 35%);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.veh-label::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  background: rgb(26 32 44 / 96%);
+  border-top: 1px solid rgb(255 255 255 / 14%);
+  border-left: 1px solid rgb(255 255 255 / 14%);
+  transform: rotate(45deg);
+}
+
+.veh-label b {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.veh-label em {
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--vb-light);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .veh-beam,
+  .veh-trail,
+  .veh-lock {
+    animation: none !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   2. Map popup
+   -------------------------------------------------------------------------- */
+.veh-popup .leaflet-popup-content-wrapper {
+  min-width: 210px;
+  padding: 0;
+  border-radius: 18px;
+  background: var(--panel-solid, #fff);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 40px -12px rgb(8 12 20 / 45%);
+  overflow: hidden;
+}
+
+.veh-popup .leaflet-popup-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 14px 16px;
+  width: auto !important;
+}
+
+.veh-popup .leaflet-popup-tip {
+  background: var(--panel-solid, #fff);
+  box-shadow: none;
+}
+
+.vp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vp-badge {
+  padding: 2px 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  border-radius: 999px;
+}
+
+.vp-code {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+}
+
+.veh-popup .popup-title {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.veh-popup .popup-meta {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.vp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.vp-grid > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.vp-grid small {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.vp-grid b {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--text);
+}
+
+.vp-grid b i {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   3. Live tracking panel (clean, no overlapping shadows)
+   -------------------------------------------------------------------------- */
+.lt-scroll > * {
+  flex: none;
+}
+
+.lt-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lt-stat {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 10px 13px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: none;
+  transform: none;
+}
+
+.lt-stat b {
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-stat span {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* the old coloured dot before the label is replaced by the bottom bar */
+.lt-stat span::before {
+  display: none !important;
+}
+
+.lt-stat-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--line-strong);
+}
+
+.lt-stat.all .lt-stat-bar {
+  background: var(--accent);
+}
+.lt-stat.moving .lt-stat-bar {
+  background: var(--accent);
+}
+.lt-stat.idle .lt-stat-bar {
+  background: #d49a3a;
+}
+.lt-stat.offline .lt-stat-bar {
+  background: #7d8693;
+}
+
+.lt-stat.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* ----- rows ----- */
+.lt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 2px;
+}
+
+.lt-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgb(14 18 23 / 5%);
+  transform: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lt-row::before {
+  display: none;
+}
+
+.lt-row:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-solid);
+  box-shadow: 0 6px 16px -10px rgb(14 18 23 / 35%);
+  transform: none;
+}
+
+.lt-row.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.lt-row .lt-card,
+.lt-row .lt-card:hover {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 6px 12px 12px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+.lt-row-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px 0 6px;
+  border: 0;
+}
+
+.lt-row-actions .icon-btn,
+.lt-row .lt-row-actions .icon-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 10px;
+}
+
+/* ----- illustrated avatar tile ----- */
+.lt-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 76px;
+  height: 56px;
+  padding: 6px 8px;
+  color: inherit;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--vb) 20%, var(--panel-solid)), color-mix(in srgb, var(--vb) 6%, var(--panel-solid)));
+  border: 1px solid color-mix(in srgb, var(--vb) 28%, transparent);
+  border-radius: 16px;
+  box-shadow: none;
+  filter: none;
+}
+
+.lt-avatar.moving,
+.lt-avatar.lg {
+  color: inherit;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--vb) 20%, var(--panel-solid)), color-mix(in srgb, var(--vb) 6%, var(--panel-solid)));
+  border: 1px solid color-mix(in srgb, var(--vb) 28%, transparent);
+}
+
+.lt-avatar::after {
+  display: none;
+}
+
+.lt-avatar.offline .va-side {
+  filter: grayscale(1) opacity(0.65);
+}
+
+.va-side {
+  display: block;
+  width: 100%;
+  line-height: 0;
+  filter: drop-shadow(0 2px 2px rgb(8 12 20 / 18%));
+}
+
+.va-side svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.lt-avatar.lg {
+  width: 96px;
+  height: 68px;
+  padding: 8px 10px;
+  border-radius: 20px;
+}
+
+/* ----- row text ----- */
+.lt-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.lt-card-name {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-card-sub {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-card-end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lt-chip {
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 0;
+  border-radius: 999px;
+}
+
+.lt-chip.moving {
+  color: #137a47;
+  background: rgb(48 164 108 / 15%);
+}
+.lt-chip.idle {
+  color: #a8650a;
+  background: rgb(224 148 43 / 17%);
+}
+.lt-chip.offline {
+  color: var(--muted);
+  background: var(--panel-2);
+}
+
+:root[data-theme='dark'] .lt-chip.moving {
+  color: #5fe3a1;
+}
+:root[data-theme='dark'] .lt-chip.idle {
+  color: #f5c06b;
+}
+
+.lt-speed {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lt-speed small {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* ----- progress ----- */
+.lt-bar {
+  height: 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.lt-bar.slim {
+  height: 5px;
+}
+
+.lt-bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #7dd3fc));
+  border-radius: 999px;
+}
+
+/* ----- selected unit detail ----- */
+.lt-detail {
+  flex: none;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 12px;
+  padding: 16px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: 0 8px 22px -16px rgb(14 18 23 / 50%);
+}
+
+.lt-detail::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--line-strong);
+}
+
+.lt-detail.moving::before {
+  background: var(--accent);
+}
+.lt-detail.idle::before {
+  background: linear-gradient(90deg, #d49a3a, #f5c06b);
+}
+
+.lt-detail-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lt-detail-id {
+  flex: 1;
+  min-width: 0;
+}
+
+.lt-detail-id h3 {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.lt-facts {
+  gap: 8px;
+}
+
+.lt-facts > div {
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.lt-facts dd {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-facts dd.mono {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.lt-facts dd small {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.lt-actions .btn {
+  border-radius: 12px;
+}
+
+.lt-route {
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+/* ----- zone crossing events ----- */
+.lt-event {
+  border-radius: 14px;
+}
+
+.lt-event-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--accent);
+}
+
+.lt-event.exit .lt-event-icon {
+  background: #d4535c;
+}
+
+@media (max-width: 420px) {
+  .lt-row .lt-card,
+  .lt-row .lt-card:hover {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+  .lt-avatar {
+    width: 64px;
+    height: 50px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   4. Dashboard: Fleet status
+   -------------------------------------------------------------------------- */
+.fleet-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.fleet-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 11px 12px 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--c) 9%, var(--panel-solid));
+  border: 1px solid color-mix(in srgb, var(--c) 24%, transparent);
+  border-radius: 14px;
+}
+
+.fleet-tile::after {
+  content: '';
+  position: absolute;
+  right: -14px;
+  top: -14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+}
+
+.fleet-tile b {
+  position: relative;
+  z-index: 1;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--c);
+  font-variant-numeric: tabular-nums;
+}
+
+.fleet-tile span {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.fleet-bar {
+  height: 8px;
+  margin-bottom: 14px;
+  gap: 2px;
+}
+
+.fleet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.fleet-list li + li {
+  border-top: 0;
+}
+
+.fleet-row.d-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px 10px 10px;
+  text-align: left;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+button.fleet-row.d-row:hover:not(:disabled) {
+  background: var(--panel-2);
+  border-color: var(--line-strong);
+}
+
+.fleet-art {
+  --vb: var(--veh);
+  --vb-light: color-mix(in srgb, var(--vb) 55%, #fff);
+  --vb-dark: color-mix(in srgb, var(--vb) 72%, #000);
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 52px;
+  padding: 6px 8px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--vb) 20%, var(--panel-solid)), color-mix(in srgb, var(--vb) 6%, var(--panel-solid)));
+  border: 1px solid color-mix(in srgb, var(--vb) 28%, transparent);
+  border-radius: 14px;
+}
+
+.fleet-art.offline .va-side {
+  filter: grayscale(1) opacity(0.65);
+}
+
+.fleet-row .d-row-main b {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.fleet-plate {
+  padding: 0 6px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+}
+
+.fleet-row .d-row-end {
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.fleet-speed {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.fleet-speed small {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   5. Zone + region polygons
+   -------------------------------------------------------------------------- */
+.zone-polygon {
+  cursor: pointer;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  filter: drop-shadow(0 3px 6px rgb(11 20 38 / 22%));
+  transition: fill-opacity 0.2s ease;
+}
+
+.zone-polygon:hover {
+  fill-opacity: 0.26 !important;
+}
+
+.zone-polygon.selected {
+  stroke-dasharray: 10 7;
+  animation: zone-march 1.2s linear infinite;
+}
+
+@keyframes zone-march {
+  to {
+    stroke-dashoffset: -17;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zone-polygon.selected {
+    animation: none;
+  }
+}
+
+.region-polygon {
+  stroke-linejoin: round;
+}
+
+/* Zone name pill, centred on the polygon */
+.leaflet-tooltip.zone-label {
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.leaflet-tooltip.zone-label::before {
+  display: none;
+}
+
+.zl-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-solid, #fff) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--zc, #c8161d) 50%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgb(11 20 38 / 18%);
+  backdrop-filter: blur(6px);
+}
+
+.zl-dot::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--zc, #c8161d);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--zc, #c8161d) 25%, transparent);
+}

@@ -1,0 +1,303 @@
+/* ==========================================================================
+   Final theme layer (loaded last). One refined palette for the whole app:
+   brand red stays primary, neutrals get a faint cool tint, status colours are
+   real semantic colours, dark mode is deep blue-charcoal (not pure black).
+   Everything below the tokens is light polish: soft elevation, focus rings,
+   scrollbars. Remove `import './fleet-final.css'` in App.tsx to revert.
+   ========================================================================== */
+
+:root,
+:root:not([data-theme='dark']) .dash {
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --panel: #fafbfc;
+  --panel-solid: #ffffff;
+  --panel-2: #f0f2f5;
+  --field: #ffffff;
+  --line: #e6e8ed;
+  --line-strong: #d3d7df;
+
+  --text: #14171c;
+  --text-2: #3a404b;
+  --muted: #697280;
+
+  --accent: #c8161d;
+  --accent-hover: #a91017;
+  --accent-soft: rgb(200 22 29 / 8%);
+  --accent-line: rgb(200 22 29 / 34%);
+  --btn: #c8161d;
+  --btn-hover: #a91017;
+  --on-btn: #ffffff;
+
+  --ok: #15803d;
+  --ok-soft: rgb(21 128 61 / 10%);
+  --live: var(--accent);
+  --live-soft: var(--accent-soft);
+  --info: #2f5fb3;
+  --warn: #b45f06;
+  --warn-soft: rgb(180 95 6 / 11%);
+  --idle: #d98a0b;
+  --idle-soft: rgb(217 138 11 / 12%);
+  --danger: #b4231f;
+  --danger-soft: rgb(180 35 31 / 9%);
+  --danger-line: rgb(180 35 31 / 32%);
+
+  --scrim: rgb(15 18 25 / 46%);
+  --route: #c8161d;
+  --route-done: #c3c7cf;
+  --map-ink: #14171c;
+  --elev-1: 0 1px 2px rgb(16 24 40 / 5%), 0 1px 3px rgb(16 24 40 / 7%);
+  --elev-2: 0 4px 12px -2px rgb(16 24 40 / 10%), 0 2px 4px -2px rgb(16 24 40 / 6%);
+}
+
+:root[data-theme='dark'],
+:root[data-theme='dark'] .dash {
+  color-scheme: dark;
+  --bg: #0c0e13;
+  --panel: #11141a;
+  --panel-solid: #161a21;
+  --panel-2: #1d212a;
+  --field: #11141a;
+  --line: rgb(255 255 255 / 8%);
+  --line-strong: rgb(255 255 255 / 15%);
+
+  --text: #eceef3;
+  --text-2: #c7cbd4;
+  --muted: #8f96a3;
+
+  --accent: #ef6a70;
+  --accent-hover: #f58f94;
+  --accent-soft: rgb(239 106 112 / 12%);
+  --accent-line: rgb(239 106 112 / 38%);
+  --btn: #cf2830;
+  --btn-hover: #e03840;
+  --on-btn: #ffffff;
+
+  --ok: #4ade80;
+  --ok-soft: rgb(74 222 128 / 13%);
+  --info: #7ba3f0;
+  --warn: #f2b84b;
+  --warn-soft: rgb(242 184 75 / 13%);
+  --idle: #f2b84b;
+  --idle-soft: rgb(242 184 75 / 13%);
+  --danger: #f0777a;
+  --danger-soft: rgb(240 119 122 / 13%);
+  --danger-line: rgb(240 119 122 / 38%);
+
+  --scrim: rgb(3 4 8 / 66%);
+  --route: #ef6a70;
+  --route-done: #4a4f5a;
+  --map-ink: #eceef3;
+  --elev-1: none;
+  --elev-2: 0 8px 24px -6px rgb(0 0 0 / 55%);
+}
+
+/* soft elevation on cards and panels (light mode; dark relies on borders) */
+.dash .d-card,
+.dash .um-card,
+.dash .kpi,
+.dash .um-stat,
+.dash .map-card,
+.dash .panel-pane,
+.lt-card,
+.lt-detail {
+  box-shadow: var(--elev-1) !important;
+}
+.um-modal,
+.dialog-card,
+.sel-menu,
+.toast,
+.dash .toast,
+.auth-form,
+.auth-card,
+.leaflet-popup-content-wrapper {
+  box-shadow: var(--elev-2) !important;
+}
+.dash .topbar { box-shadow: var(--elev-1) !important; }
+
+/* accents and focus */
+::selection { background: var(--accent-soft); color: inherit; }
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+input, select, textarea { accent-color: var(--accent); }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft) !important;
+  outline: none;
+}
+
+/* quiet scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+
+/* ---------- status filter cards ----------
+   Colours match the map markers: Moving = brand red, Idle = amber,
+   Offline = slate, All = neutral ink. */
+.lt .lt-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lt .lt-stats .lt-stat {
+  --k: #27272a;        /* status colour */
+  --k-text: #27272a;   /* readable label/number colour on the tinted card */
+  --on: #fff;          /* text colour when the card is selected (solid fill) */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px 6px 11px;
+  text-align: center;
+  cursor: pointer;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--k) 7%, var(--panel-solid)) !important;
+  border: 1px solid color-mix(in srgb, var(--k) 20%, var(--line)) !important;
+  border-radius: 14px;
+  box-shadow: none !important;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+.lt .lt-stats .lt-stat.all     { --k: #3f3f46; --k-text: #27272a; }
+.lt .lt-stats .lt-stat.moving  { --k: #c8161d; --k-text: #b4131a; }
+.lt .lt-stats .lt-stat.idle    { --k: #e0a02e; --k-text: #9a6508; --on: #2a1d00; }
+.lt .lt-stats .lt-stat.offline { --k: #7d8693; --k-text: #566070; }
+
+:root[data-theme='dark'] .lt .lt-stats .lt-stat {
+  background: color-mix(in srgb, var(--k) 13%, var(--panel-solid)) !important;
+  border-color: color-mix(in srgb, var(--k) 30%, var(--line)) !important;
+}
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.all     { --k: #d4d4d8; --k-text: #f4f4f5; --on: #111214; }
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.moving  { --k: #ef6a70; --k-text: #ff8f94; --on: #1a0507; }
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.idle    { --k: #f2b84b; --k-text: #f6c96d; --on: #241800; }
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.offline { --k: #98a1b0; --k-text: #b4bcc9; --on: #12151a; }
+
+.lt .lt-stats .lt-stat:hover {
+  border-color: color-mix(in srgb, var(--k) 55%, transparent) !important;
+  transform: translateY(-1px);
+}
+.lt .lt-stats .lt-stat:active { transform: none; }
+.lt .lt-stats .lt-stat:focus-visible { outline: 2px solid var(--k); outline-offset: 2px; }
+
+.lt .lt-stats .lt-stat b {
+  order: 1;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--k-text);
+}
+.lt .lt-stats .lt-stat .lt-stat-label {
+  order: 2;
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--muted);
+}
+.lt .lt-stats .lt-stat .lt-stat-label::before { content: none; }
+.lt .lt-stats .lt-stat .lt-stat-bar { display: none; }
+
+/* live pulse on "Moving" while at least one unit is moving */
+.lt .lt-stats .lt-stat.moving:not(.on) b::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+  background: var(--k);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--k) 25%, transparent);
+}
+
+/* selected: solid fill */
+.lt .lt-stats .lt-stat.on,
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.on {
+  background: var(--k) !important;
+  border-color: var(--k) !important;
+  box-shadow: 0 6px 14px -4px color-mix(in srgb, var(--k) 55%, transparent) !important;
+}
+.lt .lt-stats .lt-stat.on b,
+.lt .lt-stats .lt-stat.on .lt-stat-label,
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.on b,
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.on .lt-stat-label { color: var(--on); }
+.lt .lt-stats .lt-stat.on .lt-stat-label { opacity: 0.85; }
+
+@media (max-width: 520px) {
+  .lt .lt-stats { gap: 6px; }
+  .lt .lt-stats .lt-stat { padding: 10px 4px 9px; border-radius: 12px; }
+  .lt .lt-stats .lt-stat b { font-size: 21px; }
+  .lt .lt-stats .lt-stat .lt-stat-label { font-size: 10.5px; }
+}
+
+/* ---------- basemap: full colour, Google-Maps-like ---------- */
+.leaflet-layer,
+.leaflet-layer.tiles-mono,
+:root[data-theme='dark'] .leaflet-layer.tiles-mono {
+  filter: none;
+}
+.leaflet-container,
+.map {
+  background: #e8eaed;
+}
+:root[data-theme='dark'] .map,
+:root[data-theme='dark'] .leaflet-container {
+  background: #0f1217;
+}
+
+/* basemap switcher */
+.leaflet-control-layers {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+  background: var(--panel-solid, #fff);
+  color: var(--text, #111);
+}
+.leaflet-control-layers-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.leaflet-control-layers-expanded {
+  padding: 8px 12px 8px 10px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.leaflet-control-layers label { margin: 0; cursor: pointer; }
+.leaflet-control-layers-selector { accent-color: var(--accent); margin-right: 6px; }
+
+/* OpenStreetMap tiles tinted towards the Google Maps palette: softer land,
+   calmer greens, light-grey roads. Pure CSS, no extra tile provider. */
+.leaflet-layer.tiles-gmaps {
+  filter: saturate(0.72) brightness(1.04) contrast(0.96) hue-rotate(-4deg);
+}
+:root[data-theme='dark'] .leaflet-layer.tiles-gmaps {
+  filter: invert(1) hue-rotate(180deg) saturate(0.6) brightness(0.85) contrast(1.05);
+}
+
+/* Google-Maps-style controls: white, rounded, soft shadow */
+.leaflet-bar {
+  border: none;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.3);
+}
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+  color: #5f6368;
+  background: #fff;
+  border-bottom: 1px solid #e8eaed;
+}
+.leaflet-bar a:hover { background: #f1f3f4; }
+.leaflet-control-layers { box-shadow: 0 2px 6px rgba(60, 64, 67, 0.3); border: none; }

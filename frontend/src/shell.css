@@ -1,0 +1,1022 @@
+/* ==========================================================================
+   Shell refinements — loaded after dashboard.css.
+   One calmer, more consistent surface language for every page, plus a phone
+   layout built around one thing at a time (list OR map) and a floating dock.
+   Remove the import in App.tsx to fall back to dashboard.css alone.
+   ========================================================================== */
+
+/* ---- Tokens (light theme only; dark keeps its own palette) ---------------- */
+:root:not([data-theme='dark']) .dash {
+  --bg: #f1f4f9;
+  --panel: #ffffff;
+  --panel-solid: #ffffff;
+  --panel-2: rgb(20 28 60 / 4.5%);
+  --line: rgb(20 28 60 / 8%);
+  --line-strong: rgb(20 28 60 / 16%);
+  --d-shadow: 0 1px 2px rgb(16 24 56 / 4%), 0 14px 34px -20px rgb(16 24 56 / 22%);
+}
+
+.dash {
+  --d-radius: 20px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.dash * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* ---- Navigation rail ------------------------------------------------------ */
+.dash .rail {
+  padding: 20px 14px 16px;
+}
+
+.rail-item {
+  height: 44px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.rail-item:hover {
+  transform: translateX(1px);
+}
+
+.rail-item.active {
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.user-card {
+  border: 0;
+  background: var(--panel-2);
+}
+
+/* ---- Top bar -------------------------------------------------------------- */
+.topbar {
+  position: relative;
+  z-index: 20;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  backdrop-filter: saturate(160%) blur(14px);
+}
+
+.topbar-title h2 {
+  font-size: 20px;
+}
+
+/* ---- Surfaces ------------------------------------------------------------- */
+.map-card,
+.panel-pane,
+.d-card,
+.kpi {
+  border-color: var(--line);
+}
+
+.map-card {
+  box-shadow: var(--d-shadow);
+}
+
+.kpi:hover,
+button.kpi:hover {
+  box-shadow: 0 1px 2px rgb(16 24 56 / 5%), 0 18px 36px -20px rgb(16 24 56 / 30%);
+}
+
+.kpi-value {
+  font-size: 32px;
+}
+
+/* Pages ease in instead of snapping (opacity only, so nothing gets a new containing block) */
+/* (page-enter motion lives in the "Motion" section at the end of this file) */
+
+/* ---- Shared controls (inside the dashboard only) -------------------------- */
+.dash .btn {
+  min-height: 38px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.dash .btn.small {
+  min-height: 32px;
+  border-radius: 10px;
+}
+
+.dash .btn.primary {
+  color: var(--on-btn);
+  border-color: transparent;
+  background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 76%, #000));
+  box-shadow: 0 8px 18px -10px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+.dash .btn.primary:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.dash .search {
+  min-height: 42px;
+  border-radius: 12px;
+}
+
+.dash .icon-btn {
+  border-radius: 12px;
+}
+
+/* The list/map switch only exists on phones */
+.pane-switch {
+  display: none;
+}
+
+/* ==========================================================================
+   Tablet
+   ========================================================================== */
+@media (max-width: 1099px) {
+  .topbar-title p {
+    max-width: 38ch;
+  }
+}
+
+/* ==========================================================================
+   Phone
+   ========================================================================== */
+@media (max-width: 767px) {
+  .dash {
+    --nav-h: 72px;
+    --d-radius: 18px;
+  }
+
+  /* Top bar: compact, brand mark + page title + quick tools */
+  .topbar {
+    gap: 10px;
+    box-shadow: 0 1px 0 var(--line);
+  }
+
+  .topbar-title h2 {
+    font-size: 18px;
+  }
+
+  .topbar-title p {
+    display: block;
+    font-size: 12px;
+  }
+
+  /* Floating dock instead of a full-bleed tab bar */
+  .bottom-nav {
+    left: 10px;
+    right: 10px;
+    bottom: calc(8px + var(--safe-b));
+    height: 62px;
+    padding: 6px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    -webkit-backdrop-filter: saturate(160%) blur(16px);
+    backdrop-filter: saturate(160%) blur(16px);
+    box-shadow: 0 18px 40px -16px rgb(16 24 56 / 38%), 0 2px 6px rgb(16 24 56 / 8%);
+  }
+
+  .bottom-nav button {
+    border-radius: 16px;
+    font-size: 11px;
+    gap: 2px;
+  }
+
+  .bottom-nav button.active {
+    background: var(--accent-soft);
+  }
+
+  .bottom-nav button.active .bn-icon {
+    background: transparent;
+  }
+
+  .bn-icon {
+    height: 28px;
+  }
+
+  /* Workspace pages: a segmented List | Map switch, one pane at a time */
+  .dash .stage:not([data-view='overview']):not([data-view='users']),
+  .dash .stage[data-tall='true']:not([data-view='overview']):not([data-view='users']) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      'switch'
+      'content';
+  }
+
+  .pane-switch {
+    grid-area: switch;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel-2);
+  }
+
+  .pane-switch button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 38px;
+    border: 0;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--muted);
+    background: transparent;
+    transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .pane-switch button.on {
+    color: var(--text);
+    background: var(--panel);
+    box-shadow: 0 1px 2px rgb(16 24 56 / 10%), 0 4px 10px -4px rgb(16 24 56 / 14%);
+  }
+
+  /* Both panes share the same cell; the inactive one is hidden but stays laid out,
+     so the map keeps its size and does not need to re-measure. */
+  .dash .stage:not([data-view='overview']):not([data-view='users']) .map-card,
+  .dash .stage:not([data-view='overview']):not([data-view='users']) .panel-pane {
+    grid-area: content;
+  }
+
+  .dash .stage[data-mpane='list']:not([data-view='overview']):not([data-view='users']) .map-card,
+  .dash .stage[data-mpane='map']:not([data-view='overview']):not([data-view='users']) .panel-pane {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  /* The old "More map" stretch button has no job any more */
+  .map-expand {
+    display: none !important;
+  }
+
+  .dash .map-card .live-hud {
+    bottom: 12px;
+    max-width: calc(100% - 24px);
+  }
+
+  /* Overview: tighter, thumb-friendly KPI tiles */
+  .kpi {
+    padding: 14px;
+  }
+
+  .kpi-value {
+    font-size: 26px;
+  }
+}
+
+
+/* ==========================================================================
+   Select — custom dropdown (components/Select.tsx)
+   Popover on desktop, bottom sheet on phones. Rendered in <body>.
+   ========================================================================== */
+.sel-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px 0 14px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  text-align: left;
+  background: var(--field, var(--panel-2));
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+
+.sel-trigger:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+.sel-trigger:focus-visible,
+.sel-trigger.open {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.sel-trigger[aria-invalid='true'] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 4px var(--danger-soft);
+}
+
+.sel-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.sel-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sel-value.placeholder {
+  color: var(--muted);
+}
+
+.sel-chevron {
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+
+.sel-trigger.open .sel-chevron {
+  transform: rotate(180deg);
+}
+
+/* Layer + menu */
+.sel-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+}
+
+.sel-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--panel-solid, #fff);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  outline: none;
+  box-shadow: 0 24px 56px -18px rgb(8 12 28 / 45%), 0 2px 8px rgb(8 12 28 / 10%);
+  animation: sel-in 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sel-search {
+  position: relative;
+  flex: none;
+  padding: 8px 8px 4px;
+}
+
+.sel-search svg {
+  position: absolute;
+  top: 50%;
+  left: 20px;
+  margin-top: 2px;
+  color: var(--muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.sel-search input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px 0 34px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  outline: none;
+}
+
+.sel-search input:focus {
+  border-color: var(--accent);
+  background: var(--panel-solid, #fff);
+}
+
+.sel-list {
+  flex: 1;
+  min-height: 0;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.sel-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.sel-option.active {
+  background: var(--panel-2);
+}
+
+.sel-option.on {
+  font-weight: 650;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.sel-option svg {
+  flex: none;
+}
+
+.sel-empty {
+  padding: 18px 10px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.sel-sheet-head {
+  display: none;
+}
+
+@keyframes sel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+
+@keyframes sel-sheet {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes sel-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Phones: bottom sheet with a dimmed backdrop */
+@media (max-width: 640px) {
+  .sel-layer.sheet {
+    background: rgb(8 12 28 / 45%);
+    animation: sel-fade 0.18s ease both;
+  }
+
+  .sel-layer.sheet .sel-menu {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: 72dvh;
+    border: 0;
+    border-radius: 22px 22px 0 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: sel-sheet 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .sel-layer.sheet .sel-sheet-head {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px 6px;
+  }
+
+  .sel-layer.sheet .sel-sheet-head b {
+    align-self: flex-start;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .sel-grabber {
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--line-strong);
+  }
+
+  .sel-layer.sheet .sel-search {
+    padding: 4px 14px;
+  }
+
+  .sel-layer.sheet .sel-search svg {
+    left: 26px;
+  }
+
+  .sel-layer.sheet .sel-search input {
+    height: 44px;
+    font-size: 16px; /* no iOS zoom */
+  }
+
+  .sel-layer.sheet .sel-list {
+    padding: 6px 10px 12px;
+  }
+
+  .sel-layer.sheet .sel-option {
+    min-height: 48px;
+    padding: 10px 12px;
+    font-size: 15.5px;
+    border-radius: 12px;
+  }
+
+  .sel-trigger {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sel-menu,
+  .sel-layer.sheet {
+    animation: none !important;
+  }
+}
+
+/* ==========================================================================
+   Rail footer: account, quick tools, and a clearly labelled Log out at the bottom
+   ========================================================================== */
+.dash .rail-foot {
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.dash .rail-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.rail-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.rail-tool:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--line-strong);
+}
+
+.rail-tool svg {
+  flex: none;
+}
+
+.rail-tool .rail-label,
+.rail-logout .rail-label {
+  flex: none;
+}
+
+.rail-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 46px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.rail-logout:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: var(--danger-line);
+}
+
+.rail-logout:active {
+  transform: scale(0.98);
+}
+
+.rail-logout svg {
+  flex: none;
+}
+
+/* Icons only when the rail is slim or on tablets (labels are hidden by dashboard.css) */
+.rail-slim .rail-tools {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.rail-slim .rail-tool {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+
+.rail-slim .rail-logout {
+  width: 52px;
+  height: 46px;
+}
+
+@media (max-width: 1099px) {
+  .dash .rail-tools {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .dash .rail-tool {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  .dash .rail-logout {
+    width: 52px;
+  }
+}
+
+/* ---- Count badge next to panel titles: one clean pill, no border -------------- */
+.dash .count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 8px;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 0;
+  border-radius: 999px;
+}
+
+.dash .zone-panel-header .count {
+  margin-left: 0;
+}
+
+/* ==========================================================================
+   Dark theme — softer, layered graphite with a calmer teal.
+   Tokens are set on :root so portaled UI (modals, select menus) matches.
+   ========================================================================== */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #090c11;
+  --panel: #10151c;
+  --panel-solid: #10151c;
+  --panel-2: #171e28;
+  --field: #0c1016;
+  --line: rgb(255 255 255 / 7%);
+  --line-strong: rgb(255 255 255 / 14%);
+
+  --text: #e8ecf2;
+  --text-2: #c3cbd7;
+  --muted: #8a95a7;
+
+  --accent: #3fd8c4;
+  --accent-hover: #6be6d6;
+  --accent-soft: rgb(63 216 196 / 12%);
+  --accent-line: rgb(63 216 196 / 38%);
+  --btn: #14a08f;
+  --btn-hover: #19b8a5;
+  --on-btn: #04211d;
+
+  --danger: #f2707f;
+  --danger-soft: rgb(242 112 127 / 12%);
+  --danger-line: rgb(242 112 127 / 38%);
+
+  --scrim: rgb(3 6 10 / 62%);
+  --shadow-pop: 0 0 0 1px rgb(255 255 255 / 5%), 0 18px 44px -14px rgb(0 0 0 / 70%);
+}
+
+:root[data-theme='dark'] .dash {
+  --d-shadow: 0 0 0 1px rgb(255 255 255 / 3%) inset, 0 18px 40px -24px rgb(0 0 0 / 75%);
+}
+
+:root[data-theme='dark'] .dash .rail {
+  background: #121315;
+}
+
+:root[data-theme='dark'] .map-card {
+  background: var(--panel-2);
+}
+
+:root[data-theme='dark'] .dash .btn.primary {
+  color: #04211d;
+  background: linear-gradient(145deg, #4ee3cf, #1fb4a2);
+  box-shadow: 0 10px 24px -12px rgb(45 212 191 / 55%);
+}
+
+:root[data-theme='dark'] .um-avatar,
+:root[data-theme='dark'] .um-modal-avatar {
+  color: #04211d;
+}
+
+:root[data-theme='dark'] .um-avatar.viewer,
+:root[data-theme='dark'] .um-modal-avatar.viewer {
+  color: #fff;
+}
+
+:root[data-theme='dark'] .um-overlay {
+  background: rgb(3 6 10 / 62%);
+}
+
+:root[data-theme='dark'] .um-modal,
+:root[data-theme='dark'] .sel-menu {
+  background: #131a23;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 5%), 0 30px 80px -24px rgb(0 0 0 / 80%);
+}
+
+:root[data-theme='dark'] .pane-switch button.on {
+  color: var(--text);
+}
+
+:root[data-theme='dark'] .bottom-nav {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 4%), 0 18px 40px -16px rgb(0 0 0 / 80%);
+}
+
+/* ==========================================================================
+   Motion — one set of curves and durations, used everywhere
+   ========================================================================== */
+.dash {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --t-fast: 0.16s;
+  --t-med: 0.32s;
+}
+
+/* Theme switch: surfaces fade between palettes instead of snapping */
+.dash,
+.dash .rail,
+.dash .topbar,
+.dash .panel-pane,
+.dash .map-card,
+.dash .d-card {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+/* Page enter: content rises in; the wrapper is skipped when its children stagger */
+.pane-body > :not(.um),
+.stage-side,
+.stage-extra > *,
+.stage-kpis .kpi {
+  animation: shell-rise 0.46s var(--ease-out) backwards;
+}
+
+.um-stat,
+.um-card,
+.um-toolbar,
+.um-empty {
+  animation: shell-rise 0.46s var(--ease-out) backwards;
+  animation-delay: calc(var(--n, 0) * 45ms);
+}
+
+.stage-kpis .kpi,
+.stage-extra > * {
+  animation-delay: calc(var(--n, 0) * 55ms);
+}
+
+.stage-side {
+  animation-delay: 0.1s;
+}
+
+@keyframes shell-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+/* Stagger index (capped so long lists never feel slow) */
+.um-grid > li { --n: 10; }
+.um-grid > li:nth-child(1) { --n: 1; }
+.um-grid > li:nth-child(2) { --n: 2; }
+.um-grid > li:nth-child(3) { --n: 3; }
+.um-grid > li:nth-child(4) { --n: 4; }
+.um-grid > li:nth-child(5) { --n: 5; }
+.um-grid > li:nth-child(6) { --n: 6; }
+.um-grid > li:nth-child(7) { --n: 7; }
+.um-grid > li:nth-child(8) { --n: 8; }
+.um-grid > li:nth-child(9) { --n: 9; }
+.um-stats > * { --n: 10; }
+.um-stats > *:nth-child(1) { --n: 1; }
+.um-stats > *:nth-child(2) { --n: 2; }
+.um-stats > *:nth-child(3) { --n: 3; }
+.um-stats > *:nth-child(4) { --n: 4; }
+.um-stats > *:nth-child(5) { --n: 5; }
+.um-stats > *:nth-child(6) { --n: 6; }
+.um-stats > *:nth-child(7) { --n: 7; }
+.um-stats > *:nth-child(8) { --n: 8; }
+.um-stats > *:nth-child(9) { --n: 9; }
+.stage-kpis .kpi { --n: 10; }
+.stage-kpis .kpi:nth-child(1) { --n: 1; }
+.stage-kpis .kpi:nth-child(2) { --n: 2; }
+.stage-kpis .kpi:nth-child(3) { --n: 3; }
+.stage-kpis .kpi:nth-child(4) { --n: 4; }
+.stage-kpis .kpi:nth-child(5) { --n: 5; }
+.stage-kpis .kpi:nth-child(6) { --n: 6; }
+.stage-kpis .kpi:nth-child(7) { --n: 7; }
+.stage-kpis .kpi:nth-child(8) { --n: 8; }
+.stage-kpis .kpi:nth-child(9) { --n: 9; }
+.stage-extra > * { --n: 10; }
+.stage-extra > *:nth-child(1) { --n: 1; }
+.stage-extra > *:nth-child(2) { --n: 2; }
+.stage-extra > *:nth-child(3) { --n: 3; }
+.stage-extra > *:nth-child(4) { --n: 4; }
+.stage-extra > *:nth-child(5) { --n: 5; }
+.stage-extra > *:nth-child(6) { --n: 6; }
+.stage-extra > *:nth-child(7) { --n: 7; }
+.stage-extra > *:nth-child(8) { --n: 8; }
+.stage-extra > *:nth-child(9) { --n: 9; }
+
+/* Rail: the active marker grows in, icons nudge */
+.rail-item.active::before {
+  animation: shell-bar 0.34s var(--ease-spring) both;
+  transform-origin: center;
+}
+
+@keyframes shell-bar {
+  from {
+    transform: scaleY(0.2);
+    opacity: 0;
+  }
+}
+
+.rail-item svg {
+  transition: transform var(--t-fast) var(--ease-out), color var(--t-fast) ease;
+}
+
+.rail-item:hover svg {
+  transform: scale(1.08);
+}
+
+/* Press feedback on every control */
+.dash .btn:active:not(:disabled),
+.dash .icon-btn:active:not(:disabled),
+.dash .rail-tool:active,
+.dash .um-stat:active,
+.dash .pane-switch button:active,
+.bottom-nav button:active {
+  transform: scale(0.97);
+}
+
+.dash .btn,
+.dash .icon-btn {
+  transition: transform var(--t-fast) var(--ease-out), background-color var(--t-fast) ease,
+    border-color var(--t-fast) ease, box-shadow var(--t-fast) ease, filter var(--t-fast) ease;
+}
+
+/* Skeletons shimmer instead of blinking */
+.um-skeleton {
+  background: linear-gradient(100deg, var(--panel-2) 30%, color-mix(in srgb, var(--panel-2) 55%, var(--panel)) 50%, var(--panel-2) 70%);
+  background-size: 220% 100%;
+  animation: shell-shimmer 1.3s linear infinite;
+}
+
+@keyframes shell-shimmer {
+  to {
+    background-position: -220% 0;
+  }
+}
+
+/* Detail card and forms inside the pane slide in */
+.dash .panel-pane .detail-panel,
+.dash .panel-pane .overlay.dock .card {
+  animation: shell-slide 0.34s var(--ease-out) backwards;
+}
+
+@keyframes shell-slide {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+
+/* Toasts */
+.dash .toast {
+  animation: shell-toast 0.4s var(--ease-spring) backwards;
+}
+
+@keyframes shell-toast {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.97);
+  }
+}
+
+/* Touch screens have no hover: no sticky lift after a tap */
+@media (hover: none) {
+  .um-card:hover,
+  .um-stat:hover,
+  .kpi:hover,
+  button.kpi:hover,
+  .rail-item:hover {
+    transform: none;
+  }
+
+  .rail-item:hover svg {
+    transform: none;
+  }
+}
+
+/* Phone: sliding segmented thumb + cross-fade between list and map, snappier timings */
+@media (max-width: 767px) {
+  .dash {
+    --t-med: 0.26s;
+  }
+
+  .pane-switch {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .pane-switch::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc(50% - 6px);
+    border-radius: 10px;
+    background: var(--panel);
+    box-shadow: 0 1px 2px rgb(16 24 56 / 10%), 0 4px 10px -4px rgb(16 24 56 / 16%);
+    transition: transform 0.34s var(--ease-spring);
+  }
+
+  :root[data-theme='dark'] .pane-switch::before {
+    background: var(--panel-2);
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 6%);
+  }
+
+  .stage[data-mpane='map'] .pane-switch::before {
+    transform: translateX(calc(100% + 4px));
+  }
+
+  .pane-switch button.on {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .dash .stage:not([data-view='overview']):not([data-view='users']) .map-card,
+  .dash .stage:not([data-view='overview']):not([data-view='users']) .panel-pane {
+    transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out), visibility 0s;
+  }
+
+  .dash .stage[data-mpane='list']:not([data-view='overview']):not([data-view='users']) .map-card,
+  .dash .stage[data-mpane='map']:not([data-view='overview']):not([data-view='users']) .panel-pane {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+    transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out),
+      visibility 0s linear var(--t-med);
+  }
+
+  /* Bottom dock: the active icon pops */
+  .bottom-nav button.active .bn-icon svg {
+    animation: shell-pop 0.38s var(--ease-spring);
+  }
+
+  @keyframes shell-pop {
+    0% {
+      transform: scale(0.8);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash *,
+  .dash *::before,
+  .dash *::after,
+  .um-modal,
+  .um-overlay,
+  .sel-menu,
+  .sel-layer {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

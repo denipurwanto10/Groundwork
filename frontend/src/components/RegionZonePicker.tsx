@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import type { IslandGroup, RegionFeature, ZoneFeature } from '../lib/types'
 import { IconChevronUp, IconMapPin, IconPolygon, IconSearch } from './Icons'
+import Select from './Select'
 
 /**
  * "Take the polygon from a region" instead of drawing it by hand.
@@ -53,7 +54,7 @@ export default function RegionZonePicker({ onCreated }: Props) {
   const [picked, setPicked] = useState<{ kind: 'island'; island: IslandGroup } | { kind: 'region'; region: RegionFeature } | null>(null)
   const [zoneName, setZoneName] = useState('')
   const [category, setCategory] = useState<string>('other')
-  const [color, setColor] = useState('#2563eb')
+  const [color, setColor] = useState('#c8161d')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedNote, setSavedNote] = useState<string | null>(null)
@@ -299,13 +300,12 @@ export default function RegionZonePicker({ onCreated }: Props) {
               <div className="region-picker-options">
                 <label className="field">
                   <span>Category</span>
-                  <select value={category} onChange={(e) => setCategory(e.target.value)}>
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    label="Category"
+                    value={category}
+                    options={CATEGORIES.map((c) => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) }))}
+                    onChange={setCategory}
+                  />
                 </label>
                 <label className="field color-field">
                   <span>Colour</span>

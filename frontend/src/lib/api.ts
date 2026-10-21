@@ -9,17 +9,35 @@ import type {
   RegionCollection,
   RegionCount,
   Vehicle,
+  VehicleInput,
   VehicleList,
   VehicleRoute,
   RouteList,
   RouteStop,
   IslandList,
+  UserAccount,
+  UserInput,
+  GeofenceEvent,
 } from './types'
+import { clearToken, getToken, notifySessionInvalid } from './session'
 
 /** Base URL for the Go backend. Empty string = same origin (dev proxy). */
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 
-export type ApiErrorCode = 'validation_failed' | 'not_found' | 'invalid_id' | 'invalid_json' | 'http_error' | 'network_error'
+export type ApiErrorCode =
+  | 'validation_failed'
+  | 'not_found'
+  | 'invalid_id'
+  | 'invalid_json'
+  | 'http_error'
+  | 'network_error'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'username_taken'
+  | 'email_taken'
+  | 'last_admin'
+  | 'self_delete'
+  | 'self_role_change'
 
 export class ApiError extends Error {
   code: ApiErrorCode
@@ -44,11 +62,16 @@ interface BackendErrorBody {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  // Every authenticated call carries the stored JWT.
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
   let res: Response
   try {
     res = await fetch(`${BASE_URL}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
       ...init,
+      headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
     })
   } catch {
     throw new ApiError('network_error', 'Cannot reach the backend. Is the Go server running?')
@@ -67,6 +90,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const code = (body.error?.code ?? 'http_error') as ApiErrorCode
+    // A rejected token ends the session everywhere, not just on this request.
+    if (res.status === 401 && code === 'unauthorized') {
+      clearToken()
+      notifySessionInvalid()
+    }
     throw new ApiError(code, body.error?.message ?? `Request failed with status ${res.status}.`, res.status, body.error?.fields)
   }
 
@@ -81,6 +109,31 @@ function toPayload(input: EntityInput) {
     latitude: input.latitude,
     longitude: input.longitude,
   }
+}
+
+function toVehiclePayload(input: VehicleInput) {
+  return {
+    code: input.code.trim(),
+    name: input.name.trim(),
+    kind: input.kind,
+    driver_id: input.driver_id,
+  }
+}
+
+/**
+ * Account payload. Only the fields present in `input` are sent, so a partial
+ * update leaves the rest of the account alone; an empty password means "keep
+ * the current one".
+ */
+function toUserPayload(input: Partial<UserInput>) {
+  const body: Record<string, string> = {}
+  if (input.username !== undefined) body.username = input.username.trim()
+  if (input.email !== undefined) body.email = input.email.trim()
+  if (input.password) body.password = input.password
+  if (input.name !== undefined) body.name = input.name.trim()
+  if (input.gender !== undefined) body.gender = input.gender
+  if (input.role !== undefined) body.role = input.role
+  return body
 }
 
 export const api = {
@@ -225,11 +278,48 @@ export const api = {
     return request<VehicleList>('/api/vehicles')
   },
 
-  createVehicle(input: { code: string; name: string; kind: string }): Promise<Vehicle> {
+  /** Accounts an admin can hand a vehicle over to. */
+  listUsers(): Promise<UserAccount[]> {
+    return request<UserAccount[]>('/api/users')
+  },
+
+  /** Admin-only: register an account with its user type. */
+  createUser(input: UserInput): Promise<UserAccount> {
+    return request<UserAccount>('/api/users', {
+      method: 'POST',
+      body: JSON.stringify(toUserPayload(input)),
+    })
+  },
+
+  /** Admin-only: change the given fields; an empty password keeps the old one. */
+  updateUser(id: number, input: Partial<UserInput>): Promise<UserAccount> {
+    return request<UserAccount>(`/api/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(toUserPayload(input)),
+    })
+  },
+
+  /** Admin-only: remove an account. Its vehicles stay, without a driver. */
+  deleteUser(id: number): Promise<void> {
+    return request<void>(`/api/users/${id}`, { method: 'DELETE' })
+  },
+
+  createVehicle(input: VehicleInput): Promise<Vehicle> {
     return request<Vehicle>('/api/vehicles', {
       method: 'POST',
-      body: JSON.stringify(input),
+      body: JSON.stringify(toVehiclePayload(input)),
     })
+  },
+
+  updateVehicle(id: number, input: VehicleInput): Promise<Vehicle> {
+    return request<Vehicle>(`/api/vehicles/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(toVehiclePayload(input)),
+    })
+  },
+
+  deleteVehicle(id: number): Promise<void> {
+    return request<void>(`/api/vehicles/${id}`, { method: 'DELETE' })
   },
 
   /** Report one position; the server appends it to the history and pushes it. */
@@ -241,6 +331,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     })
+  },
+
+  // ---- Geofence (zone boundary crossings) ----
+
+  /** Crossing history, newest first; narrow it to one unit or one zone. */
+  listGeofenceEvents(params?: {
+    vehicle_id?: number
+    zone_id?: number
+    limit?: number
+  }): Promise<GeofenceEvent[]> {
+    const sp = new URLSearchParams()
+    if (params?.vehicle_id != null) sp.set('vehicle_id', String(params.vehicle_id))
+    if (params?.zone_id != null) sp.set('zone_id', String(params.zone_id))
+    if (params?.limit != null) sp.set('limit', String(params.limit))
+    const qs = sp.toString()
+    return request<GeofenceEvent[]>(`/api/geofence-events${qs ? `?${qs}` : ''}`)
   },
 
   // ---- Delivery routes (migration 007) ----
@@ -265,6 +371,15 @@ export const api = {
 
   clearVehicleRoute(id: number): Promise<void> {
     return request<void>(`/api/vehicles/${id}/route`, { method: 'DELETE' })
+  },
+
+  // ---- Authentication ----
+  /** Sign in with either the username or the email address. */
+  login(identifier: string, password: string): Promise<{ token: string; user: UserAccount }> {
+    return request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: identifier.trim(), password }),
+    })
   },
 }
 

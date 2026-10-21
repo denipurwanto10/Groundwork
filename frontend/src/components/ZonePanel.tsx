@@ -16,6 +16,7 @@ import {
   REGION_LEVELS,
 } from '../lib/types'
 import { MAX_EDITABLE_VERTICES, vertexTotal } from './ZoneLayer'
+import Select from './Select'
 import {
   IconPlus,
   IconDownload,
@@ -57,6 +58,8 @@ interface ZonePanelProps {
   regions: RegionFeature[]
   /** Level of the region list currently loaded. */
   regionLevel: number
+  /** Whether the current user may write zones (admin only). */
+  canEdit: boolean
 }
 
 function formatArea(km2: number): string {
@@ -86,6 +89,7 @@ export default function ZonePanel({
   onGeometryChange,
   regions,
   regionLevel,
+  canEdit,
 }: ZonePanelProps) {
   const uid = useId()
   const fid = (name: string) => `${uid}-${name}`
@@ -273,27 +277,31 @@ export default function ZonePanel({
           <span className="count">{zones.length}</span>
         </h2>
         <div className="zone-actions">
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={() => onDrawModeChange(!drawMode)}
-            aria-pressed={drawMode}
-            title={drawMode ? 'Leave draw & edit mode' : 'Draw and edit polygons on the map'}
-          >
-            <IconPencil width={16} height={16} />
-          </button>
-          <button type="button" className="icon-btn" onClick={startCreate} title="New zone">
-            <IconPlus width={16} height={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
-            title="Import zones from a GeoJSON file"
-          >
-            <IconUpload width={16} height={16} />
-          </button>
+          {canEdit && (
+            <>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => onDrawModeChange(!drawMode)}
+              aria-pressed={drawMode}
+              title={drawMode ? 'Leave draw & edit mode' : 'Draw and edit polygons on the map'}
+            >
+              <IconPencil width={16} height={16} />
+            </button>
+            <button type="button" className="icon-btn" onClick={startCreate} title="New zone">
+              <IconPlus width={16} height={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+              title="Import zones from a GeoJSON file"
+            >
+              <IconUpload width={16} height={16} />
+            </button>
+            </>
+          )}
           <button
             type="button"
             className="icon-btn"
@@ -365,10 +373,16 @@ export default function ZonePanel({
           <span className="zone-empty-icon">
             <IconPolygon width={26} height={26} />
           </span>
-          <p>No zones yet. Turn on the pencil and draw a polygon on the map.</p>
-          <button type="button" className="btn primary" onClick={startCreate}>
-            <IconPlus width={16} height={16} /> New zone
-          </button>
+          {canEdit ? (
+            <>
+              <p>No zones yet. Turn on the pencil and draw a polygon on the map.</p>
+              <button type="button" className="btn primary" onClick={startCreate}>
+                <IconPlus width={16} height={16} /> New zone
+              </button>
+            </>
+          ) : (
+            <p>No zones yet. Zones created by an admin will appear here.</p>
+          )}
         </div>
       ) : (
         <ul className="zone-list">
@@ -380,7 +394,7 @@ export default function ZonePanel({
                 <button
                   type="button"
                   className={`zone-list-item${selected ? ' selected' : ''}`}
-                  onClick={() => startEdit(zone.id)}
+                  onClick={() => (canEdit ? startEdit(zone.id) : onSelect(zone.id))}
                 >
                   <span className="zone-avatar" style={{ color: p.color }} aria-hidden="true">
                     <IconPolygon width={16} height={16} />
@@ -400,6 +414,7 @@ export default function ZonePanel({
                     </span>
                   </span>
                 </button>
+                {canEdit && (
                 <span className="zone-actions">
                   <button
                     type="button"
@@ -420,13 +435,14 @@ export default function ZonePanel({
                     <IconTrash width={14} height={14} />
                   </button>
                 </span>
+                )}
               </li>
             )
           })}
         </ul>
       )}
 
-      {formOpen && (
+      {formOpen && canEdit && (
         <div
           className="overlay dock"
           role="dialog"
@@ -470,19 +486,15 @@ export default function ZonePanel({
                   <label className="zone-form-label" htmlFor={fid('category')}>
                     Category
                   </label>
-                  <select
+                  <Select
                     id={fid('category')}
-                    className="zone-form-select"
+                    label="Category"
                     value={category}
-                    onChange={(e) => setCategory(e.target.value as ZoneInput['category'])}
-                    {...a11y('category')}
-                  >
-                    {ZONE_CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {ZONE_CATEGORY_LABELS[c]}
-                      </option>
-                    ))}
-                  </select>
+                    options={ZONE_CATEGORIES.map((c) => ({ value: c, label: ZONE_CATEGORY_LABELS[c] }))}
+                    onChange={(v) => setCategory(v as ZoneInput['category'])}
+                    invalid={!!errors.category}
+                    describedBy={errors.category ? fid('category-err') : undefined}
+                  />
                   {fieldError('category')}
                 </div>
 
@@ -535,25 +547,23 @@ export default function ZonePanel({
                     Administrative link
                   </label>
                   <div className="zone-region-select-row">
-                    <select
+                    <Select
                       id={fid('region')}
-                      className="zone-form-select"
+                      label="Administrative link"
                       value={regionCode ?? ''}
-                      onChange={(e) => {
-                        const code = e.target.value || null
+                      options={[
+                        { value: '', label: '— no administrative link —' },
+                        ...regions.map((r) => ({ value: r.properties.code, label: r.properties.name })),
+                      ]}
+                      onChange={(v) => {
+                        const code = v || null
                         setRegionCode(code)
                         const found = regions.find((r) => r.properties.code === code)
                         setRegionLevelOfZone(found ? found.properties.level : null)
                       }}
-                      {...a11y('region_code')}
-                    >
-                      <option value="">— no administrative link —</option>
-                      {regions.map((r) => (
-                        <option key={r.properties.code} value={r.properties.code}>
-                          {r.properties.name}
-                        </option>
-                      ))}
-                    </select>
+                      invalid={!!errors.region_code}
+                      describedBy={errors.region_code ? fid('region_code-err') : undefined}
+                    />
                   </div>
                   <p className="zone-hint">
                     Links the zone to an official boundary. Currently loaded: {regionLevelLabel}.

@@ -70,13 +70,15 @@ type Vehicle struct {
 	Lng        *float64   `json:"lng"`
 	SpeedKmh   float64    `json:"speed_kmh"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
+	DriverID   *int64     `json:"driver_id"`
 }
 
 // CreateInput is the body of POST /api/vehicles.
 type CreateInput struct {
-	Code string `json:"code"`
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	Code     string `json:"code"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	DriverID *int64 `json:"driver_id"`
 }
 
 // Normalize trims the text fields and applies the default kind.
@@ -107,6 +109,9 @@ func (in *CreateInput) Validate() FieldErrors {
 	}
 	return errs
 }
+
+// UpdateInput is the body of PUT /api/vehicles/:id: the same fields as create.
+type UpdateInput = CreateInput
 
 // PositionInput is the body of POST /api/vehicles/:id/position.
 type PositionInput struct {

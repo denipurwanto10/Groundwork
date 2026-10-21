@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { Entity } from '../lib/types'
-import { canonicalType } from '../lib/types'
+import { canonicalType, typeColorFor } from '../lib/types'
 import { IconAlert, IconPin, IconPlus, IconRefresh, IconSearch } from './Icons'
 
 type Filter = 'all' | 'active' | 'inactive'
@@ -14,6 +14,8 @@ interface Props {
   onSelect: (id: number | null) => void
   onAdd: () => void
   onRetry: () => void
+  /** Only admins may create entities. When false, the "Add" button is hidden. */
+  canEdit: boolean
   onVisibleEntitiesChange?: (entities: Entity[]) => void
   /** Active work area; the header shows it so a short list is explainable. */
   scopeName?: string | null
@@ -70,7 +72,7 @@ function FilterDropdown({ label, value, options, onChange }: { label: string; va
   )
 }
 
-export default function EntityList({ entities, selectedId, loading, error, onSelect, onAdd, onRetry, onVisibleEntitiesChange, scopeName, onClearScope }: Props) {
+export default function EntityList({ entities, selectedId, loading, error, onSelect, onAdd, onRetry, canEdit, onVisibleEntitiesChange, scopeName, onClearScope }: Props) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -178,10 +180,12 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
             <span aria-hidden="true">×</span>
           </button>
         )}
+        {canEdit && (
         <button className="btn primary" onClick={onAdd}>
           <IconPlus width={18} height={18} />
           <span>Add</span>
         </button>
+        )}
       </div>
 
       <div className="list-body">
@@ -280,11 +284,17 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
                 <IconPin width={22} height={22} />
               </span>
               <p className="empty-title">No entities yet</p>
-              <p className="muted">Add your first one and place it on the map.</p>
-              <button className="btn primary" onClick={onAdd}>
-                <IconPlus width={18} height={18} />
-                <span>Add entity</span>
-              </button>
+              {canEdit ? (
+                <>
+                  <p className="muted">Add your first one and place it on the map.</p>
+                  <button className="btn primary" onClick={onAdd}>
+                    <IconPlus width={18} height={18} />
+                    <span>Add entity</span>
+                  </button>
+                </>
+              ) : (
+                <p className="muted">Entities added by an admin will appear here.</p>
+              )}
             </div>
           ) : filtered.length === 0 ? (
             <div className="empty">
@@ -307,7 +317,11 @@ export default function EntityList({ entities, selectedId, loading, error, onSel
                     onClick={() => select(e.id === selectedId ? null : e.id)}
                     aria-pressed={e.id === selectedId}
                   >
-                    <span className={`entity-avatar ${e.status}`} aria-hidden="true">
+                    <span
+                      className={`entity-avatar ${e.status}`}
+                      style={{ '--type': typeColorFor(e.type) } as CSSProperties}
+                      aria-hidden="true"
+                    >
                       <IconPin width={20} height={20} />
                     </span>
                     <span className="entity-body">

@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { StreamState } from '../lib/vehicleStream'
-import type { RouteStop, Vehicle, VehicleRoute, VehicleStatus } from '../lib/types'
+import type {
+  GeofenceEvent,
+  RouteStop,
+  UserAccount,
+  Vehicle,
+  VehicleInput,
+  VehicleKind,
+  VehicleRoute,
+  VehicleStatus,
+} from '../lib/types'
 import {
   formatDistance,
   formatDuration,
@@ -15,22 +24,34 @@ import {
   vehicleKindLabel,
   vehicleStatusColor,
   vehicleStatusLabel,
+  VEHICLE_KIND_LABELS,
+  VEHICLE_KINDS,
 } from '../lib/types'
+import { ApiError } from '../lib/api'
 import {
   IconAlert,
   IconClock,
   IconCrosshair,
+  IconEdit,
   IconEye,
   IconEyeOff,
   IconFit,
   IconGauge,
+  IconMotorcycle,
   IconNavigation,
+  IconPickup,
+  IconPlus,
   IconRefresh,
   IconRoute,
   IconSearch,
+  IconTrash,
   IconTruck,
+  IconVan,
   IconX,
 } from './Icons'
+import Select from './Select'
+import FormModal from './FormModal'
+import { VehicleSide } from './VehicleArt'
 
 const STREAM_UI: Record<StreamState, { label: string; title: string }> = {
   connecting: { label: 'Connecting', title: 'Opening the live position feed' },
@@ -39,6 +60,23 @@ const STREAM_UI: Record<StreamState, { label: string; title: string }> = {
 }
 
 type Filter = 'all' | VehicleStatus
+
+/**
+ * Badge glyph for one unit, drawn with the same shapes as its map marker so the
+ * list never shows a truck for a van or a motorcycle.
+ */
+function KindGlyph({ kind, size }: { kind: string; size: number }) {
+  switch (normalizeVehicleKind(kind)) {
+    case 'van':
+      return <IconVan width={size} height={size} />
+    case 'motorcycle':
+      return <IconMotorcycle width={size} height={size} />
+    case 'pickup':
+      return <IconPickup width={size} height={size} />
+    default:
+      return <IconTruck width={size} height={size} />
+  }
+}
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -74,6 +112,27 @@ interface Props {
   onClearDraft: () => void
   onRouteSet: (vehicleId: number, origin: RouteStop, destination: RouteStop) => Promise<void>
   onRouteClear: (vehicleId: number) => Promise<void>
+  /** Only admins may plan or clear routes; viewer and driver stay read-only. */
+  canEdit: boolean
+  /** Whether this account may move a unit by dragging its marker on the map. */
+  canDrive: (v: Vehicle) => boolean
+  /** Admins add, edit and remove units; the other roles stay read-only. */
+  onCreate: (input: VehicleInput) => Promise<void>
+  onUpdate: (id: number, input: VehicleInput) => Promise<void>
+  onDelete: (vehicle: Vehicle) => void
+  /** Driver accounts a unit can be handed over to. */
+  drivers: UserAccount[]
+  /** Zone boundary crossings, newest first. */
+  events: GeofenceEvent[]
+}
+
+/** The unit the fleet form is adding or editing. */
+interface UnitDraft {
+  id: number | null
+  name: string
+  code: string
+  kind: VehicleKind
+  driverId: number | ''
 }
 
 /** Re-renders every few seconds so "12s ago" labels keep moving. */
@@ -113,6 +172,13 @@ export default function VehiclePanel({
   onClearDraft,
   onRouteSet,
   onRouteClear,
+  canEdit,
+  canDrive,
+  onCreate,
+  onUpdate,
+  onDelete,
+  drivers,
+  events,
 }: Props) {
   const now = useNow()
   const stream = STREAM_UI[streamState]
@@ -124,6 +190,10 @@ export default function VehiclePanel({
   const [saving, setSaving] = useState(false)
   const [routeError, setRouteError] = useState<string | null>(null)
   const [planning, setPlanning] = useState(false)
+  const [unit, setUnit] = useState<UnitDraft | null>(null)
+  const [unitError, setUnitError] = useState<string | null>(null)
+  const [unitFields, setUnitFields] = useState<Record<string, string>>({})
+  const [unitSaving, setUnitSaving] = useState(false)
 
   // A route error belongs to one vehicle: switching selection must not show it
   // for a different unit.
@@ -184,6 +254,64 @@ export default function VehiclePanel({
     }
   }
 
+  const openCreate = () => {
+    setUnit({ id: null, name: '', code: '', kind: 'truck', driverId: '' })
+    setUnitError(null)
+    setUnitFields({})
+  }
+
+  const openEdit = (v: Vehicle) => {
+    setUnit({
+      id: v.id,
+      name: v.name,
+      code: v.code,
+      kind: normalizeVehicleKind(v.kind),
+      driverId: v.driver_id ?? '',
+    })
+    setUnitError(null)
+    setUnitFields({})
+  }
+
+  const closeUnit = () => {
+    setUnit(null)
+    setUnitError(null)
+    setUnitFields({})
+  }
+
+  const submitUnit = async () => {
+    if (!unit) return
+    const input: VehicleInput = {
+      name: unit.name,
+      code: unit.code,
+      kind: unit.kind,
+      driver_id: unit.driverId === '' ? null : unit.driverId,
+    }
+    setUnitSaving(true)
+    setUnitError(null)
+    setUnitFields({})
+    try {
+      if (unit.id === null) await onCreate(input)
+      else await onUpdate(unit.id, input)
+      closeUnit()
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setUnitError(err.message)
+        setUnitFields(err.fields ?? {})
+      } else {
+        setUnitError(err instanceof Error ? err.message : 'Could not save the vehicle')
+      }
+    } finally {
+      setUnitSaving(false)
+    }
+  }
+
+  const unitFieldError = (field: string) =>
+    unitFields[field] ? (
+      <span className="um-error" role="alert">
+        {unitFields[field]}
+      </span>
+    ) : null
+
   const selectedStatus = selected ? normalizeVehicleStatus(selected.status) : 'offline'
   const showForm = !!selected && !activeRoute && (planning || !!draft?.origin || !!draft?.destination)
 
@@ -221,6 +349,15 @@ export default function VehiclePanel({
         </div>
       </header>
 
+      {canEdit && (
+        <div className="lt-add-row">
+          <button type="button" className="btn primary small" onClick={openCreate}>
+            <IconPlus width={15} height={15} />
+            Add vehicle
+          </button>
+        </div>
+      )}
+
       <div className="lt-stats" role="group" aria-label="Filter by status">
         {FILTERS.map((f) => (
           <button
@@ -230,8 +367,13 @@ export default function VehiclePanel({
             aria-pressed={filter === f.key}
             onClick={() => setFilter(f.key)}
           >
+            <span className="lt-stat-label">{f.label}</span>
             <b>{counts[f.key]}</b>
-            <span>{f.label}</span>
+            <i
+              className="lt-stat-bar"
+              aria-hidden="true"
+              style={{ '--share': counts.all ? `${Math.round((counts[f.key] / counts.all) * 100)}%` : '0%' } as CSSProperties}
+            />
           </button>
         ))}
       </div>
@@ -251,14 +393,14 @@ export default function VehiclePanel({
 
       <div className="lt-scroll">
         {selected && (
-          <article className="lt-detail" aria-label={`${selected.name} details`}>
+          <article className={`lt-detail ${selectedStatus}`} aria-label={`${selected.name} details`}>
             <div className="lt-detail-top">
               <span
                 className="lt-avatar lg"
                 style={{ '--veh': vehicleStatusColor(selectedStatus) } as CSSProperties}
                 aria-hidden="true"
               >
-                <IconTruck width={20} height={20} />
+                <VehicleSide kind={selected.kind} />
               </span>
               <div className="lt-detail-id">
                 <h3>{selected.name}</h3>
@@ -302,6 +444,10 @@ export default function VehiclePanel({
               </div>
             </dl>
 
+            {canDrive(selected) && hasPosition(selected) && (
+              <p className="lt-drive-hint">Drag this unit's marker on the map to drive it.</p>
+            )}
+
             <div className="lt-actions">
               <button
                 type="button"
@@ -313,7 +459,7 @@ export default function VehiclePanel({
                 <IconNavigation width={15} height={15} />
                 {following ? 'Following' : 'Follow'}
               </button>
-              {!activeRoute && !showForm && (
+              {canEdit && !activeRoute && !showForm && (
                 <button type="button" className="btn small secondary" onClick={() => setPlanning(true)}>
                   <IconRoute width={15} height={15} />
                   Plan route
@@ -360,14 +506,16 @@ export default function VehiclePanel({
                     {formatDistance(activeRoute.distance_m)} · {formatDuration(activeRoute.duration_s)} ·{' '}
                     {activeRoute.source === 'osrm' ? 'road route' : 'direct line'}
                   </span>
-                  <button type="button" className="text-action" onClick={() => void clearRoute(selected.id)}>
-                    Clear route
-                  </button>
+                  {canEdit && (
+                    <button type="button" className="text-action" onClick={() => void clearRoute(selected.id)}>
+                      Clear route
+                    </button>
+                  )}
                 </div>
               </div>
             )}
 
-            {showForm && (
+            {showForm && canEdit && (
               <div className="lt-form">
                 <p>Tap the target, then tap a point on the map.</p>
                 {(['origin', 'destination'] as const).map((stage) => {
@@ -490,10 +638,10 @@ export default function VehiclePanel({
             const route = routeByVehicle.get(v.id)
             const pct = route ? Math.round(routeProgress(route) * 100) : null
             return (
-              <li key={v.id}>
+              <li key={v.id} className={isSel ? 'lt-row selected' : 'lt-row'}>
                 <button
                   type="button"
-                  className={isSel ? 'lt-card selected' : 'lt-card'}
+                  className="lt-card"
                   aria-pressed={isSel}
                   onClick={() => onSelect(isSel ? null : v.id)}
                   title={`${v.code} · ${v.name}`}
@@ -503,7 +651,7 @@ export default function VehiclePanel({
                     style={{ '--veh': vehicleStatusColor(status) } as CSSProperties}
                     aria-hidden="true"
                   >
-                    <IconTruck width={17} height={17} />
+                    <VehicleSide kind={v.kind} />
                   </span>
                   <span className="lt-card-body">
                     <span className="lt-card-name">{v.name}</span>
@@ -531,11 +679,153 @@ export default function VehiclePanel({
                     )}
                   </span>
                 </button>
+                {canEdit && (
+                  <span className="lt-row-actions">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => openEdit(v)}
+                      aria-label={`Edit ${v.name}`}
+                      title="Edit vehicle"
+                    >
+                      <IconEdit width={15} height={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => onDelete(v)}
+                      aria-label={`Delete ${v.name}`}
+                      title="Delete vehicle"
+                    >
+                      <IconTrash width={15} height={15} />
+                    </button>
+                  </span>
+                )}
               </li>
             )
           })}
         </ul>
       </div>
+
+      {events.length > 0 && (
+        <div className="lt-events">
+          <div className="lt-events-head">
+            <span>Zone crossings</span>
+            <span>{events.length}</span>
+          </div>
+          <ul className="lt-events-list">
+            {events.map((ev) => {
+              const entering = ev.event_type === 'ENTER'
+              return (
+                <li key={ev.id} className={`lt-event ${entering ? 'enter' : 'exit'}`}>
+                  <span className="lt-event-icon">{entering ? <IconNavigation width={14} height={14} /> : <IconAlert width={14} height={14} />}</span>
+                  <span className="lt-event-body">
+                    <strong>{ev.vehicle_name}</strong>
+                    <span className="lt-event-text">
+                      {entering ? 'MASUK ke' : 'KELUAR dari'} {ev.zone_name}
+                    </span>
+                  </span>
+                  <span className="lt-event-time">{formatLastSeen(ev.created_at, now)}</span>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
+      {unit && (
+        <FormModal
+          titleId="veh-form-title"
+          title={unit.id === null ? 'Add vehicle' : 'Edit vehicle'}
+          subtitle={
+            unit.id === null
+              ? 'Register a unit so it shows up on the live map.'
+              : `Update the details of ${unit.name.trim() || 'this vehicle'}.`
+          }
+          icon={<KindGlyph kind={unit.kind} size={22} />}
+          onClose={closeUnit}
+          footer={
+            <>
+              <button type="button" className="btn secondary" onClick={closeUnit} disabled={unitSaving}>
+                Cancel
+              </button>
+              <button type="button" className="btn primary" onClick={() => void submitUnit()} disabled={unitSaving}>
+                {unitSaving ? 'Saving…' : unit.id === null ? 'Add vehicle' : 'Save changes'}
+              </button>
+            </>
+          }
+        >
+          <div className="um-fgrid">
+            <div className="um-field">
+              <label htmlFor="veh-name">Name</label>
+              <input
+                id="veh-name"
+                value={unit.name}
+                maxLength={120}
+                autoComplete="off"
+                autoFocus
+                onChange={(e) => setUnit({ ...unit, name: e.target.value })}
+                placeholder="Truck 01"
+                aria-invalid={!!unitFields.name}
+              />
+              {unitFieldError('name')}
+            </div>
+
+            <div className="um-field">
+              <label htmlFor="veh-code">Plate number</label>
+              <input
+                id="veh-code"
+                value={unit.code}
+                maxLength={32}
+                autoComplete="off"
+                onChange={(e) => setUnit({ ...unit, code: e.target.value })}
+                placeholder="B 1234 XYZ"
+                aria-invalid={!!unitFields.code}
+              />
+              {unitFieldError('code')}
+            </div>
+
+            <div className="um-field">
+              <label htmlFor="veh-kind">Type</label>
+              <Select
+                id="veh-kind"
+                label="Type"
+                value={unit.kind}
+                options={VEHICLE_KINDS.map((k) => ({ value: k, label: VEHICLE_KIND_LABELS[k] }))}
+                onChange={(v) => setUnit({ ...unit, kind: v as VehicleKind })}
+                invalid={!!unitFields.kind}
+              />
+              {unitFieldError('kind')}
+            </div>
+
+            <div className="um-field">
+              <label htmlFor="veh-driver">Driver</label>
+              <Select
+                id="veh-driver"
+                label="Driver"
+                value={String(unit.driverId)}
+                options={[
+                  { value: '', label: 'Unassigned' },
+                  ...drivers.map((d) => ({
+                    value: String(d.id),
+                    // Name is optional, so fall back to the login handle.
+                    label: d.name?.trim() ? `${d.name.trim()} · ${d.username}` : d.username || d.email || `#${d.id}`,
+                  })),
+                ]}
+                onChange={(v) => setUnit({ ...unit, driverId: v === '' ? '' : Number(v) })}
+              />
+              {unitFieldError('driver_id')}
+            </div>
+          </div>
+
+          {unitError && (
+            <div className="um-alert" role="alert">
+              <IconAlert width={16} height={16} />
+              <span>{unitError}</span>
+            </div>
+          )}
+        </FormModal>
+      )}
     </section>
   )
 }

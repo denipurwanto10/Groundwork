@@ -1,0 +1,1477 @@
+/* ==========================================================================
+   Final layer — loaded after App.css, modern.css and vibrant.css.
+
+   Pure CSS. Remove the import in App.tsx to go back to the previous look.
+
+   Principles
+   - Solid surfaces and hairline borders. No blur, no gradients, no glow.
+   - One accent (blue). Colour is for status and for the data on the map.
+   - One radius scale, one shadow, consistent spacing.
+   - Every panel is a flex column with a scrolling body and a pinned footer,
+     so forms never cut their buttons off.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Tokens
+   -------------------------------------------------------------------------- */
+:root {
+  --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Cool graphite neutrals + one teal accent */
+  --bg: #eceff3;
+  --panel: #ffffff;
+  --panel-solid: #ffffff;
+  --panel-2: #f5f6f8;
+  --field: #ffffff;
+  --line: #e3e6eb;
+  --line-strong: #cdd2da;
+
+  --text: #0e1217;
+  --text-2: #333a45;
+  --muted: #667085;
+
+  --accent: #0b8a7e;
+  --accent-hover: #087468;
+  --accent-soft: rgb(11 138 126 / 9%);
+  --accent-line: rgb(11 138 126 / 40%);
+  --btn: #0b8a7e;
+  --btn-hover: #087468;
+  --grad: #0b8a7e;
+  --grad-hover: #087468;
+  --on-btn: #ffffff;
+
+  --ok: #1f9d55;
+  --ok-soft: rgb(31 157 85 / 11%);
+  --live: #1f9d55;
+  --live-soft: rgb(31 157 85 / 12%);
+  --warn: #c77d0a;
+  --warn-soft: rgb(199 125 10 / 12%);
+  --idle: #7d8693;
+  --idle-soft: rgb(123 132 148 / 13%);
+  --danger: #d63a48;
+  --danger-soft: rgb(214 58 72 / 8%);
+  --danger-line: rgb(214 58 72 / 32%);
+
+  --scrim: rgb(8 11 16 / 50%);
+
+  --shadow-pop: 0 1px 2px rgb(14 18 23 / 6%), 0 10px 26px -10px rgb(14 18 23 / 20%);
+  --shadow-card: none;
+  --shadow-btn: none;
+
+  --r-xl: 14px;
+  --r-lg: 12px;
+  --r-md: 8px;
+
+  --sidebar-w: 384px;
+  --gutter: 16px;
+  --edge: 12px;
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+
+  --route: #0b8a7e;
+  --route-done: #b9c0cb;
+  --map-ink: #0e1217;
+}
+
+:root[data-theme='dark'] {
+  --bg: #07090c;
+  --panel: #0f1318;
+  --panel-solid: #0f1318;
+  --panel-2: #151a21;
+  --field: #0b0e12;
+  --line: #1f262f;
+  --line-strong: #333c48;
+
+  --text: #eef1f5;
+  --text-2: #cdd3dc;
+  --muted: #8b95a5;
+
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-soft: rgb(45 212 191 / 12%);
+  --accent-line: rgb(45 212 191 / 45%);
+  --btn: #0f8579;
+  --btn-hover: #12a193;
+  --grad: #0f8579;
+  --grad-hover: #12a193;
+
+  --ok: #4ade80;
+  --ok-soft: rgb(74 222 128 / 12%);
+  --live: #4ade80;
+  --live-soft: rgb(74 222 128 / 12%);
+  --warn: #fbbf24;
+  --warn-soft: rgb(251 191 36 / 13%);
+  --idle: #98a2b3;
+  --idle-soft: rgb(152 162 179 / 13%);
+  --danger: #fb7185;
+  --danger-soft: rgb(251 113 133 / 12%);
+  --danger-line: rgb(251 113 133 / 42%);
+
+  --scrim: rgb(0 0 0 / 65%);
+  --shadow-pop: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 30px -10px rgb(0 0 0 / 65%);
+
+  --route: #2dd4bf;
+  --route-done: #444d5a;
+  --map-ink: #eef1f5;
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --sidebar-w: 416px;
+    --edge: 16px;
+  }
+}
+
+@media (min-width: 1920px) {
+  :root {
+    --sidebar-w: 440px;
+    --edge: 20px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --sidebar-w: 340px;
+    --edge: 10px;
+    --gutter: 14px;
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --edge: 10px;
+    --gutter: 14px;
+    --nav-h: 60px;
+  }
+}
+
+html,
+body,
+.app,
+:root[data-theme='dark'] .app {
+  background: var(--bg);
+}
+
+body {
+  color: var(--text);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+:where(button, a, input, select, textarea, [role='tab']):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   2. Surfaces: solid everywhere, no blur
+   -------------------------------------------------------------------------- */
+.glass,
+.app .sidebar,
+.app .brandbar,
+.app .detail-panel,
+.app .region-controls,
+.app .live-hud,
+.live-hud,
+.overlay.dock .card,
+.dialog-card,
+.leaflet-popup-content-wrapper,
+.auth-card,
+.sheet-handle,
+.list-slot,
+.sidebar-tabs {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.overlay.dialog-overlay {
+  background: var(--scrim);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (min-width: 768px) {
+  .app .sidebar {
+    left: calc(var(--edge) + var(--safe-l));
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--r-xl);
+    box-shadow: var(--shadow-pop);
+  }
+}
+
+.app .detail-panel,
+.card,
+.form-card,
+.zone-form-card,
+.dialog-card {
+  background: var(--panel-solid) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-pop);
+}
+
+/* One quiet entrance: a short fade, no bounce, no scale */
+.app .detail-panel,
+.overlay.dock .card,
+.dialog-card {
+  animation: pFade 0.18s ease-out both;
+}
+
+@keyframes pFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   3. Docked forms (new / edit entity, new / edit zone) — the layout fix
+   -------------------------------------------------------------------------- */
+.overlay.dock {
+  max-width: calc(100vw - var(--edge) * 2);
+}
+
+.overlay.dock .card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Zone form wraps its body and footer in a <form>: make that the flex column */
+.zone-form-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.zone-form-card > form {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.zone-form-card > form > .zone-form-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.zone-form-header,
+.zone-form-footer,
+.sheet-head,
+.form-footer {
+  flex: none;
+}
+
+.zone-form-header {
+  padding: 16px 16px 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.zone-form-header h3,
+.sheet-head h2 {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.zone-form-body {
+  padding: 18px 20px 8px;
+  overscroll-behavior: contain;
+}
+
+.zone-form-field {
+  margin-bottom: 16px;
+}
+
+.zone-form-label,
+.label-text {
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.zone-form-footer {
+  padding: 12px 20px calc(12px + var(--safe-b));
+  background: var(--panel-solid);
+  border-top: 1px solid var(--line);
+}
+
+.zone-form-footer .btn {
+  min-width: 96px;
+}
+
+.form-footer {
+  border-top: 1px solid var(--line);
+}
+
+/* Colour field: swatch, no stray frame around it */
+.zone-color-input {
+  height: 40px;
+  padding: 3px;
+  border-radius: var(--r-md);
+}
+
+.zone-color-input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 5px;
+}
+
+.zone-color-input::-moz-color-swatch {
+  border: 0;
+  border-radius: 5px;
+}
+
+/* Admin-link hint under the select: plain text, not a second box */
+.zone-form-field .hint,
+.zone-form-hint {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   4. Inputs and buttons
+   -------------------------------------------------------------------------- */
+.zone-form-input,
+.zone-form-select,
+.zone-form-textarea,
+.form-card input:not([type='radio']),
+.form-card select,
+.form-card textarea,
+.form-type-select,
+.auth-form input,
+.search {
+  min-height: 40px;
+  background: var(--field);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: none;
+}
+
+.zone-form-textarea {
+  min-height: 84px;
+}
+
+.zone-form-input:hover,
+.zone-form-select:hover,
+.zone-form-textarea:hover,
+.form-card input:not([type='radio']):hover,
+.form-type-select:hover {
+  border-color: var(--muted);
+}
+
+.zone-form-input:focus,
+.zone-form-select:focus,
+.zone-form-textarea:focus,
+.form-card input:not([type='radio']):focus,
+.form-card select:focus,
+.form-card textarea:focus,
+.auth-form input:focus,
+.search:focus-within {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.btn {
+  min-height: 40px;
+  padding-inline: 16px;
+  font-weight: 600 !important;
+  border-radius: var(--r-md) !important;
+  box-shadow: none !important;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease !important;
+}
+
+.btn.primary,
+:root[data-theme='dark'] .btn.primary {
+  color: #fff !important;
+  background: var(--accent) !important;
+  border: 1px solid var(--accent) !important;
+}
+
+:root[data-theme='dark'] .btn.primary {
+  background: var(--btn) !important;
+  border-color: var(--btn) !important;
+}
+
+.btn.primary:hover:not(:disabled),
+:root[data-theme='dark'] .btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+  transform: none !important;
+}
+
+:root[data-theme='dark'] .btn.primary:hover:not(:disabled) {
+  background: var(--btn-hover) !important;
+  border-color: var(--btn-hover) !important;
+}
+
+.btn.secondary {
+  color: var(--text) !important;
+  background: var(--panel-solid) !important;
+  border: 1px solid var(--line-strong) !important;
+}
+
+.btn.secondary:hover:not(:disabled) {
+  background: var(--panel-2) !important;
+  border-color: var(--muted) !important;
+}
+
+.btn.danger {
+  color: var(--danger) !important;
+  background: transparent !important;
+  border: 1px solid var(--danger-line) !important;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: var(--danger-soft) !important;
+}
+
+.btn.danger-solid {
+  color: #fff !important;
+  background: var(--danger) !important;
+  border: 1px solid var(--danger) !important;
+}
+
+:root[data-theme='dark'] .btn.danger-solid {
+  color: #1a0505 !important;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+}
+
+/* Edit and Delete share one row */
+.detail-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.detail-actions .btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.icon-btn {
+  border-radius: var(--r-md);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.icon-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* --------------------------------------------------------------------------
+   5. Sidebar: brand, tabs, lists
+   -------------------------------------------------------------------------- */
+.brand-mark,
+.app .brand-mark {
+  color: #fff;
+  background: var(--accent);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+:root[data-theme='dark'] .brand-mark,
+:root[data-theme='dark'] .app .brand-mark {
+  color: #fff;
+  background: var(--btn);
+}
+
+.app .brandbar h1,
+.auth-brand-text h1 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.app .brandbar {
+  padding: 16px var(--gutter) 12px;
+}
+
+.app .sidebar-tabs {
+  margin: 0 var(--gutter) 12px;
+  padding: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.app .sidebar-tabs button[role='tab'] {
+  color: var(--muted);
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.app .sidebar-tabs button[role='tab'][aria-selected='true'] {
+  color: var(--text);
+  background: var(--panel-solid);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 1px 2px rgb(14 18 23 / 8%);
+}
+
+.app .sidebar-tabs button[role='tab'][aria-selected='true'] svg {
+  color: var(--accent);
+}
+
+/* Count badges: one pill shape for every tab, state shown by colour only */
+.app .tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.app .sidebar-tabs .tab-badge.live,
+.app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge.live {
+  color: var(--live);
+  background: var(--live-soft);
+  border-color: transparent;
+}
+
+.app .sidebar-tabs button[role='tab'] {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.app .sidebar-tabs .tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entity-item {
+  border-radius: var(--r-md) !important;
+}
+
+.entity-item:hover {
+  background: var(--panel-2) !important;
+}
+
+.entity-item.selected {
+  background: var(--accent-soft) !important;
+  box-shadow: inset 3px 0 0 var(--accent) !important;
+}
+
+.entity-avatar {
+  border-radius: 10px !important;
+}
+
+.lt-card,
+.zone-list > li {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: none;
+  transform: none !important;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.lt-card:hover,
+.zone-list > li:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-2);
+}
+
+.lt-card.selected,
+.zone-list > li.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--panel-solid);
+}
+
+.lt-stat {
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+
+.seg[aria-pressed='true'],
+.island-chip.active,
+.seg-row .seg.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.count {
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.list-scroll,
+.zone-list,
+.lt-scroll,
+.form-body,
+.zone-form-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  overscroll-behavior: contain;
+}
+
+/* --------------------------------------------------------------------------
+   6. Map chrome
+   -------------------------------------------------------------------------- */
+.leaflet-layer.tiles-mono {
+  filter: saturate(0.8) contrast(1.03);
+}
+
+:root[data-theme='dark'] .leaflet-layer.tiles-mono {
+  filter: invert(1) hue-rotate(180deg) saturate(0.55) brightness(0.82) contrast(1.06);
+}
+
+.leaflet-container {
+  font-family: inherit;
+}
+
+.app .region-controls,
+.live-hud {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+}
+
+.app .region-controls {
+  border-radius: var(--r-lg);
+}
+
+.live-hud {
+  border-radius: 999px;
+}
+
+.sidebar-reopen,
+.pick-hint,
+.route-pick-hint {
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+}
+
+:root[data-theme='dark'] .sidebar-reopen,
+:root[data-theme='dark'] .pick-hint,
+:root[data-theme='dark'] .route-pick-hint {
+  background: var(--btn);
+}
+
+.sidebar-reopen:hover {
+  background: var(--accent-hover);
+}
+
+.toast {
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+}
+
+.leaflet-bar,
+.leaflet-touch .leaflet-bar {
+  background: var(--panel-solid);
+  border-radius: 10px !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+
+.leaflet-bar a,
+.leaflet-touch .leaflet-bar a {
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+  color: var(--text);
+  background: var(--panel-solid);
+}
+
+.leaflet-bar a:hover {
+  background: var(--panel-2);
+}
+
+.leaflet-popup-content-wrapper {
+  background: var(--panel-solid);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+.leaflet-popup-tip {
+  background: var(--panel-solid);
+}
+
+.leaflet-control-attribution {
+  color: var(--muted) !important;
+  background: color-mix(in srgb, var(--panel-solid) 85%, transparent) !important;
+}
+
+/* --------------------------------------------------------------------------
+   7. Dialogs and login
+   -------------------------------------------------------------------------- */
+.dialog-card {
+  border-radius: var(--r-xl);
+}
+
+.auth-screen {
+  background: var(--bg);
+  padding: max(16px, var(--safe-t)) max(16px, var(--safe-r)) max(16px, var(--safe-b)) max(16px, var(--safe-l));
+}
+
+.auth-card {
+  width: min(400px, 100%);
+  padding: 32px 28px 26px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-pop);
+}
+
+.auth-title {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.auth-submit {
+  min-height: 44px;
+}
+
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 24px 18px 20px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   8. Phone (≤767px): top bar, bottom navigation, bottom sheets
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .app .brandbar {
+    left: calc(var(--edge) + var(--safe-l));
+    right: calc(var(--edge) + var(--safe-r));
+    padding: 0 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pop);
+  }
+
+  .app .brand-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
+
+  .app .brandbar h1 {
+    font-size: 16px;
+  }
+
+  /* Bottom navigation: solid bar, accent underline on the active tab */
+  .app .sidebar-tabs {
+    padding: 0 max(6px, var(--safe-r)) var(--safe-b) max(6px, var(--safe-l));
+    background: var(--panel);
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .app .sidebar-tabs button[role='tab'] {
+    height: 100%;
+    margin: 0;
+    color: var(--muted);
+    border-radius: 0;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] {
+    color: var(--accent);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true']::before {
+    top: -1px;
+    width: 32px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 0 0 2px 2px;
+  }
+
+  .app .sidebar-tabs .tab-badge,
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+    position: absolute;
+    top: 6px;
+    left: calc(50% + 6px);
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10.5px;
+    color: #fff;
+    background: var(--accent);
+    border: 2px solid var(--panel);
+    box-sizing: content-box;
+  }
+
+  .app .sidebar-tabs .tab-badge.live,
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge.live {
+    color: #fff;
+    background: var(--live);
+  }
+
+  :root[data-theme='dark'] .app .sidebar-tabs .tab-badge,
+  :root[data-theme='dark'] .app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+    color: #fff;
+    background: var(--btn);
+  }
+
+  :root[data-theme='dark'] .app .sidebar-tabs .tab-badge.live,
+  :root[data-theme='dark'] .app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge.live {
+    color: #04210f;
+    background: var(--live);
+  }
+
+  /* Bottom sheet */
+  .app .list-slot {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 20px -6px rgb(14 18 23 / 22%);
+    padding-left: var(--safe-l);
+    padding-right: var(--safe-r);
+  }
+
+  .sheet-grab {
+    height: 28px;
+  }
+
+  .sheet-grab span {
+    width: 36px;
+    height: 4px;
+    background: var(--line-strong);
+  }
+
+  /* Detail panel and docked forms become bottom sheets */
+  .app .detail-panel,
+  .overlay.dock .card {
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0 !important;
+    box-shadow: 0 -4px 24px -6px rgb(14 18 23 / 28%);
+  }
+
+  .overlay.dock,
+  .app .overlay.dock {
+    max-width: 100%;
+  }
+
+  .overlay.dock .card {
+    height: auto;
+    max-height: 88dvh;
+  }
+
+  .app .detail-panel {
+    max-height: 80dvh;
+    overflow-y: auto;
+    padding-bottom: calc(20px + var(--safe-b));
+  }
+
+  .zone-form-footer,
+  .form-footer {
+    padding-bottom: calc(12px + var(--safe-b));
+  }
+
+  .app .region-controls {
+    left: calc(var(--edge) + var(--safe-l));
+    right: calc(var(--edge) + var(--safe-r));
+  }
+
+  .detail-actions {
+    flex-wrap: nowrap;
+  }
+
+  /* 16px inputs stop iOS from zooming on focus */
+  .search input,
+  .zone-form-input,
+  .zone-form-select,
+  .zone-form-textarea,
+  .form-card input,
+  .form-card select,
+  .form-card textarea,
+  .form-type-select,
+  .auth-form input {
+    font-size: 16px;
+  }
+
+  .live-hud {
+    max-width: calc(100% - 24px);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .live-hud::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Vehicle form dialog: fits the screen, body scrolls */
+  .overlay.dialog-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .veh-form-card {
+    max-width: 100%;
+    max-height: 90dvh;
+    border-radius: 16px 16px 0 0;
+  }
+}
+
+@media (max-width: 380px) {
+  :root {
+    --edge: 8px;
+    --gutter: 12px;
+  }
+
+  .app .sidebar-tabs button[role='tab'] {
+    font-size: 10.5px;
+  }
+
+  .zone-form-body,
+  .zone-form-header,
+  .zone-form-footer {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+/* Short landscape phones: keep the map visible */
+@media (max-width: 900px) and (max-height: 480px) and (orientation: landscape) {
+  :root {
+    --nav-h: 52px;
+    --sheet-half: 70dvh;
+    --sheet-full: 82dvh;
+    --topbar-h: 46px;
+  }
+
+  .app .sidebar-tabs button[role='tab'] {
+    flex-direction: row;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .overlay.dock .card {
+    max-height: 92dvh;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   9. Tablet (768–1023px)
+   -------------------------------------------------------------------------- */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app .brandbar {
+    padding: 14px var(--gutter) 10px;
+  }
+
+  .app .detail-panel {
+    width: min(400px, calc(100% - var(--sidebar-w) - var(--edge) * 4));
+  }
+
+  .app .sidebar-tabs button[role='tab'] {
+    height: 42px;
+  }
+
+  .app .sidebar-tabs button[role='tab'] .tab-badge {
+    display: inline-flex;
+    min-width: 20px;
+    padding: 0 6px;
+  }
+}
+
+/* Desktop: forms fill the docked column and keep a fixed header + footer */
+@media (min-width: 768px) {
+  .overlay.dock .card {
+    height: 100%;
+    max-height: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   10. Input modes and accessibility
+   -------------------------------------------------------------------------- */
+@media (pointer: coarse) {
+  .btn,
+  .seg,
+  .island-chip,
+  .icon-btn,
+  .copy-chip {
+    min-height: 44px;
+  }
+
+  .icon-btn {
+    min-width: 44px;
+  }
+
+  .entity-item,
+  .lt-card {
+    min-height: 64px;
+  }
+
+  .leaflet-bar a,
+  .leaflet-touch .leaflet-bar a {
+    width: 42px;
+    height: 42px;
+    line-height: 42px;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --line: #8b93a3;
+    --line-strong: #4b5563;
+    --muted: #374151;
+  }
+
+  :root[data-theme='dark'] {
+    --line: #6b7280;
+    --line-strong: #9ca3af;
+    --muted: #d1d5db;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app .detail-panel,
+  .overlay.dock .card,
+  .dialog-card {
+    animation: none !important;
+  }
+
+  .btn,
+  .icon-btn,
+  .lt-card,
+  .zone-list > li {
+    transition: none !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   11. Spacing fixes: rows that sat flush against the panel edge
+   -------------------------------------------------------------------------- */
+.filter-summary {
+  margin: 0 var(--gutter);
+  padding: 2px 0 10px;
+  font-size: 12.5px;
+}
+
+.filter-summary .text-action {
+  padding: 4px 8px;
+  margin-right: -8px;
+  color: var(--accent);
+  border-radius: 6px;
+}
+
+.filter-summary .text-action:hover {
+  background: var(--accent-soft);
+}
+
+.zone-panel > .zone-hint,
+.zone-panel > .inline-alert {
+  margin: 0 var(--gutter) 12px;
+}
+
+.zone-list {
+  padding: 2px var(--gutter) 14px;
+}
+
+.zone-list > li + li {
+  margin-top: 8px;
+}
+
+.region-picker-body {
+  padding: 12px var(--gutter) 16px;
+  gap: 12px;
+}
+
+.zone-empty,
+.lt-empty {
+  padding: 36px var(--gutter);
+}
+
+.zone-panel-header,
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.zone-panel-header h2,
+.panel-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------------------
+   12. Live tracking (vehicles tab)
+   -------------------------------------------------------------------------- */
+.lt {
+  gap: 14px;
+  padding: 18px var(--gutter) 0;
+}
+
+.lt-head {
+  align-items: flex-start;
+}
+
+.lt-title {
+  gap: 4px;
+}
+
+.lt-tools {
+  flex: none;
+  gap: 8px;
+}
+
+.lt-tools .icon-btn {
+  width: 36px;
+  height: 36px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+}
+
+.lt-tools .icon-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+/* The panel already has side padding: the search must not add its own */
+.lt .search,
+.lt .lt-search {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.lt-add-row .btn {
+  flex: 0 0 auto;
+}
+
+/* Status tiles wrap to 2 x 2 instead of squeezing on narrow panels */
+.lt-stats {
+  grid-template-columns: repeat(auto-fit, minmax(68px, 1fr));
+  gap: 8px;
+}
+
+.lt-stat {
+  padding: 10px 12px;
+}
+
+.lt-stat.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Vehicle rows: one frame, actions stacked in a slim column on the right */
+.lt-list {
+  gap: 8px;
+}
+
+.lt-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0;
+  padding-right: 10px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+
+.lt-row:hover {
+  background: var(--panel-2);
+  border-color: var(--line-strong);
+}
+
+.lt-row.selected {
+  background: var(--panel-solid);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.lt-row .lt-card,
+.lt-row .lt-card:hover {
+  min-width: 0;
+  padding: 12px 10px 12px 12px;
+  gap: 12px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+.lt-row-actions {
+  flex-direction: column;
+  align-self: center;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.lt-row-actions .icon-btn,
+.lt-row .lt-row-actions .icon-btn {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+}
+
+.lt-avatar {
+  width: 42px;
+  height: 42px;
+  color: var(--veh, var(--muted));
+  background: color-mix(in srgb, var(--veh, var(--muted)) 14%, transparent);
+  border: 0;
+  border-radius: 12px;
+}
+
+.lt-avatar.moving,
+.lt-avatar.lg {
+  color: var(--veh, var(--accent));
+  background: color-mix(in srgb, var(--veh, var(--accent)) 14%, transparent);
+  border: 0;
+}
+
+.lt-avatar::after {
+  border-color: var(--panel-solid);
+}
+
+.lt-card-body {
+  gap: 3px;
+}
+
+.lt-card-name {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.lt-card-sub {
+  font-size: 12.5px;
+}
+
+.lt-card-end {
+  gap: 6px;
+  min-width: 64px;
+}
+
+.lt-chip {
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.lt-bar > span {
+  background: var(--accent);
+}
+
+@media (max-width: 767px) {
+  .lt-add-row .btn {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+
+  .lt-row-actions .icon-btn,
+  .lt-row .lt-row-actions .icon-btn {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    min-height: 38px;
+  }
+}
+
+/* Very narrow panels: drop the unit under the speed, keep the number */
+@media (max-width: 360px) {
+  .lt-speed small {
+    display: none;
+  }
+
+  .lt-card-end {
+    min-width: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   13. Login: theme switch
+   -------------------------------------------------------------------------- */
+.auth-screen {
+  position: relative;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.theme-toggle svg {
+  color: var(--accent);
+}
+
+.auth-theme {
+  position: absolute;
+  z-index: 2;
+  top: max(16px, var(--safe-t));
+  right: max(16px, var(--safe-r));
+}
+
+@media (max-width: 480px) {
+  /* Icon only on small phones so it never covers the card */
+  .auth-theme span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .auth-theme {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   14. Phone: one left edge for the whole sheet, tighter filters, tidy nav
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  :root {
+    --sheet-half: 54dvh;
+    --sheet-full: 86dvh;
+  }
+
+  /* The list panel used to add its own 10px on top of the gutter, so header,
+     search and rows each started at a different x. Gutter only, now. */
+  .app .list-slot .list-panel {
+    padding: 0 0 8px;
+  }
+
+  .app .list-slot .panel-header,
+  .app .list-slot .zone-panel-header {
+    padding: 0 var(--gutter);
+    margin-bottom: 10px;
+  }
+
+  .app .list-slot .lt {
+    padding: 0 var(--gutter);
+  }
+
+  .app .list-slot .lt-scroll {
+    margin: 0 calc(var(--gutter) * -1);
+    padding: 2px var(--gutter) 16px;
+  }
+
+  .app .list-slot .search {
+    height: 42px;
+    margin-bottom: 10px;
+  }
+
+  .app .list-slot .segmented {
+    margin-bottom: 10px;
+  }
+
+  .app .list-slot .seg {
+    min-height: 38px;
+  }
+
+  .app .list-slot .filter-row {
+    margin-bottom: 8px !important;
+  }
+
+  .app .list-slot .filter-control {
+    min-height: 40px;
+  }
+
+  .app .list-slot .list-scroll {
+    padding: 4px var(--gutter) 20px;
+  }
+
+  .entity-item {
+    padding: 10px 8px;
+  }
+
+  /* Bottom navigation: smaller, evenly placed badges */
+  .app .sidebar-tabs button[role='tab'] {
+    gap: 2px;
+    font-size: 11px;
+  }
+
+  .app .sidebar-tabs .tab-badge,
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+    top: 7px;
+    left: calc(50% + 5px);
+    min-width: 14px;
+    height: 14px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 14px;
+    border-width: 2px;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true']::before {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}

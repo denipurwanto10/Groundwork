@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from './lib/api'
 import type {
   Entity,
   EntityFieldErrors,
   EntityInput,
+  GeofenceEvent,
   ZoneFeature,
   ZoneGeometry,
   ZoneInput,
@@ -12,7 +13,10 @@ import type {
   RegionFeature,
   RegionCollection,
   RouteStop,
+  UserAccount,
+  UserInput,
   Vehicle,
+  VehicleInput,
   VehicleRoute,
 } from './lib/types'
 import EntityMap from './components/EntityMap'
@@ -22,27 +26,44 @@ import EntityForm from './components/EntityForm'
 import ZonePanel from './components/ZonePanel'
 import RegionZonePicker from './components/RegionZonePicker'
 import VehiclePanel from './components/VehiclePanel'
+import UserPanel from './components/UserPanel'
 import RegionControls, { type RegionPathEntry } from './components/RegionControls'
 import ConfirmDialog from './components/ConfirmDialog'
 import { openVehicleStream, type StreamState } from './lib/vehicleStream'
+import { KpiGrid, FleetCard, EventsCard, TypeBreakdownCard, ZonesCard, type Kpi } from './components/DashboardParts'
+import { useAuth } from './lib/auth'
+import { useTheme } from './lib/theme'
 import {
   IconAlert,
   IconCheck,
   IconCrosshair,
   IconLayers,
+  IconLogout,
+  IconMapPin,
   IconMoon,
+  IconActivity,
+  IconDashboard,
+  IconMaximize,
   IconPanelLeft,
   IconPin,
   IconSun,
   IconPolygon,
   IconTruck,
+  IconUsers,
 } from './components/Icons'
 import type { MapInset } from './components/EntityMap'
 import './App.css'
 import './modern.css'
+import './vibrant.css'
+import './premium.css'
+import './dashboard.css'
+import './shell.css'
+import './vehicle-modern.css'
+import './ui-premium.css'
+import './flat.css'
+import './fleet-final.css'
 
 type Toast = { kind: 'success' | 'error'; text: string } | null
-type Theme = 'light' | 'dark'
 type ApiState = 'checking' | 'online' | 'offline'
 
 const API_STATE_UI: Record<ApiState, { label: string; title: string; cls: string }> = {
@@ -51,45 +72,52 @@ const API_STATE_UI: Record<ApiState, { label: string; title: string; cls: string
   offline: { label: 'API offline', title: 'The backend is not reachable', cls: 'down' },
 }
 
-const THEME_KEY = 'entity-manager:theme'
 
-type Tab = 'entities' | 'zones' | 'vehicles'
-type Sheet = 'closed' | 'half' | 'full'
+/** How many crossings the live panel keeps on screen. */
+const GEOFENCE_HISTORY_LIMIT = 12
 
-/** Phone layout constants, mirrored in modern.css (--nav-h, --sheet-half, --sheet-full). */
-const NAV_H = 64
-const SHEET_FRACTION: Record<Sheet, number> = { closed: 0, half: 0.46, full: 0.84 }
+/**
+ * Newest first, one row per crossing: the stored id is the key, so a crossing
+ * that arrives over the live feed and the same crossing in the history are one
+ * row, not two.
+ */
+function mergeGeofenceEvents(incoming: GeofenceEvent[], existing: GeofenceEvent[]): GeofenceEvent[] {
+  const seen = new Set<number>()
+  const out: GeofenceEvent[] = []
+  for (const ev of [...incoming, ...existing]) {
+    if (seen.has(ev.id)) continue
+    seen.add(ev.id)
+    out.push(ev)
+  }
+  return out.slice(0, GEOFENCE_HISTORY_LIMIT)
+}
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'entities', label: 'Places' },
-  { key: 'zones', label: 'Zones' },
-  { key: 'vehicles', label: 'Live' },
+
+
+
+
+
+type Tab = 'overview' | 'entities' | 'zones' | 'vehicles' | 'users'
+const NAV: { key: Tab; label: string; title: string; sub: string }[] = [
+  { key: 'overview', label: 'Overview', title: 'Overview', sub: 'Your whole operation at a glance' },
+  { key: 'entities', label: 'Places', title: 'Places', sub: 'Browse, search and manage locations' },
+  { key: 'zones', label: 'Zones', title: 'Zones', sub: 'Draw and manage work areas' },
+  { key: 'vehicles', label: 'Fleet', title: 'Live fleet', sub: 'Track units and plan delivery routes' },
+  { key: 'users', label: 'Users', title: 'Users', sub: 'Register accounts and set their user type' },
 ]
 
-/** True below the tablet breakpoint, where the sidebar becomes a bottom sheet. */
-function useIsMobile(): boolean {
-  const query = '(max-width: 767px)'
-  const [mobile, setMobile] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const mq = window.matchMedia(query)
-    const on = () => setMobile(mq.matches)
-    mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
-  }, [])
-  return mobile
-}
+/** Only admins manage accounts, so the tab is hidden for everyone else. */
+const ADMIN_TABS: Tab[] = ['users']
 
-function getInitialTheme(): Theme {
-  try {
-    const saved = localStorage.getItem(THEME_KEY)
-    if (saved === 'light' || saved === 'dark') return saved
-  } catch {
-    /* storage unavailable */
-  }
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
+/** The map sits in its own card now, so no part of it is hidden behind a panel. */
+const NO_INSET: MapInset = { left: 0, bottom: 0 }
+
+const RAIL_KEY = 'groundwork:rail-collapsed'
 
 export default function App() {
+  const { user, logout, role, isAdmin } = useAuth()
+  // Only admins may write; viewer and driver get the map and the data, read-only.
+  const canEdit = isAdmin()
   const [entities, setEntities] = useState<Entity[]>([])
   const [visibleEntities, setVisibleEntities] = useState<Entity[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -97,7 +125,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [apiState, setApiState] = useState<ApiState>('checking')
   const [toast, setToast] = useState<Toast>(null)
-  const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const { theme, toggleTheme } = useTheme()
 
   // Zone state
   const [zones, setZones] = useState<ZoneFeature[]>([])
@@ -105,6 +133,9 @@ export default function App() {
   const [zonesError, setZonesError] = useState<string | null>(null)
   const [selectedZoneId, setSelectedZoneId] = useState<number | null>(null)
   const [drawMode, setDrawMode] = useState(false)
+  // Drawing a polygon and dragging its vertices are write actions, so the map
+  // stays read-only for everyone but an admin.
+  const zoneDrawMode = canEdit && drawMode
   /** Working geometry: drawn on the map, or produced by dragging zone vertices. */
   const [zoneDraftGeometry, setZoneDraftGeometry] = useState<ZoneGeometry | null>(null)
   /** Zone form is open (new or edit); editingId is null while creating. */
@@ -129,6 +160,19 @@ export default function App() {
   const [vehiclesVisible, setVehiclesVisible] = useState(true)
   const [selectedVehicleId, setSelectedVehicleId] = useState<number | null>(null)
   const [streamState, setStreamState] = useState<StreamState>('connecting')
+  // Every account in the workspace. The fleet form picks drivers out of this
+  // list and the admin "Users" page registers and edits them.
+  const [accounts, setAccounts] = useState<UserAccount[]>([])
+  const [accountsLoading, setAccountsLoading] = useState(true)
+  const [accountsError, setAccountsError] = useState<string | null>(null)
+  const [accountToDelete, setAccountToDelete] = useState<UserAccount | null>(null)
+  const [accountDeleting, setAccountDeleting] = useState(false)
+  const [vehicleToDelete, setVehicleToDelete] = useState<Vehicle | null>(null)
+  const [vehicleDeleting, setVehicleDeleting] = useState(false)
+
+  // Zone boundary crossings. The history arrives on mount; every new crossing
+  // is pushed over the live feed and lands on top of the list.
+  const [geofenceEvents, setGeofenceEvents] = useState<GeofenceEvent[]>([])
 
   // Delivery routes: one active path per vehicle, drawn under the markers.
   // The draft holds the two stops picked on the map until they are saved.
@@ -139,24 +183,33 @@ export default function App() {
   })
   const [routePick, setRoutePick] = useState<'origin' | 'destination' | null>(null)
 
-  // Sidebar tab
-  const [sidebarTab, setSidebarTab] = useState<Tab>('entities')
-  // Phone: height of the bottom sheet. Desktop: the sidebar can be tucked away.
-  const [sheet, setSheet] = useState<Sheet>('half')
-  const [collapsed, setCollapsed] = useState(false)
-  const isMobile = useIsMobile()
-  const [viewport, setViewport] = useState(0)
-  useEffect(() => {
-    const on = () => setViewport((n) => n + 1)
-    window.addEventListener('resize', on)
-    return () => window.removeEventListener('resize', on)
-  }, [])
+  // Which page of the dashboard is open, and whether the nav rail is slimmed to icons.
+  const [view, setView] = useState<Tab>('overview')
+  const [railCollapsed, setRailCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(RAIL_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleRail = () =>
+    setRailCollapsed((c) => {
+      try {
+        localStorage.setItem(RAIL_KEY, c ? '0' : '1')
+      } catch {
+        /* storage unavailable */
+      }
+      return !c
+    })
+  // Phone: the map above the list can be stretched to see more of it.
+  const [mapTall, setMapTall] = useState(false)
+  // Phone: workspace pages show either the list or the map, never both squeezed together.
+  const [mobilePane, setMobilePane] = useState<'list' | 'map'>('list')
 
   // Live tracking camera: follow the selected unit, and a counter the map
   // watches to fit the whole fleet into view.
   const [following, setFollowing] = useState(false)
   const [fitFleetSignal, setFitFleetSignal] = useState(0)
-  const grabY = useRef<number | null>(null)
 
     // Entity form state
     const [formOpen, setFormOpen] = useState(false)
@@ -172,22 +225,6 @@ export default function App() {
 
     const listSlotRef = useRef<HTMLDivElement>(null)
 
-  // Theme: applied before paint, persisted only when the person chooses one.
-  useLayoutEffect(() => {
-    document.documentElement.dataset.theme = theme
-    document.documentElement.style.colorScheme = theme
-  }, [theme])
-
-  const toggleTheme = () => {
-    const next: Theme = theme === 'dark' ? 'light' : 'dark'
-    setTheme(next)
-    try {
-      localStorage.setItem(THEME_KEY, next)
-    } catch {
-      /* storage unavailable */
-    }
-  }
-
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 4000)
@@ -196,6 +233,25 @@ export default function App() {
 
   const showToast = useCallback((kind: 'success' | 'error', text: string) => {
     setToast({ kind, text })
+  }, [])
+
+  // The crossing history of the live panel. The stored id is the key, so a
+  // crossing that arrives over the feed and the same crossing in the history
+  // are one row, not two.
+  useEffect(() => {
+    let alive = true
+    api
+      .listGeofenceEvents({ limit: GEOFENCE_HISTORY_LIMIT })
+      .then((stored) => {
+        if (!alive) return
+        setGeofenceEvents((prev) => mergeGeofenceEvents(stored, prev))
+      })
+      .catch(() => {
+        /* the panel stays empty; the live feed still reports new crossings */
+      })
+    return () => {
+      alive = false
+    }
   }, [])
 
   // A selected work area narrows the entity list and the map pins to it.
@@ -288,6 +344,32 @@ export default function App() {
       void refreshVehicles()
     }, [refreshVehicles])
 
+    // The fleet form hands a unit over to a driver and the Users page edits the
+    // same accounts, so one list serves both. Only admins may read it, so the
+    // other roles skip the call.
+    const refreshAccounts = useCallback(async () => {
+      if (!canEdit) {
+        setAccountsLoading(false)
+        return
+      }
+      setAccountsLoading(true)
+      try {
+        setAccounts(await api.listUsers())
+        setAccountsError(null)
+      } catch (err) {
+        setAccountsError(err instanceof Error ? err.message : 'Could not load accounts')
+      } finally {
+        setAccountsLoading(false)
+      }
+    }, [canEdit])
+
+    useEffect(() => {
+      void refreshAccounts()
+    }, [refreshAccounts])
+
+    /** Driver accounts a unit can be handed over to. */
+    const drivers = useMemo(() => accounts.filter((u) => u.role === 'driver'), [accounts])
+
     // Routes are a separate list: the map draws them for the whole fleet, not
     // only for the selected unit.
     const refreshRoutes = useCallback(async () => {
@@ -336,6 +418,48 @@ export default function App() {
               setToast({ kind: 'success', text: 'Delivery complete — route closed.' })
               return
             }
+            if (frame.type === 'vehicle_updated') {
+              // A unit was added or edited somewhere: the list and the map
+              // follow it without a reload.
+              setVehicles((prev) => {
+                const at = prev.findIndex((v) => v.id === frame.vehicle.id)
+                if (at === -1) return [...prev, frame.vehicle]
+                const next = prev.slice()
+                next[at] = frame.vehicle
+                return next
+              })
+              return
+            }
+            if (frame.type === 'vehicle_deleted') {
+              setVehicles((prev) => prev.filter((v) => v.id !== frame.id))
+              return
+            }
+            if (frame.type === 'geofence') {
+              // A unit crossed a zone boundary: say it out loud and keep the
+              // crossing history of the panel in step.
+              const entering = frame.event === 'ENTER'
+              showToast(
+                entering ? 'success' : 'error',
+                `${entering ? '🚚' : '⚠️'} ${frame.vehicle_name} ${entering ? 'MASUK ke' : 'KELUAR dari'} ${frame.zone_name}`,
+              )
+              setGeofenceEvents((prev) =>
+                mergeGeofenceEvents(
+                  [
+                    {
+                      id: frame.id,
+                      vehicle_id: frame.vehicle_id,
+                      vehicle_name: frame.vehicle_name,
+                      zone_id: frame.zone_id,
+                      zone_name: frame.zone_name,
+                      event_type: frame.event,
+                      created_at: frame.timestamp,
+                    },
+                  ],
+                  prev,
+                ),
+              )
+              return
+            }
             const incoming = frame.vehicle
             setVehicles((prev) => {
               const at = prev.findIndex((v) => v.id === incoming.id)
@@ -369,8 +493,7 @@ export default function App() {
       if (id == null) return
       setFollowing(true)
       setSelectedId(null)
-      setSidebarTab('vehicles')
-      setSheet((s) => (s === 'closed' ? 'half' : s))
+      setView('vehicles')
     }, [])
 
     const handleRoutePickStart = (stage: 'origin' | 'destination') => {
@@ -399,6 +522,7 @@ export default function App() {
     }
 
     const handleRouteSet = async (vehicleId: number, origin: RouteStop, destination: RouteStop) => {
+      if (!canEdit) return
       const route = await api.setVehicleRoute(vehicleId, { origin, destination })
       setRoutes((prev) => [route, ...prev.filter((r) => !(r.vehicle_id === vehicleId && r.status === 'active'))])
       setRouteDraft({ origin: null, destination: null })
@@ -407,10 +531,106 @@ export default function App() {
     }
 
     const handleRouteClear = async (vehicleId: number) => {
+      if (!canEdit) return
       await api.clearVehicleRoute(vehicleId)
       setRoutes((prev) => prev.filter((r) => r.vehicle_id !== vehicleId))
       setRouteDraft({ origin: null, destination: null })
       showToast('success', 'Route cleared')
+    }
+
+    // Driving a unit by hand: dropping its marker anywhere on the map reports
+    // the new position, which the server stores, broadcasts and checks against
+    // the zones. Admins drive any unit; a driver drives only their own.
+    const canDriveVehicle = (v: Vehicle) =>
+      canEdit || (role === 'driver' && v.driver_id != null && v.driver_id === user?.id)
+
+    const handleDrive = async (id: number, lat: number, lng: number) => {
+      const before = vehicles.find((v) => v.id === id)
+      if (!before) return
+      // A drag says where the unit is now, not how fast it got there: keep its
+      // last reported speed so the readout stays plausible instead of guessing.
+      const speed = before.status === 'moving' && before.speed_kmh > 0 ? before.speed_kmh : 30
+      setVehicles((prev) =>
+        prev.map((v) =>
+          v.id === id
+            ? { ...v, lat, lng, status: 'moving', speed_kmh: speed, last_seen_at: new Date().toISOString() }
+            : v,
+        ),
+      )
+      try {
+        const updated = await api.reportPosition(id, { lat, lng, speed_kmh: speed, status: 'moving' })
+        setVehicles((prev) => prev.map((v) => (v.id === id ? updated : v)))
+      } catch (err) {
+        // The drop was never stored: put the unit back where it was.
+        setVehicles((prev) => prev.map((v) => (v.id === id ? before : v)))
+        showToast('error', err instanceof Error ? err.message : 'Could not move this vehicle')
+      }
+    }
+
+    // Fleet changes: the list and the map update right away, so a unit that was
+    // just added shows up on the map without a reload.
+    const handleVehicleCreate = async (input: VehicleInput) => {
+      if (!canEdit) return
+      const created = await api.createVehicle(input)
+      setVehicles((prev) =>
+        prev.some((v) => v.id === created.id)
+          ? prev.map((v) => (v.id === created.id ? created : v))
+          : [...prev, created],
+      )
+      showToast('success', `${created.name} added to the fleet`)
+    }
+
+    const handleVehicleUpdate = async (id: number, input: VehicleInput) => {
+      if (!canEdit) return
+      const updated = await api.updateVehicle(id, input)
+      setVehicles((prev) => prev.map((v) => (v.id === id ? updated : v)))
+      showToast('success', `${updated.name} saved`)
+    }
+
+    const handleVehicleDelete = async () => {
+      if (!canEdit || !vehicleToDelete) return
+      setVehicleDeleting(true)
+      try {
+        await api.deleteVehicle(vehicleToDelete.id)
+        setVehicles((prev) => prev.filter((v) => v.id !== vehicleToDelete.id))
+        setVehicleToDelete(null)
+        showToast('success', `${vehicleToDelete.name} removed from the fleet`)
+      } catch (err) {
+        showToast('error', err instanceof Error ? err.message : 'Could not delete the vehicle')
+      } finally {
+        setVehicleDeleting(false)
+      }
+    }
+
+    // Account changes: the list feeds both the Users page and the fleet form's
+    // driver picker, so a new driver is assignable straight away.
+    const handleAccountCreate = async (input: UserInput) => {
+      if (!canEdit) return
+      const created = await api.createUser(input)
+      setAccounts((prev) => [...prev, created])
+      showToast('success', `${created.username} can now sign in as ${created.role}`)
+    }
+
+    const handleAccountUpdate = async (id: number, input: Partial<UserInput>) => {
+      if (!canEdit) return
+      const updated = await api.updateUser(id, input)
+      setAccounts((prev) => prev.map((u) => (u.id === id ? updated : u)))
+      showToast('success', `${updated.username} saved`)
+    }
+
+    const handleAccountDelete = async () => {
+      if (!canEdit || !accountToDelete) return
+      setAccountDeleting(true)
+      try {
+        await api.deleteUser(accountToDelete.id)
+        setAccounts((prev) => prev.filter((u) => u.id !== accountToDelete.id))
+        setAccountToDelete(null)
+        showToast('success', `${accountToDelete.username} removed`)
+      } catch (err) {
+        showToast('error', err instanceof Error ? err.message : 'Could not delete the account')
+      } finally {
+        setAccountDeleting(false)
+      }
     }
 
     // A zone built from a boundary arrives complete: refresh the list and open
@@ -419,7 +639,7 @@ export default function App() {
       (zone: ZoneFeature) => {
         setZones((prev) => [...prev.filter((z) => z.properties.id !== zone.properties.id), zone])
         setSelectedZoneId(zone.properties.id)
-        setSidebarTab('zones')
+        setView('zones')
         showToast('success', `Zone "${zone.properties.name}" created from the boundary`)
       },
       [showToast],
@@ -450,12 +670,14 @@ export default function App() {
 
   // The map shows filtered pins, but the open detail's pin must stay visible
   // even when the current filter would hide it.
+  // The Overview has no places list to filter, so it shows every place.
   const mapEntities = useMemo(() => {
+    if (view === 'overview') return entities
     if (selected && !visibleEntities.some((e) => e.id === selected.id)) {
       return [...visibleEntities, selected]
     }
     return visibleEntities
-  }, [visibleEntities, selected])
+  }, [view, entities, visibleEntities, selected])
 
   // While the form is docked over the list, the list underneath must not be reachable by keyboard.
   useEffect(() => {
@@ -463,6 +685,7 @@ export default function App() {
   }, [formOpen])
 
   const openCreate = () => {
+    if (!canEdit) return
     setFormMode('create')
     setServerFields({})
     setDraftCoords(null)
@@ -471,7 +694,7 @@ export default function App() {
   }
 
   const openEdit = () => {
-    if (!selected) return
+    if (!canEdit || !selected) return
     setFormMode('edit')
     setServerFields({})
     setDraftCoords({ latitude: selected.latitude, longitude: selected.longitude })
@@ -503,6 +726,7 @@ export default function App() {
   }, [confirmOpen, deleting, formOpen, saving, selectedId])
 
   const handleSubmit = async (input: EntityInput) => {
+    if (!canEdit) return
     setSaving(true)
     setServerFields({})
     try {
@@ -531,18 +755,21 @@ export default function App() {
 
       // Zone callbacks
       const handleZoneCreate = useCallback(async (input: ZoneInput) => {
+        if (!canEdit) return
         const created = await api.createZone(input)
         showToast('success', `Zone "${created.properties.name}" created`)
         await refreshZones()
-      }, [refreshZones])
+      }, [refreshZones, canEdit])
 
       const handleZoneUpdate = useCallback(async (id: number, input: ZoneInput) => {
+        if (!canEdit) return
         const updated = await api.updateZone(id, input)
         showToast('success', `Zone "${updated.properties.name}" updated`)
         await refreshZones()
-      }, [refreshZones])
+      }, [refreshZones, canEdit])
 
       const handleZoneDelete = useCallback(async (id: number) => {
+        if (!canEdit) return
         try {
           await api.deleteZone(id)
           showToast('success', 'Zone deleted')
@@ -555,14 +782,15 @@ export default function App() {
           await refreshZones()
           throw err
         }
-      }, [refreshZones, selectedZoneId])
+      }, [refreshZones, selectedZoneId, canEdit])
 
       // A polygon drawn on the map becomes the working geometry of the form.
       const handleZoneGeometryCreated = useCallback((geom: ZoneGeometry) => {
+        if (!canEdit) return
         setZoneDraftGeometry(geom)
         setZoneEditingId(null)
         setZoneFormOpen(true)
-      }, [])
+      }, [canEdit])
 
       // Dragging a vertex of an existing zone saves the new shape, debounced so
       // a drag produces one request instead of one per pointer move.
@@ -571,6 +799,7 @@ export default function App() {
 
       const handleZoneGeometryEdited = useCallback(
         (id: number, geom: ZoneGeometry) => {
+          if (!canEdit) return
           zoneEditPending.current = { id, geom }
           if (zoneEditTimer.current !== null) window.clearTimeout(zoneEditTimer.current)
           zoneEditTimer.current = window.setTimeout(() => {
@@ -600,7 +829,7 @@ export default function App() {
               )
           }, 700)
         },
-        [zones, refreshZones, showToast],
+        [zones, refreshZones, showToast, canEdit],
       )
 
       useEffect(
@@ -611,6 +840,7 @@ export default function App() {
       )
 
       const handleZoneImport = useCallback(async (file: File): Promise<ZoneImportReport | null> => {
+        if (!canEdit) return null
         try {
           const text = await file.text()
           const collection = JSON.parse(text) as ZoneCollection
@@ -626,7 +856,7 @@ export default function App() {
           showToast('error', msg)
           return null
         }
-      }, [refreshZones])
+      }, [refreshZones, canEdit])
 
       const handleZoneExport = useCallback(async () => {
         const collection = await api.listZones()
@@ -675,7 +905,7 @@ export default function App() {
       }, [loadRegions, regionLevel, regionParentCode])
 
   const handleDelete = async () => {
-    if (!selected) return
+    if (!canEdit || !selected) return
     setDeleting(true)
     try {
       await api.deleteEntity(selected.id)
@@ -690,220 +920,416 @@ export default function App() {
     }
   }
 
-  // On phones the list sheet gives way to the detail sheet / form sheet.
+  // The detail card and the form take over the list pane while they are open.
   const covered = selected != null || formOpen
 
-  // The part of the map hidden behind panels, so the camera centres on what is
-  // actually visible: the sidebar on desktop, the sheet + nav bar on a phone.
-  const mapInset = useMemo<MapInset>(() => {
-    void viewport
-    if (isMobile) {
-      const sheetPx = sheet === 'closed' || covered ? 0 : SHEET_FRACTION[sheet] * window.innerHeight
-      return { left: 0, bottom: NAV_H + sheetPx }
-    }
-    if (collapsed) return { left: 0, bottom: 0 }
-    const w = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w')) || 368
-    return { left: w + 32, bottom: 0 }
-  }, [isMobile, sheet, covered, collapsed, viewport])
+  const placesActive = entities.filter((e) => e.status === 'active').length
+  const zoneArea = zones.reduce((sum, z) => sum + (z.properties.area_km2 || 0), 0)
+  const online = fleet.moving + fleet.idle
+  const lastEvent = geofenceEvents[0]
 
-  const handleTab = (tab: Tab) => {
-    if (tab === sidebarTab) {
-      if (isMobile) setSheet((s) => (s === 'closed' ? 'half' : 'closed'))
-      return
-    }
-    setSidebarTab(tab)
-    if (isMobile) setSheet((s) => (s === 'closed' ? 'half' : s))
+  const kpis: Kpi[] = [
+    {
+      key: 'fleet',
+      label: 'Fleet online',
+      value: String(online),
+      unit: `/ ${vehicles.length}`,
+      sub: (
+        <>
+          <b>{fleet.moving}</b> moving · <b>{fleet.idle}</b> idle · <b>{fleet.offline}</b> offline
+        </>
+      ),
+      tone: 'ok',
+      icon: <IconTruck width={18} height={18} />,
+      onClick: () => setView('vehicles'),
+    },
+    {
+      key: 'places',
+      label: 'Places',
+      value: String(entities.length),
+      sub: (
+        <>
+          <b>{placesActive}</b> active · <b>{entities.length - placesActive}</b> inactive
+        </>
+      ),
+      tone: 'accent',
+      icon: <IconPin width={18} height={18} />,
+      onClick: () => setView('entities'),
+    },
+    {
+      key: 'zones',
+      label: 'Zones',
+      value: String(zones.length),
+      sub: <>{zoneArea.toLocaleString(undefined, { maximumFractionDigits: 0 })} km² covered</>,
+      tone: 'info',
+      icon: <IconPolygon width={18} height={18} />,
+      onClick: () => setView('zones'),
+    },
+    {
+      key: 'events',
+      label: 'Zone crossings',
+      value: String(geofenceEvents.length),
+      sub: lastEvent ? (
+        <>
+          Last: <b>{lastEvent.vehicle_name}</b> {lastEvent.event_type === 'ENTER' ? 'in' : 'out'}
+        </>
+      ) : (
+        'Nothing recorded yet'
+      ),
+      tone: 'warn',
+      icon: <IconActivity width={18} height={18} />,
+      onClick: () => setView('vehicles'),
+    },
+  ]
+
+  const page = NAV.find((n) => n.key === view) ?? NAV[0]
+  const navCount = (k: Tab): number | null =>
+    k === 'entities'
+      ? entities.length
+      : k === 'zones'
+        ? zones.length
+        : k === 'vehicles'
+          ? vehicles.length
+          : k === 'users'
+            ? accounts.length
+            : null
+
+  /** Tabs the signed-in role may open; the sidebar renders only these. */
+  const visibleNav = useMemo(
+    () => NAV.filter((n) => canEdit || !ADMIN_TABS.includes(n.key)),
+    [canEdit],
+  )
+
+  const goTo = (t: Tab) => {
+    // A viewer must never land on an admin screen, even from stale state.
+    if (!canEdit && ADMIN_TABS.includes(t)) return
+    setView(t)
+    setMobilePane('list')
+    if (t !== 'overview') setMapTall(false)
   }
 
-  const cycleSheet = (dir: 1 | -1 | 0) => {
-    const order: Sheet[] = ['closed', 'half', 'full']
-    setSheet((s) => {
-      if (dir === 0) return s === 'half' ? 'full' : 'half'
-      return order[Math.min(2, Math.max(0, order.indexOf(s) + dir))]
-    })
-  }
+  // Pinning a place, drawing a zone or setting a route stop needs the map in front.
+  useEffect(() => {
+    if (picking || zoneDrawMode || routePick !== null) setMobilePane('map')
+  }, [picking, zoneDrawMode, routePick])
+
+  const apiUi = API_STATE_UI[apiState]
+  const streamLabel = streamState === 'live' ? 'Live' : streamState === 'connecting' ? 'Connecting' : 'Reconnecting'
+  // Username is always set; the email is optional on accounts created by an admin.
+  const accountLabel = user?.name?.trim() || user?.username || user?.email || 'Signed in'
+  const initial = accountLabel.charAt(0).toUpperCase()
+
+  const themeBtn = (
+    <button
+      className="icon-btn"
+      onClick={toggleTheme}
+      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+    >
+      {theme === 'dark' ? <IconSun /> : <IconMoon />}
+    </button>
+  )
+  const logoutBtn = (
+    <button className="icon-btn" onClick={logout} aria-label="Sign out" title={user ? `Sign out ${user.email}` : 'Sign out'}>
+      <IconLogout />
+    </button>
+  )
 
   return (
-      <div
-        className={`app${collapsed ? ' is-collapsed' : ''}${sheet !== 'closed' ? ' sheet-open' : ''}`}
-        data-tab={sidebarTab}
-        data-sheet={sheet}
-      >
-        <div className="map-stage">
-          <EntityMap
-            entities={mapEntities}
-            selected={selected}
-            onSelect={setSelectedId}
-            picking={picking && formOpen}
-            draftCoords={draftCoords}
-            onPick={(lat, lng) => setDraftCoords({ latitude: lat, longitude: lng })}
-            theme={theme}
-            // Zones
-            zones={zones}
-            selectedZoneId={selectedZoneId}
-            onZoneSelect={setSelectedZoneId}
-            drawMode={drawMode}
-            onZoneCreate={handleZoneGeometryCreated}
-            onZoneEdit={handleZoneGeometryEdited}
-            onZoneDelete={handleZoneDelete}
-            // Admin regions
-            regionLevel={regionLevel}
-            regionParentCode={regionParentCode}
-            regionData={regionData}
-            regionVisible={regionsVisible}
-            onRegionClick={handleRegionClick}
-            // Live vehicles
-            vehicles={vehicles}
-            selectedVehicleId={selectedVehicleId}
-            onVehicleSelect={selectVehicle}
-            vehiclesVisible={vehiclesVisible}
-            following={following}
-            onFollowChange={setFollowing}
-            fitFleetSignal={fitFleetSignal}
-            inset={mapInset}
-            // Delivery routes (from -> to)
-            routes={routes}
-            routesVisible={vehiclesVisible}
-            routeDraft={routeDraft}
-            routePick={routePick !== null}
-            onRoutePoint={handleRoutePoint}
-          />
-          <RegionControls
-            level={regionLevel}
-            path={regionPath}
-            count={regionData?.features.length ?? 0}
-            loading={regionsLoading}
-            visible={regionsVisible}
-            note={regionNote}
-            onVisibleChange={setRegionsVisible}
-            onJumpTo={handleRegionJump}
-            onRefresh={handleRegionRefresh}
-          />
-
-          {collapsed && (
-            <button
-              type="button"
-              className="sidebar-reopen"
-              onClick={() => setCollapsed(false)}
-              aria-label="Show the side panel"
-              title="Show the side panel"
-            >
-              <IconPanelLeft width={18} height={18} />
-              <span>Panel</span>
-            </button>
-          )}
-
-          {sidebarTab === 'vehicles' && vehiclesVisible && vehicles.length > 0 && (
-            <div className="live-hud" role="status" aria-label="Fleet status">
-              <span className={`hud-live ${streamState}`}>
-                <i aria-hidden="true" />
-                {streamState === 'live' ? 'Live' : streamState === 'connecting' ? 'Connecting' : 'Reconnecting'}
-              </span>
-              <span className="hud-n moving">
-                <b>{fleet.moving}</b> moving
-              </span>
-              <span className="hud-n idle">
-                <b>{fleet.idle}</b> idle
-              </span>
-              <span className="hud-n offline">
-                <b>{fleet.offline}</b> offline
-              </span>
-            </div>
-          )}
+    <div className={`dash${railCollapsed ? ' rail-slim' : ''}`} data-view={view}>
+      {/* ---- Navigation rail (desktop / tablet) ---------------------------- */}
+      <aside className="rail" aria-label="Main">
+        <div className="rail-head">
+          <span className="brand-mark">
+            <IconLayers width={20} height={20} />
+          </span>
+          <div className="rail-brand">
+            <h1>Groundwork</h1>
+            <span>Field operations, mapped</span>
+          </div>
         </div>
 
-        <aside className={covered ? 'sidebar is-covered' : 'sidebar'} aria-hidden={!isMobile && collapsed ? true : undefined}>
-          <header className="brandbar">
-            <div className="brand">
-              <span className="brand-mark">
-                <IconLayers width={20} height={20} />
-              </span>
-              <div className="brand-text">
-                <h1>Groundwork</h1>
-                <span className="brand-sub">Field operations, mapped</span>
-              </div>
-            </div>
-            <div className="brandbar-tools">
-              <div className={`backend-status ${API_STATE_UI[apiState].cls}`} role="status" title={API_STATE_UI[apiState].title}>
-                <span className={`dot ${API_STATE_UI[apiState].cls}`} aria-hidden="true" />
-                <span className="status-label">{API_STATE_UI[apiState].label}</span>
-              </div>
+        <nav className="rail-nav" aria-label="Workspace">
+          <span className="rail-section">Workspace</span>
+          {visibleNav.map((n) => {
+            const Icon =
+              n.key === 'overview'
+                ? IconDashboard
+                : n.key === 'entities'
+                  ? IconPin
+                  : n.key === 'zones'
+                    ? IconPolygon
+                    : n.key === 'users'
+                      ? IconUsers
+                      : IconTruck
+            const count = navCount(n.key)
+            return (
               <button
-                className="icon-btn"
-                onClick={toggleTheme}
-                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+                key={n.key}
+                type="button"
+                className={`rail-item${view === n.key ? ' active' : ''}`}
+                aria-current={view === n.key ? 'page' : undefined}
+                onClick={() => goTo(n.key)}
+                title={n.label}
               >
-                {theme === 'dark' ? <IconSun /> : <IconMoon />}
+                <Icon width={19} height={19} />
+                <span className="rail-label">{n.label}</span>
+                {count != null && (
+                  <span className={`rail-count${n.key === 'vehicles' && streamState === 'live' ? ' live' : ''}`}>{count}</span>
+                )}
               </button>
-              <button
-                className="icon-btn collapse-btn"
-                onClick={() => setCollapsed(true)}
-                aria-label="Hide the side panel"
-                title="Hide the side panel"
-              >
-                <IconPanelLeft />
-              </button>
+            )
+          })}
+        </nav>
+
+        <div className="rail-foot">
+          <div className="user-card">
+            <span className="avatar" aria-hidden="true">
+              {initial}
+            </span>
+            <div className="user-meta rail-label">
+              <b title={accountLabel}>{accountLabel}</b>
+              <span className={`role-badge ${role}`}>{role}</span>
             </div>
-          </header>
-
-          {/* Desktop: segmented tabs under the header. Phone: bottom navigation bar. */}
-          <nav className="sidebar-tabs" role="tablist" aria-label="Workspace">
-            {TABS.map((t) => {
-              const active = sidebarTab === t.key
-              const count = t.key === 'entities' ? entities.length : t.key === 'zones' ? zones.length : vehicles.length
-              const Icon = t.key === 'entities' ? IconPin : t.key === 'zones' ? IconPolygon : IconTruck
-              return (
-                <button
-                  key={t.key}
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => handleTab(t.key)}
-                  className={active ? 'active' : ''}
-                >
-                  <Icon width={20} height={20} />
-                  <span className="tab-label">{t.label}</span>
-                  <span className={`tab-badge${t.key === 'vehicles' && streamState === 'live' ? ' live' : ''}`}>{count}</span>
-                </button>
-              )
-            })}
-          </nav>
-
-          <div
-            className="list-slot"
-            ref={listSlotRef}
-            data-state={sheet}
-            onFocusCapture={(e) => {
-              // The keyboard covers half a phone: give a focused field the whole sheet.
-              if (isMobile && (e.target as HTMLElement).matches('input, textarea, select')) setSheet('full')
-            }}
-          >
+          </div>
+          <div className="rail-tools">
             <button
               type="button"
-              className="sheet-grab"
-              aria-label={sheet === 'full' ? 'Lower the panel' : 'Raise the panel'}
-              onPointerDown={(e) => {
-                grabY.current = e.clientY
-                e.currentTarget.setPointerCapture?.(e.pointerId)
-              }}
-              onPointerCancel={() => {
-                grabY.current = null
-              }}
-              onPointerUp={(e) => {
-                const dy = e.clientY - (grabY.current ?? e.clientY)
-                grabY.current = null
-                if (dy < -28) cycleSheet(1)
-                else if (dy > 28) cycleSheet(-1)
-                else cycleSheet(0)
-              }}
-              onClick={(e) => {
-                // Pointer taps are handled above; this only fires for keyboard activation.
-                if (e.detail === 0) cycleSheet(0)
-              }}
+              className="rail-tool"
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
             >
-              <span aria-hidden="true" />
+              {theme === 'dark' ? <IconSun width={17} height={17} /> : <IconMoon width={17} height={17} />}
+              <span className="rail-label">{theme === 'dark' ? 'Light' : 'Dark'}</span>
             </button>
-            {sidebarTab === 'entities' ? (
+            <button
+              type="button"
+              className="rail-tool rail-toggle"
+              onClick={toggleRail}
+              aria-label={railCollapsed ? 'Expand the menu' : 'Collapse the menu'}
+              title={railCollapsed ? 'Expand the menu' : 'Collapse the menu'}
+            >
+              <IconPanelLeft width={17} height={17} />
+              <span className="rail-label">{railCollapsed ? 'Expand' : 'Collapse'}</span>
+            </button>
+          </div>
+          <button
+            type="button"
+            className="rail-logout"
+            onClick={logout}
+            aria-label="Log out"
+            title={user ? `Log out ${accountLabel}` : 'Log out'}
+          >
+            <IconLogout width={18} height={18} />
+            <span className="rail-label">Log out</span>
+          </button>
+        </div>
+      </aside>
+
+      <div className="main">
+        {/* ---- Top bar ------------------------------------------------------ */}
+        <header className="topbar">
+          <span className="brand-mark topbar-mark">
+            <IconLayers width={18} height={18} />
+          </span>
+          <div className="topbar-title">
+            <h2>{page.title}</h2>
+            <p>{page.sub}</p>
+          </div>
+          <div className="topbar-tools">
+            {vehicles.length > 0 && (
+              <span className={`chip stream ${streamState}`} title="Live vehicle feed">
+                <i aria-hidden="true" />
+                {streamLabel}
+              </span>
+            )}
+            <span className={`chip api ${apiUi.cls}`} title={apiUi.title}>
+              <i aria-hidden="true" />
+              <span className="chip-text">{apiUi.label}</span>
+            </span>
+            <span className="topbar-mobile-tools">
+              {themeBtn}
+              {logoutBtn}
+            </span>
+          </div>
+        </header>
+
+        {/* ---- Stage -------------------------------------------------------- */}
+        <main className="stage" data-view={view} data-tall={mapTall ? 'true' : 'false'} data-mpane={mobilePane}>
+          {view !== 'overview' && view !== 'users' && (
+            <div className="pane-switch" role="tablist" aria-label="Show the list or the map">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === 'list'}
+                className={mobilePane === 'list' ? 'on' : ''}
+                onClick={() => setMobilePane('list')}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                  <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
+                </svg>
+                {page.label}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === 'map'}
+                className={mobilePane === 'map' ? 'on' : ''}
+                onClick={() => setMobilePane('map')}
+              >
+                <IconMapPin width={16} height={16} />
+                Map
+              </button>
+            </div>
+          )}
+          {view === 'overview' && (
+            <div className="stage-kpis">
+              <KpiGrid items={kpis} />
+            </div>
+          )}
+
+          {view !== 'users' && (
+          <section className="map-card" aria-label="Map">
+            <EntityMap
+              entities={mapEntities}
+              selected={selected}
+              onSelect={(id) => {
+                setSelectedId(id)
+                if (id != null && view === 'overview') setView('entities')
+                if (id != null) setMobilePane('list')
+              }}
+              picking={picking && formOpen}
+              draftCoords={draftCoords}
+              onPick={(lat, lng) => setDraftCoords({ latitude: lat, longitude: lng })}
+              theme={theme}
+              // Zones
+              zones={zones}
+              selectedZoneId={selectedZoneId}
+              onZoneSelect={(id) => {
+                setSelectedZoneId(id)
+                if (id != null && view === 'overview') setView('zones')
+                if (id != null) setMobilePane('list')
+              }}
+              drawMode={zoneDrawMode}
+              onZoneCreate={handleZoneGeometryCreated}
+              onZoneEdit={handleZoneGeometryEdited}
+              onZoneDelete={handleZoneDelete}
+              // Admin regions
+              regionLevel={regionLevel}
+              regionParentCode={regionParentCode}
+              regionData={regionData}
+              regionVisible={regionsVisible}
+              onRegionClick={handleRegionClick}
+              // Live vehicles
+              vehicles={vehicles}
+              selectedVehicleId={selectedVehicleId}
+              onVehicleSelect={(id) => {
+                selectVehicle(id)
+                if (id != null) setMobilePane('list')
+              }}
+              vehiclesVisible={vehiclesVisible}
+              canDrive={canDriveVehicle}
+              onDrive={handleDrive}
+              following={following}
+              onFollowChange={setFollowing}
+              fitFleetSignal={fitFleetSignal}
+              inset={NO_INSET}
+              // Delivery routes (from -> to)
+              routes={routes}
+              routesVisible={vehiclesVisible}
+              routeDraft={routeDraft}
+              routePick={routePick !== null}
+              onRoutePoint={handleRoutePoint}
+            />
+            {view !== 'overview' && (
+              <RegionControls
+                level={regionLevel}
+                path={regionPath}
+                count={regionData?.features.length ?? 0}
+                loading={regionsLoading}
+                visible={regionsVisible}
+                note={regionNote}
+                onVisibleChange={setRegionsVisible}
+                onJumpTo={handleRegionJump}
+                onRefresh={handleRegionRefresh}
+              />
+            )}
+
+            {view === 'vehicles' && vehiclesVisible && vehicles.length > 0 && (
+              <div className="live-hud" role="status" aria-label="Fleet status">
+                <span className={`hud-live ${streamState}`}>
+                  <i aria-hidden="true" />
+                  {streamLabel}
+                </span>
+                <span className="hud-n moving">
+                  <b>{fleet.moving}</b> moving
+                </span>
+                <span className="hud-n idle">
+                  <b>{fleet.idle}</b> idle
+                </span>
+                <span className="hud-n offline">
+                  <b>{fleet.offline}</b> offline
+                </span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="map-expand"
+              onClick={() => setMapTall((t) => !t)}
+              aria-pressed={mapTall}
+              aria-label={mapTall ? 'Shrink the map' : 'Enlarge the map'}
+            >
+              <IconMaximize width={16} height={16} />
+              <span>{mapTall ? 'Less map' : 'More map'}</span>
+            </button>
+
+            {routePick !== null && (
+        <div className="route-pick-hint" role="status">
+          <IconCrosshair width={16} height={16} />
+          <span>Click the map to set {routePick === 'origin' ? 'the origin (A)' : 'the destination (B)'}</span>
+          <button type="button" onClick={() => setRoutePick(null)}>
+            Cancel
+          </button>
+        </div>
+      )}
+          </section>
+          )}
+
+          {view === 'overview' ? (
+            <>
+              <div className="stage-side">
+                <FleetCard vehicles={vehicles} counts={fleet} onSelect={selectVehicle} onOpen={() => goTo('vehicles')} />
+              </div>
+              <div className="stage-extra">
+                <EventsCard events={geofenceEvents} onOpen={() => goTo('vehicles')} />
+                <TypeBreakdownCard entities={entities} onOpen={() => goTo('entities')} />
+                <ZonesCard
+                  zones={zones}
+                  onSelect={(id) => {
+                    setSelectedZoneId(id)
+                    goTo('zones')
+                  }}
+                  onOpen={() => goTo('zones')}
+                />
+              </div>
+            </>
+          ) : (
+            <section className={covered ? 'panel-pane is-covered' : 'panel-pane'} aria-label={page.title}>
+              <div className="pane-body" ref={listSlotRef}>
+            {view === 'users' && canEdit ? (
+              <UserPanel
+                users={accounts}
+                loading={accountsLoading}
+                error={accountsError}
+                currentUserId={user?.id ?? null}
+                onRetry={() => void refreshAccounts()}
+                onCreate={handleAccountCreate}
+                onUpdate={handleAccountUpdate}
+                onDelete={setAccountToDelete}
+              />
+            ) : view === 'entities' ? (
               <EntityList
                 entities={entities}
                 selectedId={selectedId}
@@ -912,6 +1338,7 @@ export default function App() {
                 onSelect={setSelectedId}
                 onAdd={openCreate}
                 onRetry={refresh}
+                canEdit={canEdit}
                 onVisibleEntitiesChange={setVisibleEntities}
                 scopeName={
                   selectedZoneId != null
@@ -920,16 +1347,18 @@ export default function App() {
                 }
                 onClearScope={() => setSelectedZoneId(null)}
               />
-            ) : sidebarTab === 'zones' ? (
+            ) : view === 'zones' ? (
               <>
+                {canEdit && (
                 <RegionZonePicker onCreated={handleZoneCreated} />
+                )}
                 <ZonePanel
                 zones={zones}
                 selectedId={selectedZoneId}
                 loading={zonesLoading}
                 error={zonesError}
-                drawMode={drawMode}
-                onDrawModeChange={setDrawMode}
+                drawMode={zoneDrawMode}
+                onDrawModeChange={(v) => canEdit && setDrawMode(v)}
                 onSelect={setSelectedZoneId}
                 onCreate={handleZoneCreate}
                 onUpdate={handleZoneUpdate}
@@ -944,6 +1373,7 @@ export default function App() {
                 onGeometryChange={setZoneDraftGeometry}
                 regions={regionData?.features ?? []}
                 regionLevel={regionLevel}
+                canEdit={canEdit}
                 />
               </>
             ) : (
@@ -956,6 +1386,7 @@ export default function App() {
                 visible={vehiclesVisible}
                 onVisibleChange={setVehiclesVisible}
                 onSelect={selectVehicle}
+                canDrive={canDriveVehicle}
                 onRetry={refreshVehicles}
                 following={following}
                 onFollowChange={setFollowing}
@@ -975,31 +1406,28 @@ export default function App() {
                 }}
                 onRouteSet={handleRouteSet}
                 onRouteClear={handleRouteClear}
+                canEdit={canEdit}
+                onCreate={handleVehicleCreate}
+                onUpdate={handleVehicleUpdate}
+                onDelete={(v) => setVehicleToDelete(v)}
+                drivers={drivers}
+                events={geofenceEvents}
               />
             )}
-          </div>
-        </aside>
+              </div>
 
-      {!formOpen && (
-        <EntityDetail
-          entity={selected}
-          deleting={deleting}
-          onEdit={openEdit}
-          onDelete={() => setConfirmOpen(true)}
-          onClose={() => setSelectedId(null)}
-        />
-      )}
+              {!formOpen && (
+                <EntityDetail
+                  entity={selected}
+                  deleting={deleting}
+                  onEdit={openEdit}
+                  onDelete={() => setConfirmOpen(true)}
+                  onClose={() => setSelectedId(null)}
+                  canEdit={canEdit}
+                />
+              )}
 
-      {routePick !== null && (
-        <div className="route-pick-hint" role="status">
-          <IconCrosshair width={16} height={16} />
-          <span>Click the map to set {routePick === 'origin' ? 'the origin (A)' : 'the destination (B)'}</span>
-          <button type="button" onClick={() => setRoutePick(null)}>
-            Cancel
-          </button>
-        </div>
-      )}
-
+      {canEdit && (
       <EntityForm
         open={formOpen}
         mode={formMode}
@@ -1013,7 +1441,45 @@ export default function App() {
         onCoordsChange={() => setServerFields({})}
         onTogglePick={() => setPicking((p) => !p)}
       />
+      )}
+            </section>
+          )}
+        </main>
+      </div>
 
+      {/* ---- Bottom navigation (phone) ------------------------------------- */}
+      <nav className="bottom-nav" aria-label="Workspace">
+        {visibleNav.map((n) => {
+          const Icon =
+            n.key === 'overview'
+              ? IconDashboard
+              : n.key === 'entities'
+                ? IconPin
+                : n.key === 'zones'
+                  ? IconPolygon
+                  : n.key === 'users'
+                    ? IconUsers
+                    : IconTruck
+          const count = navCount(n.key)
+          return (
+            <button
+              key={n.key}
+              type="button"
+              className={view === n.key ? 'active' : ''}
+              aria-current={view === n.key ? 'page' : undefined}
+              onClick={() => goTo(n.key)}
+            >
+              <span className="bn-icon">
+                <Icon width={22} height={22} />
+                {count != null && count > 0 && <em className={n.key === 'vehicles' && streamState === 'live' ? 'live' : ''}>{count}</em>}
+              </span>
+              <span>{n.label}</span>
+            </button>
+          )
+        })}
+      </nav>
+
+      {canEdit && (
       <ConfirmDialog
         open={confirmOpen}
         title="Delete this entity?"
@@ -1023,6 +1489,31 @@ export default function App() {
         onConfirm={handleDelete}
         onCancel={() => setConfirmOpen(false)}
       />
+      )}
+
+      {canEdit && vehicleToDelete && (
+        <ConfirmDialog
+          open
+          title="Delete this vehicle?"
+          message={`"${vehicleToDelete.name}" (${vehicleToDelete.code}) will be removed for good.`}
+          confirmLabel="Delete"
+          busy={vehicleDeleting}
+          onConfirm={handleVehicleDelete}
+          onCancel={() => setVehicleToDelete(null)}
+        />
+      )}
+
+      {canEdit && accountToDelete && (
+        <ConfirmDialog
+          open
+          title="Delete this account?"
+          message={`"${accountToDelete.username}" will lose access right away. Units assigned to this driver stay in the fleet, just without a driver.`}
+          confirmLabel="Delete"
+          busy={accountDeleting}
+          onConfirm={handleAccountDelete}
+          onCancel={() => setAccountToDelete(null)}
+        />
+      )}
 
       {toast && (
         <div className={`toast ${toast.kind}`} role={toast.kind === 'error' ? 'alert' : 'status'}>

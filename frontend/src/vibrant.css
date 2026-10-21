@@ -1,0 +1,1143 @@
+/* ==========================================================================
+   Refined layer — loaded last, so it wins every tie.
+
+   Principles
+   - Warm paper surfaces, ink text, hairline borders. No gradients, no glows.
+   - One accent (cobalt). Colour lives in the data: entity types, zone colours,
+     vehicle status, and the map itself.
+   - Flat rows instead of floating cards; depth only where something is
+     actually above the map (side panel, detail card, dialogs).
+   ========================================================================== */
+
+:root {
+  --font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+
+  --bg: #f1eee7;
+  --panel: #fbfaf7;
+  --panel-solid: #ffffff;
+  --panel-2: #f3f0e9;
+  --field: #ffffff;
+  --line: #e6e1d6;
+  --line-strong: #d3ccbc;
+
+  --text: #1c1b18;
+  --text-2: #3b3934;
+  --muted: #7b766b;
+
+  --accent: #2446d4;
+  --accent-hover: #1a36b0;
+  --accent-soft: rgb(36 70 212 / 8%);
+  --accent-line: rgb(36 70 212 / 38%);
+  --btn: #2446d4;
+  --btn-hover: #1a36b0;
+  --grad: #2446d4;
+  --grad-hover: #1a36b0;
+  --on-btn: #ffffff;
+
+  --ok: #17803d;
+  --ok-soft: rgb(23 128 61 / 10%);
+  --live: #17803d;
+  --live-soft: rgb(23 128 61 / 11%);
+  --warn: #b45309;
+  --warn-soft: rgb(180 83 9 / 11%);
+  --idle: #6b665b;
+  --idle-soft: rgb(107 102 91 / 12%);
+  --danger: #c0262d;
+  --danger-soft: rgb(192 38 45 / 8%);
+  --danger-line: rgb(192 38 45 / 32%);
+
+  --scrim: rgb(24 22 16 / 44%);
+  --shadow-panel: none;
+  --shadow-card: none;
+  --shadow-pop: 0 0 0 1px rgb(28 27 24 / 4%), 0 18px 40px -18px rgb(28 27 24 / 28%);
+  --shadow-btn: none;
+
+  --r-xl: 16px;
+  --r-lg: 12px;
+  --r-md: 9px;
+
+  --route: #2446d4;
+  --route-casing: #ffffff;
+  --route-done: #b9b4a6;
+  --map-ink: #1c1b18;
+  --map-on-ink: #ffffff;
+  --map-ring: #ffffff;
+
+  --gutter: 16px;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0e0e0d;
+  --panel: #161614;
+  --panel-solid: #1c1c19;
+  --panel-2: #22221f;
+  --field: #1c1c19;
+  --line: #2c2b27;
+  --line-strong: #403e38;
+
+  --text: #f3f1ea;
+  --text-2: #dedbd0;
+  --muted: #968f81;
+
+  --accent: #8ea3ff;
+  --accent-hover: #aebcff;
+  --accent-soft: rgb(142 163 255 / 12%);
+  --accent-line: rgb(142 163 255 / 45%);
+  --btn: #4a68f0;
+  --btn-hover: #6580f6;
+  --grad: #4a68f0;
+  --grad-hover: #6580f6;
+  --on-btn: #ffffff;
+
+  --ok: #4ade80;
+  --ok-soft: rgb(74 222 128 / 12%);
+  --live: #4ade80;
+  --live-soft: rgb(74 222 128 / 12%);
+  --warn: #fbbf24;
+  --warn-soft: rgb(251 191 36 / 13%);
+  --idle: #b3ad9f;
+  --idle-soft: rgb(179 173 159 / 12%);
+  --danger: #f87171;
+  --danger-soft: rgb(248 113 113 / 11%);
+  --danger-line: rgb(248 113 113 / 40%);
+
+  --scrim: rgb(0 0 0 / 66%);
+  --shadow-pop: 0 0 0 1px rgb(255 255 255 / 5%), 0 22px 48px -18px rgb(0 0 0 / 80%);
+
+  --route: #8ea3ff;
+  --route-casing: rgb(14 14 13 / 92%);
+  --route-done: #5b574e;
+  --map-ink: #f3f1ea;
+  --map-on-ink: #0e0e0d;
+  --map-ring: #1c1c19;
+}
+
+html,
+body,
+.app,
+:root[data-theme='dark'] .app {
+  background: var(--bg);
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: rgb(36 70 212 / 22%);
+}
+
+/* --------------------------------------------------------------------------
+   Side panel shell
+   -------------------------------------------------------------------------- */
+@media (min-width: 768px) {
+  .app .sidebar {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow-pop);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Brand bar: one tidy row, never wraps or collides */
+.app .brandbar {
+  min-height: 0;
+  padding: 18px var(--gutter) 14px;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app .brand {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 11px;
+}
+
+.app .brand-text {
+  min-width: 0;
+}
+
+.app .brandbar h1 {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.app .brand-sub {
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 450;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.brand-mark,
+.app .brand-mark {
+  width: 36px;
+  height: 36px;
+  color: var(--panel-solid);
+  background: var(--text);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.app .brandbar-tools {
+  flex: none;
+  gap: 2px;
+}
+
+.app .brandbar-tools .icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+
+/* Status is a quiet dot with a hover title; the words are not worth the width */
+.app .backend-status {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app .backend-status .status-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.dot.checking {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+
+.icon-btn {
+  color: var(--muted);
+}
+.icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-2);
+}
+.icon-btn.active {
+  color: var(--accent) !important;
+  background: var(--accent-soft) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Tabs
+   -------------------------------------------------------------------------- */
+@media (min-width: 768px) {
+  .app .sidebar-tabs {
+    margin: 0 var(--gutter) 14px;
+    padding: 3px;
+    gap: 2px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+  }
+
+  .app .sidebar-tabs button[role='tab'] {
+    height: 36px;
+    font-size: 13px;
+    font-weight: 550;
+    color: var(--muted);
+    border-radius: 8px;
+  }
+
+  .app .sidebar-tabs button[role='tab']:hover {
+    color: var(--text);
+    background: transparent;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] {
+    color: var(--text);
+    background: var(--panel-solid);
+    box-shadow:
+      0 0 0 1px var(--line),
+      0 1px 2px rgb(28 27 24 / 6%);
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] svg {
+    color: var(--accent);
+  }
+}
+
+.app .tab-badge {
+  min-width: 0;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+}
+
+.app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+  color: var(--muted);
+  background: transparent;
+}
+
+.app .sidebar-tabs .tab-badge.live {
+  color: var(--live);
+  background: transparent;
+}
+
+/* --------------------------------------------------------------------------
+   Lists: panel header, search, filters
+   -------------------------------------------------------------------------- */
+.app .list-slot {
+  border-top: 1px solid var(--line);
+}
+
+.list-panel,
+.zone-panel {
+  padding: 18px 0 0;
+}
+
+.panel-header,
+.zone-panel-header {
+  padding: 0 var(--gutter);
+  margin-bottom: 14px;
+}
+
+.panel-header h2,
+.zone-panel-header h2,
+.lt-title h2 {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.count {
+  padding: 0;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+}
+
+.search,
+.segmented,
+.inline-alert,
+.filter-row {
+  margin-left: var(--gutter) !important;
+  margin-right: var(--gutter) !important;
+}
+
+.search {
+  height: 42px;
+  background: var(--field) !important;
+  border-color: var(--line-strong) !important;
+  border-radius: var(--r-md) !important;
+  box-shadow: none;
+}
+.search:focus-within {
+  color: var(--text);
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft) !important;
+}
+.search input {
+  font-size: 14px;
+}
+
+.segmented {
+  margin-bottom: 10px !important;
+  padding: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.seg {
+  min-height: 32px;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--muted);
+  border-radius: 7px;
+}
+.seg[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 0;
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 1px 2px rgb(28 27 24 / 6%);
+}
+.seg-count {
+  font-weight: 500;
+}
+
+.filter-row {
+  margin-top: 0 !important;
+  margin-bottom: 12px !important;
+}
+.filter-control {
+  min-height: 36px;
+  background: var(--field);
+  border-color: var(--line-strong);
+  border-radius: var(--r-md);
+}
+.filter-control > span {
+  font-weight: 500;
+}
+.filter-select-menu {
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
+}
+
+.scope-chip {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+/* The scroll area gets its own edge so rows never butt against the filters */
+.list-scroll {
+  padding: 4px var(--gutter) 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------------------------
+   Entity rows
+   -------------------------------------------------------------------------- */
+.entity-list {
+  gap: 0;
+}
+
+.entity-list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.entity-item {
+  position: relative;
+  min-height: 68px;
+  padding: 12px 10px;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--r-md) !important;
+  box-shadow: none !important;
+  transform: none;
+}
+
+.entity-item:hover {
+  background: var(--panel-2) !important;
+  transform: none;
+}
+
+.entity-item.selected {
+  background: var(--accent-soft) !important;
+  box-shadow: inset 2px 0 0 var(--accent) !important;
+}
+.entity-item.selected::before {
+  display: none;
+}
+
+/* Avatar = the type colour as a soft tint, same hue as the pin on the map */
+.entity-avatar {
+  --type: var(--ok);
+  color: var(--type);
+  background: color-mix(in srgb, var(--type) 13%, transparent);
+  border: 0;
+  border-radius: 10px !important;
+  box-shadow: none;
+}
+.entity-avatar.inactive {
+  --type: var(--idle) !important;
+  filter: none;
+}
+.entity-avatar.large {
+  width: 46px;
+  height: 46px;
+}
+
+.entity-name {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.entity-type {
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.badge {
+  height: 22px;
+  padding: 0 9px 0 8px;
+  font-size: 11.5px;
+  font-weight: 600 !important;
+  border-radius: 999px !important;
+}
+
+.empty-icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+.empty-icon.danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* --------------------------------------------------------------------------
+   Buttons
+   -------------------------------------------------------------------------- */
+.btn {
+  min-height: 40px;
+  font-weight: 600 !important;
+  border-radius: var(--r-md) !important;
+  box-shadow: none !important;
+}
+
+.btn.primary {
+  color: #fff !important;
+  background: var(--accent) !important;
+  border: 1px solid var(--accent) !important;
+}
+:root[data-theme='dark'] .btn.primary {
+  background: var(--btn) !important;
+  border-color: var(--btn) !important;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+  transform: none !important;
+}
+:root[data-theme='dark'] .btn.primary:hover:not(:disabled) {
+  background: var(--btn-hover) !important;
+  border-color: var(--btn-hover) !important;
+}
+
+.btn.secondary {
+  color: var(--text) !important;
+  background: var(--panel-solid) !important;
+  border: 1px solid var(--line-strong) !important;
+}
+.btn.secondary:hover:not(:disabled) {
+  background: var(--panel-2) !important;
+  border-color: var(--muted) !important;
+}
+
+.btn.danger {
+  color: var(--danger) !important;
+  background: transparent !important;
+  border: 1px solid var(--danger-line) !important;
+}
+.btn.danger:hover:not(:disabled) {
+  background: var(--danger-soft) !important;
+}
+.btn.danger-solid {
+  background: var(--danger) !important;
+  border: 1px solid var(--danger) !important;
+}
+
+.btn.small {
+  min-height: 34px;
+}
+
+.copy-chip {
+  color: var(--text-2) !important;
+  background: var(--panel-solid) !important;
+  border: 1px solid var(--line-strong) !important;
+  border-radius: 8px !important;
+}
+.copy-chip:hover {
+  border-color: var(--muted) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Detail card
+   -------------------------------------------------------------------------- */
+.app .detail-panel {
+  padding: 20px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-pop);
+}
+
+.detail-head {
+  margin-bottom: 18px;
+}
+
+.detail-title h2 {
+  font-size: 18px !important;
+  font-weight: 650;
+}
+
+.detail-type {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.detail-grid {
+  background: transparent !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--r-lg) !important;
+  box-shadow: none !important;
+}
+
+.detail-grid .cell {
+  background: transparent !important;
+  padding: 12px 14px !important;
+}
+
+.detail-grid dt {
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.07em !important;
+  color: var(--muted) !important;
+}
+
+.detail-grid dd {
+  font-weight: 600 !important;
+}
+
+.detail-actions .btn {
+  min-height: 42px !important;
+}
+
+/* --------------------------------------------------------------------------
+   Forms & dialogs
+   -------------------------------------------------------------------------- */
+.form-card,
+.dialog-card {
+  background: var(--panel-solid) !important;
+  border: 1px solid var(--line) !important;
+}
+
+.sheet-head h2 {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.form-card input:not([type='radio']),
+.form-card select,
+.form-card textarea,
+.form-type-select,
+.auth-form input {
+  background: var(--field) !important;
+  border-color: var(--line-strong) !important;
+  border-radius: var(--r-md) !important;
+}
+
+.form-card input:not([type='radio']):hover,
+.form-type-select:hover {
+  border-color: var(--muted) !important;
+}
+
+.form-card input:not([type='radio']):focus,
+.form-card select:focus,
+.form-card textarea:focus,
+.auth-form input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft) !important;
+}
+
+.label-text,
+.zone-form-label {
+  font-weight: 600;
+}
+
+.radio-opt input:checked + .radio-box {
+  color: var(--text);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.form-footer {
+  box-shadow: none;
+}
+
+.dialog-icon {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* --------------------------------------------------------------------------
+   Zones
+   -------------------------------------------------------------------------- */
+.zone-list {
+  padding: 4px var(--gutter) 14px;
+  border-top: 1px solid var(--line);
+}
+
+.zone-list > li {
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-md);
+  box-shadow: none;
+  transform: none;
+}
+
+.zone-list > li + li {
+  border-top: 1px solid var(--line);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.zone-list > li:hover {
+  background: var(--panel-2);
+  border-color: transparent;
+  transform: none;
+}
+
+.zone-list > li.selected {
+  background: var(--accent-soft);
+  border-color: transparent;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.zone-avatar {
+  border: 0 !important;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.zone-name {
+  font-weight: 600;
+}
+
+.region-controls {
+  background: var(--panel) !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: var(--shadow-pop);
+}
+
+.region-crumb button.current {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.island-chip.active,
+.seg-row .seg.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* --------------------------------------------------------------------------
+   Live tracking
+   -------------------------------------------------------------------------- */
+.lt {
+  padding: 18px var(--gutter) 0;
+}
+
+.lt-scroll {
+  margin: 0 calc(var(--gutter) * -1);
+  padding: 2px var(--gutter) 18px;
+}
+
+.lt-stats {
+  gap: 6px;
+}
+
+.lt-stat {
+  --sc: var(--text);
+  padding: 10px 11px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+.lt-stat.moving {
+  --sc: var(--live);
+}
+.lt-stat.idle {
+  --sc: var(--warn);
+}
+.lt-stat.offline {
+  --sc: var(--idle);
+}
+
+.lt-stat:hover {
+  background: var(--panel-solid);
+  border-color: var(--line-strong);
+  transform: none;
+}
+
+.lt-stat b {
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--sc);
+}
+
+.lt-stat.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+.lt-stat.on b {
+  color: var(--sc);
+}
+.lt-stat.on span {
+  color: var(--text-2);
+  opacity: 1;
+}
+.lt-stat.on span::before {
+  background: initial;
+}
+
+.lt-card {
+  background: var(--panel-solid);
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+.lt-card:hover {
+  background: var(--panel-solid);
+  border-color: var(--line-strong);
+  transform: none;
+}
+.lt-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.lt-avatar {
+  color: var(--veh, var(--muted));
+  background: color-mix(in srgb, var(--veh, var(--muted)) 13%, transparent);
+  border: 0;
+}
+.lt-avatar.moving,
+.lt-avatar.lg {
+  color: var(--veh, var(--live));
+  background: color-mix(in srgb, var(--veh, var(--live)) 15%, transparent);
+  border: 0;
+  box-shadow: none;
+}
+.lt-avatar::after {
+  border-color: var(--panel-solid);
+}
+
+.lt-bar > span {
+  background: var(--accent);
+}
+
+.lt-chip.moving {
+  color: var(--live);
+}
+
+.lt-detail {
+  background: var(--panel-solid);
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+.lt-detail::before {
+  display: none;
+}
+
+.lt-facts > div {
+  background: var(--panel-2);
+}
+
+.lt-tools .icon-btn.active,
+.lt-stop .icon-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.lt-route-foot .text-action {
+  color: var(--accent);
+}
+
+.lt-stop.picking {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.route-pin {
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 1.5px solid var(--text);
+}
+.route-pin.dest {
+  color: var(--panel-solid);
+  background: var(--text);
+}
+
+.lt-empty {
+  background: transparent;
+  border-color: var(--line-strong);
+}
+
+/* --------------------------------------------------------------------------
+   Map: full-colour basemap, flat markers
+   -------------------------------------------------------------------------- */
+.leaflet-layer.tiles-mono {
+  filter: saturate(1.08) contrast(1.01);
+}
+
+/* Dark: invert, then rotate the hue back so water stays blue and parks green */
+:root[data-theme='dark'] .leaflet-layer.tiles-mono {
+  filter: invert(1) hue-rotate(180deg) saturate(0.8) brightness(0.86) contrast(0.95);
+}
+
+.leaflet-container {
+  background: #e4e9ee;
+}
+:root[data-theme='dark'] .map,
+:root[data-theme='dark'] .leaflet-container {
+  background: #11141a;
+}
+
+.pin::before {
+  background: var(--pin);
+  box-shadow: 0 2px 6px rgb(28 27 24 / 32%);
+}
+.pin.selected::before {
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--pin) 30%, transparent),
+    0 2px 6px rgb(28 27 24 / 32%);
+}
+.pin.selected::after,
+.pin.draft::after {
+  opacity: 0.2;
+}
+
+.veh {
+  color: #fff;
+  background: var(--veh, #475569);
+  border-color: #fff;
+  box-shadow: 0 2px 6px rgb(28 27 24 / 32%);
+}
+.veh.selected {
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--veh, #475569) 28%, transparent),
+    0 2px 6px rgb(28 27 24 / 32%);
+}
+.veh-heading::after {
+  border-bottom-color: var(--veh, #475569);
+}
+
+.route-stop {
+  color: var(--text);
+  background: #fff;
+  border: 3px solid var(--route);
+  box-shadow: 0 2px 6px rgb(28 27 24 / 28%);
+}
+.route-stop.dest {
+  color: #fff;
+  background: var(--route);
+  border-color: #fff;
+  box-shadow:
+    0 0 0 1.5px var(--route),
+    0 2px 6px rgb(28 27 24 / 28%);
+}
+
+/* Map chrome */
+.leaflet-bar,
+.leaflet-touch .leaflet-bar {
+  background: var(--panel) !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+.leaflet-bar a,
+.leaflet-touch .leaflet-bar a {
+  color: var(--text-2) !important;
+}
+.leaflet-bar a:hover {
+  color: var(--text) !important;
+  background: var(--panel-2) !important;
+}
+.fit-all-btn {
+  color: var(--text-2) !important;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--panel-solid);
+  color: var(--text);
+}
+.popup-title {
+  color: var(--text);
+}
+
+.live-hud {
+  background: var(--panel);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.hud-live {
+  color: var(--text);
+}
+
+.pick-hint,
+.route-pick-hint {
+  color: var(--panel-solid) !important;
+  background: var(--text) !important;
+  box-shadow: var(--shadow-pop) !important;
+}
+.pick-hint button {
+  color: var(--text) !important;
+  background: var(--panel-solid) !important;
+}
+
+.sidebar-reopen {
+  color: var(--panel-solid);
+  background: var(--text);
+  box-shadow: var(--shadow-pop);
+}
+.sidebar-reopen:hover {
+  background: var(--text-2);
+}
+
+.toast {
+  border-radius: var(--r-lg) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Sign in / register
+   -------------------------------------------------------------------------- */
+.auth-screen {
+  background: var(--bg);
+}
+
+.auth-card {
+  width: min(400px, 100%);
+  padding: 32px 30px 26px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow-pop);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.auth-brand-text h1 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.auth-title {
+  font-size: 21px;
+  font-weight: 650;
+}
+
+.auth-submit {
+  min-height: 44px;
+}
+
+/* --------------------------------------------------------------------------
+   Scrollbars, responsive
+   -------------------------------------------------------------------------- */
+.list-scroll,
+.zone-list,
+.lt-scroll,
+.form-body {
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --sidebar-w: 424px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --gutter: 14px;
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --gutter: 12px;
+  }
+
+  .app .brandbar {
+    padding: 0 8px 0 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow-pop);
+  }
+
+  .app .brandbar h1 {
+    font-size: 17px;
+  }
+
+  .app .sidebar-tabs {
+    background: var(--panel);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .app .sidebar-tabs button[role='tab'] {
+    color: var(--muted);
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] {
+    color: var(--accent);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .app .sidebar-tabs button[role='tab'][aria-selected='true']::before {
+    width: 30px;
+    background: var(--accent);
+  }
+
+  .app .tab-badge,
+  .app .sidebar-tabs button[role='tab'][aria-selected='true'] .tab-badge {
+    min-width: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+    color: #fff;
+    background: var(--text);
+    border: 2px solid var(--panel);
+  }
+
+  .app .sidebar-tabs .tab-badge.live {
+    color: #fff;
+    background: var(--live);
+  }
+
+  .app .list-slot {
+    border-top: 1px solid var(--line);
+    border-radius: 20px 20px 0 0;
+    box-shadow: var(--shadow-pop);
+  }
+
+  .sheet-grab span {
+    background: var(--line-strong);
+  }
+
+  .app .detail-panel,
+  .overlay.dock .card {
+    border-radius: 20px 20px 0 0;
+  }
+
+  .list-scroll,
+  .zone-list {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+/* Header sits flush inside the panel; the panel owns the border */
+@media (min-width: 768px) {
+  .app .brandbar.glass {
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+}

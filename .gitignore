@@ -31,4 +31,4 @@ go.work
 
 # Local probe output and CLI state
 /scratch
-/.playwright-cli
+.playwright-cli

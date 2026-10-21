@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import type { Vehicle } from '../lib/types'
+import { vehicleTopSvg } from './VehicleArt'
 import {
   formatLastSeen,
   hasPosition,
@@ -12,20 +13,6 @@ import {
   vehicleStatusLabel,
 } from '../lib/types'
 
-/**
- * Inline glyph per kind. Leaflet builds the marker from an HTML string, so the
- * shapes live here as SVG markup with no extra icon files to ship.
- */
-const KIND_GLYPH: Record<string, string> = {
-  truck:
-    '<svg viewBox="0 0 24 24"><path d="M2.5 16.5V7h10.5v9.5"/><path d="M13 10.5h4.2L20.5 14v2.5h-7.5"/><circle cx="6.5" cy="17.5" r="1.7"/><circle cx="17" cy="17.5" r="1.7"/></svg>',
-  van: '<svg viewBox="0 0 24 24"><path d="M2.5 16.5V9h9.5v7.5"/><path d="M12 16.5h9.5V13L18 9h-6"/><circle cx="6.5" cy="17.5" r="1.6"/><circle cx="16.5" cy="17.5" r="1.6"/></svg>',
-  motorcycle:
-    '<svg viewBox="0 0 24 24"><circle cx="5.5" cy="16.5" r="2.6"/><circle cx="18.5" cy="16.5" r="2.6"/><path d="M8 16.5l3.5-6h4l3 6"/><path d="M9.5 10.5h5"/></svg>',
-  pickup:
-    '<svg viewBox="0 0 24 24"><path d="M2.5 16.5V11h7.5v5.5"/><path d="M10 16.5h10.5V13h-5.5V11"/><circle cx="6.5" cy="17.5" r="1.6"/><circle cx="16.5" cy="17.5" r="1.6"/></svg>',
-}
-
 const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
 /**
@@ -35,23 +22,35 @@ const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
  */
 const iconCache = new Map<string, L.DivIcon>()
 
+/**
+ * Premium marker: a glossy rounded "pin card" (gradient badge + kind glyph) that
+ * sits on a pulsing radar ring, with a heading chevron, a status dot and a
+ * floating plate/speed chip. The selected unit grows and shows its name.
+ */
 function vehicleIcon(veh: Vehicle, selected: boolean): L.DivIcon {
   const kind = normalizeVehicleKind(veh.kind)
   const status = normalizeVehicleStatus(veh.status)
-  const key = `${kind}|${status}|${selected ? esc(veh.name) : ''}`
+  const speed = status === 'moving' ? Math.round(veh.speed_kmh) : 0
+  const key = `${kind}|${status}|${selected ? esc(veh.name) : ''}|${selected ? esc(veh.code) : ''}|${selected ? speed : ''}`
   const hit = iconCache.get(key)
   if (hit) return hit
 
-  const size = selected ? 48 : 40
-  const cls = `veh ${status}${status === 'moving' ? ' is-moving' : ''}${selected ? ' selected' : ''}`
-  const glyph = KIND_GLYPH[kind] ?? KIND_GLYPH.truck
-  const label = selected ? `<span class="veh-label">${esc(veh.name)}</span>` : ''
+  const w = selected ? 64 : 50
+  const cls = `veh ${kind} ${status}${status === 'moving' ? ' is-moving' : ''}${selected ? ' selected' : ''}`
+  const chip = selected
+    ? `<span class="veh-label"><b>${esc(veh.name)}</b><em>${esc(veh.code)}${
+        status === 'moving' && speed > 0 ? ` · ${speed} km/h` : ''
+      }</em></span>`
+    : ''
   const icon = L.divIcon({
     className: 'veh-wrap',
-    html: `<span class="${cls}" style="--veh:${vehicleStatusColor(status)}"><s class="veh-heading"></s><i class="veh-glyph">${glyph}</i><b class="veh-dot"></b>${label}</span>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -size / 2 + 2],
+    html:
+      `<span class="${cls}" style="--veh:${vehicleStatusColor(status)}">` +
+      `<s class="veh-ground"></s><s class="veh-lock"></s>` +
+      `<span class="veh-body"><s class="veh-beam"></s><s class="veh-trail"></s>${vehicleTopSvg(kind)}</span>${chip}</span>`,
+    iconSize: [w, w],
+    iconAnchor: [w / 2, w / 2],
+    popupAnchor: [0, -w / 2 + 6],
   })
   if (iconCache.size > 200) iconCache.clear()
   iconCache.set(key, icon)
@@ -76,10 +75,15 @@ function VehicleMarker({
   v,
   selected,
   onSelect,
+  drivable,
+  onDrive,
 }: {
   v: Vehicle & { lat: number; lng: number }
   selected: boolean
   onSelect: (id: number | null) => void
+  /** Handing the unit a new position is the "drive" gesture: drag the marker. */
+  drivable: boolean
+  onDrive: (id: number, lat: number, lng: number) => void
 }) {
   const ref = useRef<L.Marker | null>(null)
   const prev = useRef<{ lat: number; lng: number } | null>(null)
@@ -102,6 +106,11 @@ function VehicleMarker({
     }
     // Leaflet rebuilds the icon element when the look changes, so re-apply every time.
     const el = ref.current?.getElement()
+    if (el) {
+      // Leaflet copies options.title onto the icon element only while building it,
+      // so a renamed unit would keep the old tooltip until the next rebuild.
+      el.setAttribute('title', `${v.code} · ${v.name}`)
+    }
     if (el && heading.current !== null) {
       el.style.setProperty('--hd', `${heading.current.toFixed(1)}deg`)
       el.style.setProperty('--hd-on', '1')
@@ -114,21 +123,38 @@ function VehicleMarker({
       position={[v.lat, v.lng]}
       icon={vehicleIcon(v, selected)}
       zIndexOffset={selected ? 1400 : 700}
-      eventHandlers={{ click: () => onSelect(v.id) }}
+      draggable={drivable}
+      eventHandlers={{
+        click: () => onSelect(v.id),
+        dragend: (e) => {
+          const next = (e.target as L.Marker).getLatLng()
+          onDrive(v.id, next.lat, next.lng)
+        },
+      }}
       keyboard
       title={`${v.code} · ${v.name}`}
     >
-      <Popup>
+      <Popup className="veh-popup" closeButton={false} offset={[0, -6]}>
+        <span className="vp-head">
+          <span className="vp-badge" style={{ background: vehicleStatusColor(status) }}>
+            {vehicleStatusLabel(v.status)}
+          </span>
+          <span className="vp-code">{v.code}</span>
+        </span>
         <strong className="popup-title">{v.name}</strong>
-        <span className="popup-meta">
-          {vehicleKindLabel(v.kind)} · {vehicleStatusLabel(v.status)}
-          {status === 'moving' && v.speed_kmh > 0 ? ` · ${Math.round(v.speed_kmh)} km/h` : ''}
+        <span className="popup-meta">{vehicleKindLabel(v.kind)}</span>
+        <span className="vp-grid">
+          <span>
+            <small>Speed</small>
+            <b>{status === 'moving' ? Math.round(v.speed_kmh) : 0}<i> km/h</i></b>
+          </span>
+          <span>
+            <small>Updated</small>
+            <b>{formatLastSeen(v.last_seen_at)}</b>
+          </span>
         </span>
         <span className="popup-coords">
           {v.lat.toFixed(5)}, {v.lng.toFixed(5)}
-        </span>
-        <span className="popup-coords">
-          {v.code} · {formatLastSeen(v.last_seen_at)}
         </span>
       </Popup>
     </Marker>
@@ -141,13 +167,23 @@ interface Props {
   onSelect: (id: number | null) => void
   /** Markers can be hidden without dropping the live feed. */
   visible: boolean
+  /** True when this account may move the unit by dragging its marker. */
+  canDrive: (v: Vehicle) => boolean
+  onDrive: (id: number, lat: number, lng: number) => void
 }
 
 /**
  * Live vehicle markers, drawn above the zones and the administrative
  * boundaries. Units that have not reported a position yet are skipped.
  */
-export default function VehicleLayer({ vehicles, selectedId, onSelect, visible }: Props) {
+export default function VehicleLayer({
+  vehicles,
+  selectedId,
+  onSelect,
+  visible,
+  canDrive,
+  onDrive,
+}: Props) {
   if (!visible) return null
 
   const located = vehicles.filter(hasPosition)
@@ -155,7 +191,14 @@ export default function VehicleLayer({ vehicles, selectedId, onSelect, visible }
   return (
     <>
       {located.map((v) => (
-        <VehicleMarker key={v.id} v={v} selected={v.id === selectedId} onSelect={onSelect} />
+        <VehicleMarker
+          key={v.id}
+          v={v}
+          selected={v.id === selectedId}
+          onSelect={onSelect}
+          drivable={canDrive(v)}
+          onDrive={onDrive}
+        />
       ))}
     </>
   )

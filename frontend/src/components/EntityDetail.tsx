@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { Entity } from '../lib/types'
+import { typeColorFor } from '../lib/types'
 import { IconCheck, IconClose, IconCopy, IconEdit, IconPin, IconTrash } from './Icons'
 
 interface Props {
@@ -8,6 +9,8 @@ interface Props {
   onEdit: () => void
   onDelete: () => void
   onClose: () => void
+  /** Only admins may edit or delete. When false, the action bar is hidden. */
+  canEdit: boolean
 }
 
 function formatDate(iso: string): string {
@@ -15,7 +18,7 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-export default function EntityDetail({ entity, deleting, onEdit, onDelete, onClose }: Props) {
+export default function EntityDetail({ entity, deleting, onEdit, onDelete, onClose, canEdit }: Props) {
   const [copied, setCopied] = useState(false)
   // The detail card floats over the map, so nothing is rendered until a selection exists.
   if (!entity) return null
@@ -43,7 +46,11 @@ export default function EntityDetail({ entity, deleting, onEdit, onDelete, onClo
       <span className="sheet-grip" aria-hidden="true" />
 
       <div className="detail-head">
-        <span className={`entity-avatar large ${entity.status}`} aria-hidden="true">
+        <span
+          className={`entity-avatar large ${entity.status}`}
+          style={{ '--type': typeColorFor(entity.type) } as CSSProperties}
+          aria-hidden="true"
+        >
           <IconPin width={24} height={24} />
         </span>
         <div className="detail-title">
@@ -94,6 +101,7 @@ export default function EntityDetail({ entity, deleting, onEdit, onDelete, onClo
         </div>
       </dl>
 
+      {canEdit && (
       <div className="detail-actions">
         <button className="btn danger" onClick={onDelete} disabled={deleting}>
           <IconTrash width={18} height={18} />
@@ -104,6 +112,7 @@ export default function EntityDetail({ entity, deleting, onEdit, onDelete, onClo
           <span>Edit</span>
         </button>
       </div>
+      )}
     </section>
   )
 }

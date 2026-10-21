@@ -29,13 +29,15 @@ function toZoneGeometry(layer: L.Layer): ZoneGeometry | null {
 }
 
 function zoneStyle(zone: ZoneFeature | undefined, selected: boolean): L.PathOptions {
-  const color = zone?.properties.color || '#2563eb'
+  const color = zone?.properties.color || '#c8161d'
   return {
     color,
-    weight: selected ? 3 : 2,
+    weight: selected ? 3 : 2.2,
     fillColor: color,
-    fillOpacity: selected ? 0.28 : 0.12,
-    opacity: selected ? 1 : 0.85,
+    fillOpacity: selected ? 0.3 : 0.14,
+    opacity: selected ? 1 : 0.9,
+    lineJoin: 'round',
+    lineCap: 'round',
     className: `zone-polygon${selected ? ' selected' : ''}`,
   }
 }
@@ -110,6 +112,17 @@ export default function ZoneLayer({
           e.originalEvent?.stopPropagation()
           onSelectRef.current(zoneId)
         })
+        // Name pill in the middle of the zone.
+        const meta = zonesRef.current.find((z) => z.id === zoneId)?.properties
+        if (meta?.name) {
+          const tip = document.createElement('span')
+          tip.className = 'zl-dot'
+          tip.style.setProperty('--zc', meta.color || '#c8161d')
+          const label = document.createElement('span')
+          label.textContent = meta.name
+          tip.appendChild(label)
+          lyr.bindTooltip(tip, { permanent: true, direction: 'center', className: 'zone-label', interactive: false })
+        }
         // Live edit: fires while a vertex is being dragged.
         lyr.on('pm:change', () => {
           const geometry = toZoneGeometry(lyr)

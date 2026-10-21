@@ -11,6 +11,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -23,6 +24,17 @@ import (
 	"syscall"
 	"time"
 )
+
+// statusError carries the HTTP status of a failed call, so the caller can tell
+// "this unit is gone" (404) from a real failure.
+type statusError struct {
+	status int
+	err    error
+}
+
+func (e *statusError) Error() string { return e.err.Error() }
+
+func (e *statusError) Unwrap() error { return e.err }
 
 // startPoints are real Indonesian cities, so the simulated fleet appears where
 // a real fleet would: Jakarta, Bandung, Semarang, Surabaya, Medan, Makassar.
@@ -100,6 +112,8 @@ func main() {
 	count := flag.Int("count", 5, "number of vehicles to keep on the map")
 	interval := flag.Duration("interval", 2*time.Second, "delay between position reports")
 	seed := flag.Int64("seed", 1, "random seed, so a run can be repeated")
+	email := flag.String("email", "", "account email for API login")
+	password := flag.String("password", "", "account password for API login")
 	flag.Parse()
 
 	if *count < 1 || *count > len(startPoints)*4 {
@@ -108,9 +122,20 @@ func main() {
 	if *interval < 200*time.Millisecond {
 		log.Fatalf("interval must be at least 200ms")
 	}
+	if *email == "" || *password == "" {
+		log.Fatalf("email and password are required (an admin creates the account from the Users tab)")
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	fleet, err := ensureFleet(client, *api, *count)
+
+	// Login to get a bearer token.
+	token, err := login(client, *api, *email, *password)
+	if err != nil {
+		log.Fatalf("login: %v", err)
+	}
+	log.Printf("authenticated as %s", *email)
+
+	fleet, err := ensureFleet(client, *api, *count, token)
 	if err != nil {
 		log.Fatalf("prepare fleet: %v", err)
 	}
@@ -130,7 +155,8 @@ func main() {
 			log.Println("simulator stopped")
 			return
 		case <-ticker.C:
-			if err := report(client, *api, fleet, rng, *interval); err != nil {
+			fleet, err = report(client, *api, fleet, rng, *interval, token)
+			if err != nil {
 				log.Printf("report: %v", err)
 			}
 		}
@@ -139,8 +165,8 @@ func main() {
 
 // ensureFleet fetches the tracked vehicles and creates the missing ones until
 // the fleet is at least as large as requested.
-func ensureFleet(client *http.Client, api string, count int) ([]*unit, error) {
-	existing, err := listVehicles(client, api)
+func ensureFleet(client *http.Client, api string, count int, token string) ([]*unit, error) {
+	existing, err := listVehicles(client, api, token)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +182,7 @@ func ensureFleet(client *http.Client, api string, count int) ([]*unit, error) {
 	for len(fleet) < count {
 		index := len(fleet)
 		code := fmt.Sprintf("SIM-%02d", index+1)
-		created, err := createVehicle(client, api, code, fmt.Sprintf("Simulasi %02d", index+1))
+		created, err := createVehicle(client, api, code, fmt.Sprintf("Simulasi %02d", index+1), token)
 		if err != nil {
 			return nil, err
 		}
@@ -182,13 +208,16 @@ func newUnit(v apiVehicle, index int) *unit {
 }
 
 // report advances every vehicle by one interval and posts the new position.
-func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, interval time.Duration) error {
-	plans, err := fetchRoutes(client, api)
+// A unit that was deleted in the app is dropped from the fleet instead of
+// failing every tick, so the check that rejects its position is not wasted.
+func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, interval time.Duration, token string) ([]*unit, error) {
+	plans, err := fetchRoutes(client, api, token)
 	if err != nil {
 		// A route feed that is down must not stop the position feed.
 		log.Printf("routes: %v", err)
 	}
 
+	kept := fleet[:0]
 	progress := make([]string, 0, len(fleet))
 	for _, u := range fleet {
 		speed := 0.0
@@ -207,20 +236,32 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 			"speed_kmh": math.Round(speed*10) / 10,
 			"status":    "moving",
 		}
-		if err := postJSON(client, fmt.Sprintf("%s/api/vehicles/%d/position", api, u.id), body, nil); err != nil {
-			return fmt.Errorf("%s: %w", u.code, err)
+		if err := postJSON(client, fmt.Sprintf("%s/api/vehicles/%d/position", api, u.id), body, nil, token); err != nil {
+			var se *statusError
+			if errors.As(err, &se) && se.status == http.StatusNotFound {
+				log.Printf("%s: no longer in the fleet, dropping it", u.code)
+				continue
+			}
+			return kept, fmt.Errorf("%s: %w", u.code, err)
 		}
+		kept = append(kept, u)
 		progress = append(progress, fmt.Sprintf("%s %.4f,%.4f %.0fkm/h%s", u.code, u.lat, u.lng, speed, tag))
 	}
 
 	log.Printf("%s", joinLines(progress))
 
-	return nil
+	return kept, nil
 }
 
 // fetchRoutes returns the active delivery routes keyed by vehicle id.
-func fetchRoutes(client *http.Client, api string) (map[int64]*pathPlan, error) {
-	resp, err := client.Get(api + "/api/routes")
+func fetchRoutes(client *http.Client, api, token string) (map[int64]*pathPlan, error) {
+	req, err := http.NewRequest(http.MethodGet, api+"/api/routes", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -390,8 +431,14 @@ func (u *unit) step(rng *rand.Rand, interval time.Duration) float64 {
 	return speed
 }
 
-func listVehicles(client *http.Client, api string) ([]apiVehicle, error) {
-	resp, err := client.Get(api + "/api/vehicles")
+func listVehicles(client *http.Client, api, token string) ([]apiVehicle, error) {
+	req, err := http.NewRequest(http.MethodGet, api+"/api/vehicles", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -413,19 +460,37 @@ func listVehicles(client *http.Client, api string) ([]apiVehicle, error) {
 	return parsed.Data.Vehicles, nil
 }
 
-func createVehicle(client *http.Client, api, code, name string) (apiVehicle, error) {
+func createVehicle(client *http.Client, api, code, name, token string) (apiVehicle, error) {
 	var parsed struct {
 		Data apiVehicle `json:"data"`
 	}
 	body := map[string]string{"code": code, "name": name, "kind": "truck"}
-	if err := postJSON(client, api+"/api/vehicles", body, &parsed); err != nil {
+	if err := postJSON(client, api+"/api/vehicles", body, &parsed, token); err != nil {
 		return apiVehicle{}, err
 	}
 
 	return parsed.Data, nil
 }
 
-func postJSON(client *http.Client, url string, body any, out any) error {
+// login exchanges credentials for a bearer token.
+func login(client *http.Client, api, email, password string) (string, error) {
+	var parsed struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	body := map[string]string{"email": email, "password": password}
+	if err := postJSON(client, api+"/api/auth/login", body, &parsed, ""); err != nil {
+		return "", err
+	}
+	if parsed.Data.Token == "" {
+		return "", fmt.Errorf("login returned no token")
+	}
+
+	return parsed.Data.Token, nil
+}
+
+func postJSON(client *http.Client, url string, body any, out any, token string) error {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -436,6 +501,9 @@ func postJSON(client *http.Client, url string, body any, out any) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -448,7 +516,10 @@ func postJSON(client *http.Client, url string, body any, out any) error {
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("POST %s: %s (%s)", url, resp.Status, bytes.TrimSpace(raw))
+		return &statusError{
+			status: resp.StatusCode,
+			err:    fmt.Errorf("POST %s: %s (%s)", url, resp.Status, bytes.TrimSpace(raw)),
+		}
 	}
 
 	if out == nil {

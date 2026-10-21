@@ -73,22 +73,22 @@ export const ENTITY_TYPES = [
 
 /** Distinct marker colour per type; legacy Indonesian values map to the same colour. */
 export const TYPE_COLORS: Record<string, string> = {
-  destination: '#2563eb',
-  destinasi: '#2563eb',
-  monument: '#dc2626',
-  monumen: '#dc2626',
-  historic: '#b45309',
-  bersejarah: '#b45309',
-  park: '#16a34a',
-  taman: '#16a34a',
-  recreation: '#9333ea',
-  rekreasi: '#9333ea',
-  zoo: '#ea580c',
-  'kebun binatang': '#ea580c',
-  culinary: '#db2777',
-  kuliner: '#db2777',
-  lodging: '#0891b2',
-  penginapan: '#0891b2',
+  destination: '#c8161d',
+  destinasi: '#c8161d',
+  monument: '#d4535c',
+  monumen: '#d4535c',
+  historic: '#d49a3a',
+  bersejarah: '#d49a3a',
+  park: '#3a9d6e',
+  taman: '#3a9d6e',
+  recreation: '#8664c8',
+  rekreasi: '#8664c8',
+  zoo: '#e07b3c',
+  'kebun binatang': '#e07b3c',
+  culinary: '#cf5a95',
+  kuliner: '#cf5a95',
+  lodging: '#2b9aa8',
+  penginapan: '#2b9aa8',
 }
 
 /** Legacy Indonesian values (old free-text field) map to the fixed list. */
@@ -112,12 +112,12 @@ export function canonicalType(type: string): string {
 /** Stable colour for any type: fixed map first, hash fallback for unknowns. */
 export function typeColorFor(type: string): string {
   const s = type.trim().toLowerCase()
-  if (!s) return '#64748b'
+  if (!s) return '#7d8693'
   const fixed = TYPE_COLORS[s]
   if (fixed) return fixed
   let h = 0
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360
-  return `hsl(${h} 65% 45%)`
+  return `hsl(${h} 42% 46%)`
 }
 
 /* ------------------------------------------------------------------ *
@@ -139,13 +139,13 @@ export const ZONE_CATEGORY_LABELS: Record<ZoneCategory, string> = {
 
 /** Suggested colours per category — the picker still accepts any hex. */
 export const ZONE_CATEGORY_COLORS: Record<ZoneCategory, string> = {
-  operational: '#2563eb',
-  restricted: '#dc2626',
-  planned: '#b45309',
-  other: '#64748b',
+  operational: '#c8161d',
+  restricted: '#7a1a1f',
+  planned: '#d49a3a',
+  other: '#7d8693',
 }
 
-export const DEFAULT_ZONE_COLOR = '#2563eb'
+export const DEFAULT_ZONE_COLOR = '#c8161d'
 
 export type ZoneGeometryType = 'Polygon' | 'MultiPolygon'
 
@@ -229,7 +229,7 @@ export function validateZoneInput(input: ZoneInput): ZoneFieldErrors {
   }
 
   if (!HEX_COLOR.test(input.color)) {
-    errors.color = 'Colour must be a hex value like #2563eb.'
+    errors.color = 'Colour must be a hex value like #c8161d.'
   }
 
   if (input.description.trim().length > 500) {
@@ -337,9 +337,9 @@ export const VEHICLE_STATUS_LABELS: Record<VehicleStatus, string> = {
 
 /** Marker colour follows the status: motion first, then parked, then stale. */
 export const VEHICLE_STATUS_COLORS: Record<VehicleStatus, string> = {
-  moving: '#16a34a',
-  idle: '#b45309',
-  offline: '#64748b',
+  moving: '#d0191f',
+  idle: '#d49a3a',
+  offline: '#7d8693',
 }
 
 /** One tracked unit, latest known position included (null until it reports). */
@@ -349,10 +349,42 @@ export interface Vehicle {
   name: string
   kind: VehicleKind
   status: VehicleStatus
+  /** The driver this unit is handed over to; null means unassigned. */
+  driver_id: number | null
   lat: number | null
   lng: number | null
   speed_kmh: number
   last_seen_at: string | null
+}
+
+/** Body of the create/update vehicle calls. */
+export interface VehicleInput {
+  code: string
+  name: string
+  kind: VehicleKind
+  driver_id: number | null
+}
+
+/** One account without its credentials: the fleet form assigns a driver. */
+export interface UserAccount {
+  id: number
+  username: string
+  email: string
+  name: string
+  /** 'male', 'female', or '' when the account has no gender set. */
+  gender: string
+  role: string
+  created_at?: string
+}
+
+/** What the admin account form sends when registering or editing a user. */
+export interface UserInput {
+  username: string
+  email: string
+  password: string
+  name: string
+  gender: string
+  role: string
 }
 
 export interface VehicleList {
@@ -364,9 +396,36 @@ export interface VehicleList {
 export type VehicleFrame =
   | { type: 'snapshot'; vehicles: Vehicle[]; at: string }
   | { type: 'position'; vehicle: Vehicle; at: string }
+  | { type: 'vehicle_updated'; vehicle: Vehicle; at: string }
+  | { type: 'vehicle_deleted'; id: number; at: string }
   | { type: 'route'; route: VehicleRoute; at: string }
   | { type: 'route_cleared'; route_id: number; vehicle_id: number; at: string }
   | { type: 'route_completed'; route_id: number; vehicle_id: number; at: string }
+  | {
+      type: 'geofence'
+      id: number
+      event: GeofenceEventType
+      vehicle_id: number
+      vehicle_name: string
+      zone_id: number
+      zone_name: string
+      timestamp: string
+      at: string
+    }
+
+/** Which way a vehicle crossed a zone boundary. */
+export type GeofenceEventType = 'ENTER' | 'EXIT'
+
+/** One crossing of a zone boundary, as stored and as pushed over the feed. */
+export interface GeofenceEvent {
+  id: number
+  vehicle_id: number
+  vehicle_name: string
+  zone_id: number
+  zone_name: string
+  event_type: GeofenceEventType
+  created_at: string
+}
 
 /** A unit without a reported position must not get a marker. */
 export function hasPosition(v: Vehicle): v is Vehicle & { lat: number; lng: number } {

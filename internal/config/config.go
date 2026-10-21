@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -11,6 +12,7 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	Auth     AuthConfig
 }
 
 type ServerConfig struct {
@@ -18,6 +20,13 @@ type ServerConfig struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+}
+
+// AuthConfig holds the JWT signing secret and token lifetime. The secret is
+// never hardcoded: it comes from JWT_SECRET in the environment.
+type AuthConfig struct {
+	Secret string
+	TTL    time.Duration
 }
 
 type DatabaseConfig struct {
@@ -57,9 +66,22 @@ func Load() (*Config, error) {
 			MaxConnIdleTime: getDurationEnv("DB_MAX_CONN_IDLE_TIME", 5*time.Minute),
 			ConnectTimeout:  getDurationEnv("DB_CONNECT_TIMEOUT", 10*time.Second),
 		},
+		Auth: AuthConfig{
+			Secret: getEnv("JWT_SECRET", ""),
+			TTL:    getDurationEnv("JWT_TTL", 24*time.Hour),
+		},
 	}
 
 	return cfg, nil
+}
+
+// Validate rejects an incomplete config instead of letting the server boot with
+// a random signing key, which would silently invalidate every token on restart.
+func (c *Config) Validate() error {
+	if c.Auth.Secret == "" {
+		return fmt.Errorf("JWT_SECRET is required (generate one with: openssl rand -base64 32)")
+	}
+	return nil
 }
 
 func (c *DatabaseConfig) DSN() string {

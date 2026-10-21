@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"entity-management/internal/auth"
 	"entity-management/internal/config"
 	"entity-management/internal/db"
 	"entity-management/internal/handler"
@@ -21,6 +22,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("invalid config: %v", err)
+	}
 
 	pool, err := db.NewPool(&cfg.Database)
 	if err != nil {
@@ -28,60 +32,82 @@ func main() {
 	}
 	defer pool.Close()
 
+	authService := auth.NewService(pool, cfg.Auth.Secret, cfg.Auth.TTL)
+	authMiddleware := auth.NewMiddleware(authService)
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
 
 	healthHandler := handler.NewHealthHandler(pool)
+	authHandler := handler.NewAuthHandler(authService)
 	r.GET("/health", healthHandler.Health)
 
-	entityHandler := handler.NewEntityHandler(pool)
+	// Public auth endpoint. Accounts are created by an admin from the Users tab,
+	// never by the visitor.
 	api := r.Group("/api")
 	{
-		api.GET("/entities", entityHandler.List)
-		api.GET("/entities/:id", entityHandler.Get)
-		api.POST("/entities", entityHandler.Create)
-		api.PUT("/entities/:id", entityHandler.Update)
-		api.DELETE("/entities/:id", entityHandler.Delete)
-	}
+		api.POST("/auth/login", authHandler.Login)
 
-	regionHandler := handler.NewRegionHandler(pool)
-	{
-		api.GET("/regions", regionHandler.List)
-		api.GET("/regions/count", regionHandler.Count)
-		api.GET("/regions/:code", regionHandler.Get)
-	}
+		// Protected routes (require valid JWT)
+		protected := api.Group("", authMiddleware.Require())
+		{
+			// Reads are open to every signed-in role; writes are admin-only.
+			adminOnly := authMiddleware.RequireRole(auth.RoleAdmin)
 
-	zoneHandler := handler.NewZoneHandler(pool)
-	{
-		api.GET("/zones", zoneHandler.List)
-		api.POST("/zones", zoneHandler.Create)
-		api.POST("/zones/import", zoneHandler.Import)
-		api.POST("/zones/from-region", zoneHandler.FromRegion)
-		api.GET("/islands", zoneHandler.Islands)
-		api.POST("/zones/from-island", zoneHandler.FromIsland)
-		api.GET("/zones/:id", zoneHandler.Get)
-		api.PUT("/zones/:id", zoneHandler.Update)
-		api.DELETE("/zones/:id", zoneHandler.Delete)
-	}
+			entityHandler := handler.NewEntityHandler(pool)
+			protected.GET("/entities", entityHandler.List)
+			protected.GET("/entities/:id", entityHandler.Get)
+			protected.POST("/entities", adminOnly, entityHandler.Create)
+			protected.PUT("/entities/:id", adminOnly, entityHandler.Update)
+			protected.DELETE("/entities/:id", adminOnly, entityHandler.Delete)
 
-	hub := ws.NewHub()
+			regionHandler := handler.NewRegionHandler(pool)
+			protected.GET("/regions", regionHandler.List)
+			protected.GET("/regions/count", regionHandler.Count)
+			protected.GET("/regions/:code", regionHandler.Get)
 
-	vehicleHandler := handler.NewVehicleHandler(pool, hub)
-	{
-		api.GET("/vehicles", vehicleHandler.List)
-		api.POST("/vehicles", vehicleHandler.Create)
-		api.POST("/vehicles/:id/position", vehicleHandler.UpdatePosition)
-		api.GET("/vehicles/stream", vehicleHandler.Stream)
-	}
+			// Accounts: the list feeds the driver picker, the CRUD behind it
+			// is the admin "Kelola User" screen.
+			userHandler := handler.NewUserHandler(authService)
+			protected.GET("/users", adminOnly, userHandler.List)
+			protected.POST("/users", adminOnly, userHandler.Create)
+			protected.PUT("/users/:id", adminOnly, userHandler.Update)
+			protected.DELETE("/users/:id", adminOnly, userHandler.Delete)
 
-	routeHandler := handler.NewRouteHandler(pool, hub)
-	{
-		api.GET("/routes", routeHandler.List)
-		api.GET("/vehicles/:id/routes", routeHandler.History)
-		api.POST("/vehicles/:id/route", routeHandler.Set)
-		api.DELETE("/vehicles/:id/route", routeHandler.Clear)
+			zoneHandler := handler.NewZoneHandler(pool)
+			protected.GET("/zones", zoneHandler.List)
+			protected.POST("/zones", adminOnly, zoneHandler.Create)
+			protected.POST("/zones/import", adminOnly, zoneHandler.Import)
+			protected.POST("/zones/from-region", adminOnly, zoneHandler.FromRegion)
+			protected.GET("/islands", zoneHandler.Islands)
+			protected.POST("/zones/from-island", adminOnly, zoneHandler.FromIsland)
+			protected.GET("/zones/:id", zoneHandler.Get)
+			protected.PUT("/zones/:id", adminOnly, zoneHandler.Update)
+			protected.DELETE("/zones/:id", adminOnly, zoneHandler.Delete)
+
+			hub := ws.NewHub()
+
+			vehicleHandler := handler.NewVehicleHandler(pool, hub)
+			protected.GET("/vehicles", vehicleHandler.List)
+			protected.POST("/vehicles", adminOnly, vehicleHandler.Create)
+			protected.PUT("/vehicles/:id", adminOnly, vehicleHandler.Update)
+			protected.DELETE("/vehicles/:id", adminOnly, vehicleHandler.Delete)
+			protected.POST("/vehicles/:id/position", vehicleHandler.UpdatePosition)
+			protected.GET("/vehicles/stream", vehicleHandler.Stream)
+
+			// Crossing history of the zone boundaries. Every signed-in role may
+			// read it; a driver only sees the crossings of their own unit.
+			geofenceHandler := handler.NewGeofenceHandler(pool)
+			protected.GET("/geofence-events", geofenceHandler.List)
+
+			routeHandler := handler.NewRouteHandler(pool, hub)
+			protected.GET("/routes", routeHandler.List)
+			protected.GET("/vehicles/:id/routes", routeHandler.History)
+			protected.POST("/vehicles/:id/route", routeHandler.Set)
+			protected.DELETE("/vehicles/:id/route", routeHandler.Clear)
+		}
 	}
 
 	srv := &http.Server{

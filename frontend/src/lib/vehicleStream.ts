@@ -1,4 +1,5 @@
 import { vehicleStreamUrl } from './api'
+import { getToken } from './session'
 import type { VehicleFrame } from './types'
 
 /** Connection state of the live feed, as shown in the vehicle panel. */
@@ -8,6 +9,7 @@ export interface StreamHandlers {
   /**
    * Every accepted frame: a full snapshot first, then one position each, plus
    * route frames so a route set in another tab shows up here without a reload.
+   * A geofence frame reports that a unit crossed a zone boundary.
    */
   onFrame: (frame: VehicleFrame) => void
   onState: (state: StreamState) => void
@@ -79,7 +81,10 @@ export function openVehicleStream({ onFrame, onState }: StreamHandlers): () => v
 
     let ws: WebSocket
     try {
-      ws = new WebSocket(vehicleStreamUrl())
+      // The JWT travels as the first subprotocol so it never lands in a URL or
+      // an access log; the server echoes it back to complete the handshake.
+      const token = getToken()
+      ws = token ? new WebSocket(vehicleStreamUrl(), [token]) : new WebSocket(vehicleStreamUrl())
     } catch {
       attempts += 1
       scheduleRetry()
