@@ -23,6 +23,7 @@ TypeScript + Leaflet di frontend.
 - [Data Wilayah](#data-wilayah)
 - [Endpoint API](#endpoint-api)
 - [Perilaku Zona](#perilaku-zona)
+- [Playback Rute](#playback-rute-history-perjalanan)
 - [Keamanan](#keamanan)
 - [Pengujian](#pengujian)
 - [Struktur Proyek](#struktur-proyek)
@@ -283,6 +284,7 @@ dengan yang asli.
 | `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir + rute aktif (`active_route`) / daftar unit baru |
 | `PUT` | `/api/vehicles/:id` | ubah unit (nama, tipe, driver, **warna rute**) |
 | `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `heading`, `status` opsional) → disiar ke WS |
+| `GET` | `/api/vehicles/:id/history` | histori posisi unit: `?date=YYYY-MM-DD` atau `?from=&to=` |
 | `GET` | `/api/vehicles/stream` | WebSocket: frame `snapshot` saat connect, lalu `position` |
 | `GET` | `/api/routes` | semua rute |
 | `GET` | `/api/vehicles/:id/routes` | riwayat rute satu kendaraan |
@@ -362,6 +364,38 @@ curl 'http://127.0.0.1:8091/api/entities?zone=11'
   ditulis ulang. Frontend membandingkan geometry saat load vs saat simpan dan
   hanya mengirim geometry bila benar-benar berubah.
 
+## Playback Rute (History Perjalanan)
+
+Live feed menjawab "di mana unit sekarang". Playback menjawab "di mana unit
+**pernah**": server handing out posisi yang dilaporkan unit, dan peta
+memutar jalannya kembali.
+
+- **Backend** — `GET /api/vehicles/:id/history`. Tanpa parameter berarti hari
+  ini; `?date=YYYY-MM-DD` memilih satu hari (waktu server), `?from=&to=`
+  memilih rentang (RFC3339 atau tanggal), `?limit=` mengatur jumlah titik
+  (bawaan 2.000, ceiling 20.000). Satu hari laporan tiap 2 detik berisi
+  43.000 titik, jadi server mengambil sampel: setiap n-titik diambil, titik
+  pertama dan terakhir tetap ada. Bentuk jawabannya:
+
+  ```json
+  [{"lat": -6.175, "lng": 106.830, "speed": 36, "heading": null,
+    "timestamp": "2026-10-21T15:06:57.722308+07:00"}]
+  ```
+
+  Semua role boleh membacanya; driver hanya boleh membaca unitnya sendiri
+  (`403` untuk unit orang lain), aturan yang sama dengan daftar armada.
+
+- **Antarmuka** — di tab **Fleet**, pilih satu unit lalu klik **Playback**
+  (ikon jam) di kartunya. Panel kecil di bawah tombol: pemilih tanggal,
+  tombol **Load history**, lalu slider waktu, tombol **Play / Pause**, dan
+  pilihan kecepatan (0,5x – 8x). 1x memutar seluruh jejak dalam ±40 detik.
+
+- **Peta** — jejak digambar sebagai garis tebal, dan satu *ghost marker*
+  (ikon kendaraan, 50% transparan) berjalan di sepanjang garis. Kamera
+  menyesuaikan ke seluruh jejak begitu dimuat. Slider yang digeser
+  memindahkan ghost ke titik yang dipilih; saat jejak habis, animasi berhenti
+  dan tombol kembali jadi **Play**.
+
 ## Keamanan
 
 - **JWT dengan refresh.** Login memberi access token (default 24 jam) dan
@@ -416,7 +450,7 @@ internal/
 migrations/               # 001-016 up/down + README
 scripts/empty-state.sql   # kembali ke layar "No entities yet."
 frontend/src/
-  lib/                    # api.ts, types.ts, vehicleStream.ts, session.ts
+  lib/                    # api.ts, types.ts, vehicleStream.ts, session.ts, playback.ts
   components/             # map layers, panel, form, dialog
   App.tsx                 # state, tab, toast, sheet mobile
   theme-red.css           # tema visual terakhir (warna rute, pin, kontrol)
