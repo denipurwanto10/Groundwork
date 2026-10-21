@@ -5,18 +5,44 @@ Plain SQL files, applied in filename order. No migration framework
 
 ## Files
 
-- `001_create_entities.up.sql` — creates `entities` + indexes + `updated_at` trigger.
-- `001_create_entities.down.sql` — drops them (rollback only).
-- `seed.sql` — optional review data (8 landmarks across Indonesia, one per type). Run manually,
-  once, **after** the migration above. Deliberately *not* numbered `002_*`
-  so a fresh checkout stays empty and the "No entities yet." state is
-  reproducible.
+| File | Isi |
+| ---- | --- |
+| `001_create_entities.up.sql` | tabel `entities` + index + trigger `updated_at` |
+| `002_entities_postgis.up.sql` | PostGIS + kolom `geom` (geography point) |
+| `003_admin_regions.up.sql` | tabel `admin_regions` (batas administratif, read-only) |
+| `004_region_display_geom.up.sql` | salinan tampilan yang disederhanakan per level |
+| `005_zones.up.sql` | tabel `zones` (polygon buatan operator) |
+| `006_vehicles.up.sql` | tabel `vehicles` + `vehicle_positions` |
+| `007_vehicle_routes.up.sql` | tabel `vehicle_routes` (rute pengiriman) |
+| `008_users.up.sql` | tabel `users` (JWT auth) |
+| `009_add_user_roles.up.sql` | peran `admin` / `viewer` / `driver` |
+| `010_vehicle_driver.up.sql` | kolom `vehicles.driver_id` |
+| `011_create_geofence_events.up.sql` | tabel `geofence_events` (lintasan batas zona) |
+| `012_user_accounts.up.sql` | kolom akun: username, nama, gender |
+| `013_zone_performance.up.sql` | `zone_metrics`: salinan tampilan, luas, keliling, jumlah titik, hitungan entitas/kendaraan |
+| `014_vehicle_heading_and_route_color.up.sql` | `vehicles.last_heading`, `vehicles.route_color`, `vehicle_positions.heading` |
+| `015_seed_entities.up.sql` | 8 landmark se-Indonesia (data review) |
+| `016_seed_regions.up.sql` | garis batas negara + 34 provinsi (versi disederhanakan) |
+
+Tiap file punya pasangan `*.down.sql` untuk rollback (urutan terbalik).
+
+Migrasi 013 mengubah cara baca zona: nilai turunan (salinan tampilan, luas,
+keliling, jumlah titik) dan hitungan entitas/kendaraan dihitung sekali saat
+bentuk zona disimpan, lalu dibaca dari `zone_metrics`. Ini yang membuat
+`GET /api/zones/:id` untuk polygon 227 ribu titik turun dari ±7 detik ke
+±60 milidetik, dan membuat hitungan zona tetap benar tanpa memuat ulang
+peta.
+
+Migrasi 015 dan 016 mengisi database baru dengan data, jadi workspace tidak
+pernah kosong setelah migrasi. Ingin kembali ke layar **"No entities yet."**?
+Jalankan `scripts/empty-state.sql` (bukan migrasi — skrip yang bisa dipakai
+kapan saja):
 
 ```bash
 PGPASSWORD="$DB_PASSWORD" psql \
   -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
   -v ON_ERROR_STOP=1 \
-  -f migrations/seed.sql
+  -f scripts/empty-state.sql
 ```
 
 ## Run (needs PostgreSQL credentials in `.env`)
@@ -27,12 +53,13 @@ PGPASSWORD="$DB_PASSWORD" psql \
 
 # 2. Load connection values from .env and apply:
 export $(grep -v '^#' .env | xargs)
-PGPASSWORD="$DB_PASSWORD" psql \
-  -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-  -v ON_ERROR_STOP=1 \
-  -f migrations/001_create_entities.up.sql
+for f in migrations/0*.up.sql; do
+  PGPASSWORD="$DB_PASSWORD" psql \
+    -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+    -v ON_ERROR_STOP=1 -f "$f" || break
+done
 
-# Rollback (destroys the table and its data):
+# Rollback (destroys the tables and their data):
 PGPASSWORD="$DB_PASSWORD" psql \
   -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
   -v ON_ERROR_STOP=1 \

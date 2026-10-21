@@ -8,9 +8,9 @@ Take-home test untuk posisi Software Developer (tenggat 2 hari). Backend Go + Gi
 
 ## Konvensi Kode
 
-- **Struktur**: `cmd/server` (entry point), `internal/config`, `internal/db`, `internal/entity` (model + validasi), `internal/handler` — datar, tanpa layering yang berlebihan.
+- **Struktur**: `cmd/server` (entry point), `internal/config`, `internal/db`, `internal/entity` (model + validasi), `internal/vehicle`, `internal/auth`, `internal/middleware`, `internal/handler` — datar, tanpa layering yang berlebihan.
 - **Penamaan**: Konvensi standar Go. Nama package = nama direktori. Tanpa pengulangan (`config.Config`, bukan `config.ConfigConfig`).
-- **Dependensi**: Hanya `github.com/gin-gonic/gin`, `github.com/jackc/pgx/v5`, `github.com/joho/godotenv`. Tambah yang lain hanya bila benar-benar dibutuhkan.
+- **Dependensi**: Hanya `github.com/gin-gonic/gin`, `github.com/jackc/pgx/v5`, `github.com/joho/godotenv`, plus `github.com/coder/websocket`, `github.com/golang-jwt/jwt/v5`, `golang.org/x/crypto` (bcrypt). Tambah yang lain hanya bila benar-benar dibutuhkan.
 - **Penanganan error**: Bungkus dengan konteks (`fmt.Errorf("...: %w", err)`). Jangan menelan error. Kembalikan error ke pemanggil; main yang menangani logging/exit.
 - **Context**: Teruskan `context.Context` ke semua pemanggilan DB. Pakai timeout (5 detik health, 10 detik connect, timeout server yang bisa dikonfigurasi).
 - **Lingkungan**: Semua konfigurasi via `.env` (diabaikan Git). `.env.example` ikut repo. Tanpa secret yang di-hardcode.
@@ -35,6 +35,7 @@ Take-home test untuk posisi Software Developer (tenggat 2 hari). Backend Go + Gi
 - Laporkan output perintah yang sebenarnya, bukan ekspektasi.
 - Bila PostgreSQL tidak tersedia, nyatakan — jangan memalsukan keberhasilan.
 - Uji endpoint health: curl `GET /health` dengan DB menyala → 200, DB mati → 503.
+- Unit test: `go test ./internal/...`; integration: `go test -tags integration ./internal/handler/`.
 
 ## Alur Kerja
 
@@ -62,3 +63,11 @@ Take-home test untuk posisi Software Developer (tenggat 2 hari). Backend Go + Gi
 - ✅ Backend rute: OSRM (`router.project-osrm.org`) dengan fallback garis lurus bila geometri degenerate, penyimpanan polyline di `vehicle_routes` (PostGIS), `GET /api/vehicles` menyertakan `active_route`, pembatalan rute lama + insert baru dalam satu transaksi
 - ✅ Simulator (`cmd/simulator`): membaca rute aktif tiap tick, menyusuri polyline selangkah demi selangkah, menutup rute (`status='completed'`) saat tiba di ujung garis
 - ✅ Peta: satu gaya saja — tile raster Google Maps (`mt0–mt3.google.com`, tanpa API key), kredit transparan sampai kursor menyentuh pojok, tema gelap membalik tile via filter CSS
+- ✅ Auth lokal: JWT dengan refresh token, tiga peran (`admin`/`viewer`/`driver`), rate limit login, akun pertama dibuat lewat `POST /api/auth/setup` saat workspace masih kosong
+- ✅ Server hanya listen di loopback (`SERVER_HOST=127.0.0.1`) + peringatan kalau dibuka ke alamat publik
+- ✅ Kompresi HTTP gzip (`internal/middleware`), respons besar menyusut sekitar 3x
+- ✅ Zona murah dibaca: `zone_metrics` menyimpan salinan tampilan, luas, keliling, jumlah titik, dan hitungan entitas/kendaraan (tabel terpisah, bukan generated column, supaya counter tidak menulis ulang baris zona)
+- ✅ Hitungan zona live: trigger di database + frame `zones` di WebSocket + `GET /api/zones/counts`
+- ✅ Armada menyimpan `heading` (arah kompas) dan `route_color` (warna rute per kendaraan)
+- ✅ Batas wilayah dasar ikut repo (migrasi 016: negara + 34 provinsi, disederhanakan); `cmd/import-regions -url` mengunduh dataset COD-AB penuh sendiri
+- ✅ Migrasi 015 mengisi 8 landmark; `scripts/empty-state.sql` mengembalikan layar "No entities yet."
