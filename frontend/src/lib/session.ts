@@ -1,6 +1,7 @@
 /** JWT token persistence (localStorage) and session helpers. */
 
 const TOKEN_KEY = 'groundwork:token'
+const REFRESH_KEY = 'groundwork:refresh'
 
 /** Roles the backend accepts. Mirrors the CHECK constraint on users.role. */
 export const ROLE_ADMIN = 'admin'
@@ -50,6 +51,37 @@ export function setToken(token: string): void {
 export function clearToken(): void {
   try {
     localStorage.removeItem(TOKEN_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Read the refresh token, or null if missing. It renews the access token
+ * when that one expires, so the operator does not have to sign in again
+ * every day.
+ */
+export function getRefreshToken(): string | null {
+  try {
+    return localStorage.getItem(REFRESH_KEY)
+  } catch {
+    return null
+  }
+}
+
+/** Store a refresh token. */
+export function setRefreshToken(token: string): void {
+  try {
+    localStorage.setItem(REFRESH_KEY, token)
+  } catch {
+    /* private mode / storage full — ignore */
+  }
+}
+
+/** Remove the refresh token. */
+export function clearRefreshToken(): void {
+  try {
+    localStorage.removeItem(REFRESH_KEY)
   } catch {
     /* ignore */
   }

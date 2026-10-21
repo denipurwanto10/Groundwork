@@ -4,6 +4,7 @@ import type {
   ZoneInput,
   ZoneFeature,
   ZoneCollection,
+  ZoneCount,
   ZoneImportReport,
   RegionFeature,
   RegionCollection,
@@ -18,8 +19,10 @@ import type {
   UserAccount,
   UserInput,
   GeofenceEvent,
+  LoginResult,
+  AuthStatus,
 } from './types'
-import { clearToken, getToken, notifySessionInvalid } from './session'
+import { clearRefreshToken, clearToken, getRefreshToken, getToken, notifySessionInvalid, setRefreshToken, setToken } from './session'
 
 /** Base URL for the Go backend. Empty string = same origin (dev proxy). */
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? ''
@@ -38,6 +41,9 @@ export type ApiErrorCode =
   | 'last_admin'
   | 'self_delete'
   | 'self_role_change'
+  | 'invalid_credentials'
+  | 'too_many_attempts'
+  | 'setup_closed'
 
 export class ApiError extends Error {
   code: ApiErrorCode
@@ -90,15 +96,75 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const code = (body.error?.code ?? 'http_error') as ApiErrorCode
+
+    // An expired access token is not the end of the session: the refresh
+    // token buys a new one and the request is tried again. Only when that
+    // fails too does the session end everywhere.
+    if (res.status === 401 && code === 'unauthorized' && !path.startsWith('/api/auth/')) {
+      const renewed = await renewSession()
+      if (renewed) {
+        return request<T>(path, init)
+      }
+    }
+
     // A rejected token ends the session everywhere, not just on this request.
-    if (res.status === 401 && code === 'unauthorized') {
+    if (res.status === 401 && (code === 'unauthorized' || code === 'invalid_credentials')) {
       clearToken()
+      clearRefreshToken()
       notifySessionInvalid()
     }
     throw new ApiError(code, body.error?.message ?? `Request failed with status ${res.status}.`, res.status, body.error?.fields)
   }
 
   return body.data as T
+}
+
+/**
+ * Renews the access token with the stored refresh token. Returns true when
+ * the session lives on.
+ *
+ * Only one renewal runs at a time: a burst of parallel calls that all hit an
+ * expired token would otherwise send a burst of refresh requests and only one
+ * of them would be allowed to store its answer.
+ */
+let renewal: Promise<boolean> | null = null
+
+function renewSession(): Promise<boolean> {
+  if (renewal) return renewal
+  renewal = doRenew().finally(() => {
+    renewal = null
+  })
+  return renewal
+}
+
+async function doRenew(): Promise<boolean> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+
+  try {
+    const res = await fetch(`${BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (!res.ok) {
+      clearRefreshToken()
+      return false
+    }
+    const body = (await res.json()) as { data?: { token?: string; refresh_token?: string } }
+    const token = body.data?.token
+    if (!token) {
+      clearRefreshToken()
+      return false
+    }
+    setToken(token)
+    if (body.data?.refresh_token) setRefreshToken(body.data.refresh_token)
+    return true
+  } catch {
+    // The backend is unreachable: the request fails on its own, the session
+    // stays as it is.
+    return false
+  }
 }
 
 function toPayload(input: EntityInput) {
@@ -117,6 +183,7 @@ function toVehiclePayload(input: VehicleInput) {
     name: input.name.trim(),
     kind: input.kind,
     driver_id: input.driver_id,
+    route_color: input.route_color,
   }
 }
 
@@ -170,6 +237,15 @@ export const api = {
 
   getZone(id: number): Promise<ZoneFeature> {
     return request<ZoneFeature>(`/api/zones/${id}`)
+  },
+
+  /**
+   * The live counters of every zone: how many places and how many vehicles
+   * are inside. Far lighter than the zone list, so the map can keep the
+   * numbers up to date without reloading the geometry.
+   */
+  listZoneCounts(): Promise<ZoneCount[]> {
+    return request<{ zones: ZoneCount[] }>('/api/zones/counts').then((data) => data.zones)
   },
 
   createZone(input: ZoneInput): Promise<ZoneFeature> {
@@ -325,7 +401,7 @@ export const api = {
   /** Report one position; the server appends it to the history and pushes it. */
   reportPosition(
     id: number,
-    input: { lat: number; lng: number; speed_kmh?: number; status?: string },
+    input: { lat: number; lng: number; speed_kmh?: number; status?: string; heading?: number | null },
   ): Promise<Vehicle> {
     return request<Vehicle>(`/api/vehicles/${id}/position`, {
       method: 'POST',
@@ -375,10 +451,31 @@ export const api = {
 
   // ---- Authentication ----
   /** Sign in with either the username or the email address. */
-  login(identifier: string, password: string): Promise<{ token: string; user: UserAccount }> {
-    return request('/api/auth/login', {
+  login(identifier: string, password: string): Promise<LoginResult> {
+    return request<LoginResult>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username: identifier.trim(), password }),
+    })
+  },
+
+  /** Exchange the refresh token for a new access token. */
+  refresh(refreshToken: string): Promise<LoginResult> {
+    return request<LoginResult>('/api/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+  },
+
+  /** Does the workspace still need its first account? */
+  authStatus(): Promise<AuthStatus> {
+    return request<AuthStatus>('/api/auth/status')
+  },
+
+  /** Create the first admin of a fresh workspace. */
+  setup(input: { username: string; email?: string; password: string }): Promise<LoginResult> {
+    return request<LoginResult>('/api/auth/setup', {
+      method: 'POST',
+      body: JSON.stringify(input),
     })
   },
 }

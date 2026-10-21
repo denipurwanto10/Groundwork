@@ -66,10 +66,21 @@ function bearing(a: { lat: number; lng: number }, b: { lat: number; lng: number 
   return (Math.atan2(y, x) * 180) / Math.PI
 }
 
+/** The compass point a bearing points at, e.g. 90° is "E". */
+function compassPoint(deg: number): string {
+  const points = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+  const index = Math.round((((deg % 360) + 360) % 360) / 45) % 8
+  return points[index]
+}
+
 /**
- * One live marker. The heading cone turns toward the direction of travel,
- * derived from the last two positions (the feed carries no heading). The angle
- * is unwrapped so a turn from 350° to 10° rotates 20°, not 340°.
+ * One live marker. The heading cone turns toward the direction of travel.
+ *
+ * A reported heading is used when the unit sends one: it is the truth about
+ * where the vehicle is pointing, even when it stands still or turns on the
+ * spot. Without one, the direction between the last two positions is the
+ * fallback. The angle is unwrapped, so a turn from 350° to 10° rotates 20°,
+ * not 340°.
  */
 function VehicleMarker({
   v,
@@ -111,11 +122,13 @@ function VehicleMarker({
       // so a renamed unit would keep the old tooltip until the next rebuild.
       el.setAttribute('title', `${v.code} · ${v.name}`)
     }
-    if (el && heading.current !== null) {
-      el.style.setProperty('--hd', `${heading.current.toFixed(1)}deg`)
+    // The reported heading wins over the one derived from the movement.
+    const shown = typeof v.heading === 'number' && Number.isFinite(v.heading) ? v.heading : heading.current
+    if (el && shown !== null) {
+      el.style.setProperty('--hd', `${shown.toFixed(1)}deg`)
       el.style.setProperty('--hd-on', '1')
     }
-  }, [v.lat, v.lng, selected, status, v])
+  }, [v.lat, v.lng, v.heading, selected, status, v])
 
   return (
     <Marker
@@ -147,6 +160,14 @@ function VehicleMarker({
           <span>
             <small>Speed</small>
             <b>{status === 'moving' ? Math.round(v.speed_kmh) : 0}<i> km/h</i></b>
+          </span>
+          <span>
+            <small>Heading</small>
+            <b>
+              {typeof v.heading === 'number' && Number.isFinite(v.heading)
+                ? `${Math.round(v.heading)}° ${compassPoint(v.heading)}`
+                : '—'}
+            </b>
           </span>
           <span>
             <small>Updated</small>

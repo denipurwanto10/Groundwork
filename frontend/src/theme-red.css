@@ -683,3 +683,41 @@ textarea,
 @media (prefers-contrast: more) {
   :root { --line: #b9b9c0; --line-strong: #8d8d96; }
 }
+
+/* ---- Route colour of a unit -------------------------------------------------
+   The delivery line of a unit follows the unit, not the theme: the fleet form
+   picks the colour, the map draws the line in it and the fleet card shows a
+   dot of it. */
+
+
+.um-colors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.um-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+  padding: 0;
+}
+
+.um-swatch.on {
+  border-color: var(--panel-solid, #fff);
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+.um-color-input {
+  width: 34px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field, var(--panel-2));
+  cursor: pointer;
+}

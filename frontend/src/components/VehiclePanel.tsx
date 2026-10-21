@@ -24,6 +24,7 @@ import {
   vehicleKindLabel,
   vehicleStatusColor,
   vehicleStatusLabel,
+  DEFAULT_ROUTE_COLOR,
   VEHICLE_KIND_LABELS,
   VEHICLE_KINDS,
 } from '../lib/types'
@@ -137,7 +138,21 @@ interface UnitDraft {
   code: string
   kind: VehicleKind
   driverId: number | ''
+  /** Colour of the delivery line of this unit. */
+  routeColor: string
 }
+
+/** Colours offered for the delivery line of a unit. */
+const ROUTE_COLORS = [
+  '#d0171e',
+  '#2563eb',
+  '#0b8a7e',
+  '#7a1a1f',
+  '#d49a3a',
+  '#8664c8',
+  '#2b9aa8',
+  '#c8161d',
+]
 
 /** Re-renders every few seconds so "12s ago" labels keep moving. */
 function useNow(intervalMs = 5000): number {
@@ -262,7 +277,7 @@ export default function VehiclePanel({
   }
 
   const openCreate = () => {
-    setUnit({ id: null, name: '', code: '', kind: 'truck', driverId: '' })
+    setUnit({ id: null, name: '', code: '', kind: 'truck', driverId: '', routeColor: DEFAULT_ROUTE_COLOR })
     setUnitError(null)
     setUnitFields({})
   }
@@ -274,6 +289,7 @@ export default function VehiclePanel({
       code: v.code,
       kind: normalizeVehicleKind(v.kind),
       driverId: v.driver_id ?? '',
+      routeColor: v.route_color || DEFAULT_ROUTE_COLOR,
     })
     setUnitError(null)
     setUnitFields({})
@@ -292,6 +308,7 @@ export default function VehiclePanel({
       code: unit.code,
       kind: unit.kind,
       driver_id: unit.driverId === '' ? null : unit.driverId,
+      route_color: unit.routeColor,
     }
     setUnitSaving(true)
     setUnitError(null)
@@ -845,6 +862,33 @@ export default function VehiclePanel({
                 onChange={(v) => setUnit({ ...unit, driverId: v === '' ? '' : Number(v) })}
               />
               {unitFieldError('driver_id')}
+            </div>
+
+            <div className="um-field wide">
+              <label htmlFor="veh-route-color">Route colour</label>
+              <div className="um-colors" role="group" aria-label="Route colour">
+                {ROUTE_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`um-swatch${unit.routeColor === c ? ' on' : ''}`}
+                    style={{ background: c }}
+                    aria-label={`Route colour ${c}`}
+                    aria-pressed={unit.routeColor === c}
+                    title={c}
+                    onClick={() => setUnit({ ...unit, routeColor: c })}
+                  />
+                ))}
+                <input
+                  id="veh-route-color"
+                  type="color"
+                  className="um-color-input"
+                  value={unit.routeColor}
+                  onChange={(e) => setUnit({ ...unit, routeColor: e.target.value })}
+                  aria-label="Custom route colour"
+                />
+              </div>
+              {unitFieldError('route_color')}
             </div>
           </div>
 

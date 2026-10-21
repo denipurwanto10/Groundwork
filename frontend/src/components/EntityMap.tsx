@@ -348,6 +348,8 @@ interface Props {
   routes: VehicleRoute[]
   routesVisible: boolean
   routeDraft: { origin: RouteStop | null; destination: RouteStop | null } | null
+  /** The colour of each unit's line, keyed by vehicle id. */
+  routeColors: Map<number, string>
   routePick: boolean
   onRoutePoint: (lat: number, lng: number) => void
   /** The route the camera has to show; the counter makes every plan move it. */
@@ -387,6 +389,7 @@ export default function EntityMap({
   routes,
   routesVisible,
   routeDraft,
+  routeColors,
   routePick,
   onRoutePoint,
   focusRoute,
@@ -465,6 +468,7 @@ export default function EntityMap({
         routes={routes}
         visible={routesVisible}
         draft={routeDraft}
+        colors={routeColors}
         onSelectVehicle={onVehicleSelect}
       />
       {/* Live vehicles on top of every other layer */}

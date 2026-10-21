@@ -342,6 +342,9 @@ export const VEHICLE_STATUS_COLORS: Record<VehicleStatus, string> = {
   offline: '#7d8693',
 }
 
+/** The colour a unit's delivery line gets when nobody picked one. */
+export const DEFAULT_ROUTE_COLOR = '#d0171e'
+
 /** One tracked unit, latest known position included (null until it reports). */
 export interface Vehicle {
   id: number
@@ -354,6 +357,14 @@ export interface Vehicle {
   lat: number | null
   lng: number | null
   speed_kmh: number
+  /**
+   * Compass bearing the unit is facing, in degrees (0 = north, 90 = east).
+   * Null until the feed reports one; the marker then follows the direction
+   * between the last two positions.
+   */
+  heading: number | null
+  /** Colour of this unit's delivery line. */
+  route_color: string
   last_seen_at: string | null
   /** The delivery route the unit is following, if any. */
   active_route?: VehicleRoute | null
@@ -365,6 +376,15 @@ export interface VehicleInput {
   name: string
   kind: VehicleKind
   driver_id: number | null
+  /** Colour of the delivery line of this unit. */
+  route_color: string
+}
+
+/** The counters of one zone: how many places and units are inside it. */
+export interface ZoneCount {
+  id: number
+  entity_count: number
+  vehicle_count: number
 }
 
 /** One account without its credentials: the fleet form assigns a driver. */
@@ -403,6 +423,7 @@ export type VehicleFrame =
   | { type: 'route'; route: VehicleRoute; at: string }
   | { type: 'route_cleared'; route_id: number; vehicle_id: number; at: string }
   | { type: 'route_completed'; route_id: number; vehicle_id: number; at: string }
+  | { type: 'zones'; zones: ZoneCount[]; at: string }
   | {
       type: 'geofence'
       id: number
@@ -414,6 +435,20 @@ export type VehicleFrame =
       timestamp: string
       at: string
     }
+
+/** What a sign-in hands out: the access token, the refresh token and the account. */
+export interface LoginResult {
+  token: string
+  refresh_token: string
+  expires_in: number
+  user: UserAccount
+}
+
+/** Whether the workspace still needs its first account. */
+export interface AuthStatus {
+  users: number
+  setup_required: boolean
+}
 
 /** Which way a vehicle crossed a zone boundary. */
 export type GeofenceEventType = 'ENTER' | 'EXIT'
@@ -432,6 +467,23 @@ export interface GeofenceEvent {
 /** A unit without a reported position must not get a marker. */
 export function hasPosition(v: Vehicle): v is Vehicle & { lat: number; lng: number } {
   return typeof v.lat === 'number' && typeof v.lng === 'number' && Number.isFinite(v.lat) && Number.isFinite(v.lng)
+}
+
+/**
+ * Compass bearing from one point to another, in degrees (0 = north, 90 = east).
+ * This is the direction a unit that moved from a to b is facing.
+ */
+export function bearingBetween(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const r = (d: number) => (d * Math.PI) / 180
+  const y = Math.sin(r(b.lng - a.lng)) * Math.cos(r(b.lat))
+  const x =
+    Math.cos(r(a.lat)) * Math.sin(r(b.lat)) -
+    Math.sin(r(a.lat)) * Math.cos(r(b.lat)) * Math.cos(r(b.lng - a.lng))
+  const deg = (Math.atan2(y, x) * 180) / Math.PI
+  return (deg + 360) % 360
 }
 
 /** Values come from the wire, so coerce anything unexpected to a known one. */

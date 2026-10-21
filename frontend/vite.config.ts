@@ -7,7 +7,10 @@ import { defineConfig, type ProxyOptions } from 'vite'
 // build still listening; `ws: true` is what lets the /api/vehicles/stream
 // WebSocket upgrade through the dev server.
 // In production set VITE_API_BASE_URL to the backend instead.
-const BACKEND = process.env.VITE_BACKEND ?? 'http://localhost:8091'
+// The backend binds to the loopback address (SERVER_HOST), so the proxy
+// talks to 127.0.0.1: "localhost" can resolve to ::1 first, and a server
+// that only listens on IPv4 would not answer.
+const BACKEND = process.env.VITE_BACKEND ?? 'http://127.0.0.1:8091'
 
 // A websocket client that gives up mid-handshake tears the TCP connection down
 // while the proxy is still writing to it. Node reports ECONNABORTED /

@@ -3,11 +3,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from './api'
 import {
+  clearRefreshToken,
   clearToken,
   decodeUser,
   getToken,
   normalizeRole,
   onSessionInvalid,
+  setRefreshToken,
   setToken,
   ROLE_ADMIN,
   ROLE_DRIVER,
@@ -38,6 +40,10 @@ interface AuthContextValue {
   /** Shorthand for isAdmin(), for components that only gate write actions. */
   canWrite(): boolean
   login(identifier: string, password: string): Promise<void>
+  /** Create the first admin of a workspace that has no account yet. */
+  setup(input: { username: string; email?: string; password: string }): Promise<void>
+  /** True while the workspace has no account and the first one is being made. */
+  needsSetup: boolean
   logout(): void
 }
 
@@ -66,18 +72,49 @@ function restoreSession(): AuthUser | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Restored synchronously so a reload does not flash the login screen first.
   const [user, setUser] = useState<AuthUser | null>(restoreSession)
+  // A workspace that was just migrated has no account yet. The login screen
+  // then offers to create the first admin instead of asking for credentials
+  // nobody has.
+  const [needsSetup, setNeedsSetup] = useState(false)
 
   // A rejected token (expired or revoked) drops the session and shows login.
   useEffect(() => onSessionInvalid(() => setUser(null)), [])
 
+  // Ask the backend whether the workspace still needs its first account.
+  useEffect(() => {
+    let alive = true
+    api
+      .authStatus()
+      .then((status) => {
+        if (alive) setNeedsSetup(status.setup_required)
+      })
+      .catch(() => {
+        /* the backend is unreachable; the login screen stays as it is */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const login = useCallback(async (identifier: string, password: string) => {
     const res = await api.login(identifier, password)
     setToken(res.token)
+    if (res.refresh_token) setRefreshToken(res.refresh_token)
+    setNeedsSetup(false)
+    setUser({ ...res.user, role: normalizeRole(res.user.role) })
+  }, [])
+
+  const setup = useCallback(async (input: { username: string; email?: string; password: string }) => {
+    const res = await api.setup(input)
+    setToken(res.token)
+    if (res.refresh_token) setRefreshToken(res.refresh_token)
+    setNeedsSetup(false)
     setUser({ ...res.user, role: normalizeRole(res.user.role) })
   }, [])
 
   const logout = useCallback(() => {
     clearToken()
+    clearRefreshToken()
     setUser(null)
   }, [])
 
@@ -90,10 +127,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isViewer: () => role === ROLE_VIEWER,
       isDriver: () => role === ROLE_DRIVER,
       canWrite: () => role === ROLE_ADMIN,
+      needsSetup,
       login,
+      setup,
       logout,
     }
-  }, [user, login, logout])
+  }, [user, needsSetup, login, setup, logout])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

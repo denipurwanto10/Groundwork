@@ -5,6 +5,7 @@ import type {
   EntityFieldErrors,
   EntityInput,
   GeofenceEvent,
+  ZoneCount,
   ZoneFeature,
   ZoneGeometry,
   ZoneInput,
@@ -19,7 +20,7 @@ import type {
   VehicleInput,
   VehicleRoute,
 } from './lib/types'
-import { activeRoutesOf, formatDistance, hasPosition, mergeRoutes } from './lib/types'
+import { activeRoutesOf, bearingBetween, formatDistance, hasPosition, mergeRoutes } from './lib/types'
 import EntityMap from './components/EntityMap'
 import EntityList from './components/EntityList'
 import EntityDetail from './components/EntityDetail'
@@ -301,6 +302,60 @@ export default function App() {
       }
     }, [])
 
+    /**
+     * Merge fresh counters into the zones that are already on the map.
+     *
+     * The zone list carries the geometry of every polygon, which is far too
+     * heavy to reload whenever a place is added or a unit crosses a border.
+     * The counters live in their own place, so they can be refreshed on their
+     * own without touching the shapes.
+     */
+    const applyZoneCounts = useCallback((counts: ZoneCount[]) => {
+      if (!counts.length) return
+      const byId = new Map(counts.map((c) => [c.id, c]))
+      setZones((prev) => {
+        let changed = false
+        const next = prev.map((z) => {
+          const c = byId.get(z.properties.id)
+          if (!c) return z
+          if (z.properties.entity_count === c.entity_count && z.properties.vehicle_count === c.vehicle_count) {
+            return z
+          }
+          changed = true
+          return {
+            ...z,
+            properties: {
+              ...z.properties,
+              entity_count: c.entity_count,
+              vehicle_count: c.vehicle_count,
+            },
+          }
+        })
+        return changed ? next : prev
+      })
+    }, [])
+
+    // The counters of the zones, refreshed on their own every few seconds.
+    useEffect(() => {
+      let alive = true
+      const load = () => {
+        api
+          .listZoneCounts()
+          .then((counts) => {
+            if (alive) applyZoneCounts(counts)
+          })
+          .catch(() => {
+            /* the map keeps the last known numbers */
+          })
+      }
+      load()
+      const id = window.setInterval(load, 15000)
+      return () => {
+        alive = false
+        window.clearInterval(id)
+      }
+    }, [applyZoneCounts])
+
     // Region fetch for drill-down
     const loadRegions = useCallback(
       async (level: number, parentCode: string | null): Promise<RegionCollection | null> => {
@@ -432,6 +487,12 @@ export default function App() {
               setToast({ kind: 'success', text: 'Delivery complete — route closed.' })
               return
             }
+            if (frame.type === 'zones') {
+              // The counters of the zones changed: a place was added, moved or
+              // removed, or a unit crossed a border.
+              applyZoneCounts(frame.zones)
+              return
+            }
             if (frame.type === 'vehicle_updated') {
               // A unit was added or edited somewhere: the list and the map
               // follow it without a reload.
@@ -485,7 +546,7 @@ export default function App() {
           },
           onState: setStreamState,
         }),
-      [],
+      [applyZoneCounts],
     )
 
     // Drop the selection when a unit leaves the fleet.
@@ -644,15 +705,18 @@ export default function App() {
       // A drag says where the unit is now, not how fast it got there: keep its
       // last reported speed so the readout stays plausible instead of guessing.
       const speed = before.status === 'moving' && before.speed_kmh > 0 ? before.speed_kmh : 30
+      // The unit points at the place it was dropped, so the marker turns the
+      // right way.
+      const heading = hasPosition(before) ? bearingBetween(before, { lat, lng }) : null
       setVehicles((prev) =>
         prev.map((v) =>
           v.id === id
-            ? { ...v, lat, lng, status: 'moving', speed_kmh: speed, last_seen_at: new Date().toISOString() }
+            ? { ...v, lat, lng, status: 'moving', speed_kmh: speed, heading, last_seen_at: new Date().toISOString() }
             : v,
         ),
       )
       try {
-        const updated = await api.reportPosition(id, { lat, lng, speed_kmh: speed, status: 'moving' })
+        const updated = await api.reportPosition(id, { lat, lng, speed_kmh: speed, status: 'moving', heading })
         setVehicles((prev) => prev.map((v) => (v.id === id ? updated : v)))
       } catch (err) {
         // The drop was never stored: put the unit back where it was.
@@ -752,6 +816,13 @@ export default function App() {
     }, [apiState, refresh])
 
   const selected = entities.find((e) => e.id === selectedId)
+
+  /** The colour of every unit's delivery line, keyed by vehicle id. */
+  const routeColors = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const v of vehicles) if (v.route_color) m.set(v.id, v.route_color)
+    return m
+  }, [vehicles])
 
   const fleet = useMemo(() => {
     const c = { moving: 0, idle: 0, offline: 0 }
@@ -1332,6 +1403,7 @@ export default function App() {
               // Delivery routes (from -> to)
               routes={routes}
               routesVisible={vehiclesVisible}
+              routeColors={routeColors}
               routeDraft={routeDraft}
               routePick={routePick !== null}
               onRoutePoint={handleRoutePoint}
