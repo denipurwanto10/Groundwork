@@ -721,3 +721,153 @@ textarea,
   background: var(--field, var(--panel-2));
   cursor: pointer;
 }
+
+/* ---- Playback of a recorded trip --------------------------------------------
+   The panel lives inside the vehicle card, so the map stays visible while the
+   track is running. The ghost marker is the vehicle art at half opacity: it
+   shows where the unit was without pretending to be there now. */
+
+.pb {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-2);
+}
+
+.pb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pb-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pb-load {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pb-date {
+  flex: 1;
+  min-width: 0;
+}
+
+.pb-date input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: none;
+}
+
+.pb-date input:focus-visible {
+  border-color: var(--accent);
+}
+
+.pb-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pb-speed select {
+  height: 32px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.pb-readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.pb-readout b {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.pb-readout em {
+  font-style: normal;
+}
+
+.pb-slider {
+  width: 100%;
+  height: 22px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.pb-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-error,
+.pb-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pb-error {
+  color: var(--danger);
+}
+
+/* The ghost: the vehicle art of the unit, half transparent. */
+.pb-ghost {
+  opacity: 0.55;
+  filter: saturate(0.5);
+}
+
+.pb-ghost .veh {
+  border-style: dashed;
+}
+
+/* Hidden, but still read by a screen reader. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

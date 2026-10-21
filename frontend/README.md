@@ -34,14 +34,21 @@ Open the dev URL (default `http://localhost:5173`; if busy, pass `--port 5174`).
 ```
 src/
   lib/api.ts      # Fetch client: ApiError{code,status,fields}, CRUD + health
-  lib/types.ts    # Entity/EntityInput types + validateEntityInput (mirrors backend)
+  lib/types.ts    # shared types + validation (mirrors the backend rules)
+  lib/playback.ts # playback of a recorded trip: state, cursor, animation
+  lib/vehicleStream.ts  # live WebSocket feed with reconnect
+  lib/session.ts  # token storage (access + refresh)
   components/
     EntityMap.tsx      # Leaflet map: markers from backend, click-to-pick coords
     EntityList.tsx     # list + loading/empty states
     EntityDetail.tsx   # detail + edit/delete actions
     EntityForm.tsx     # create/edit modal, client validation + server field errors
     ConfirmDialog.tsx  # delete confirmation
-  App.tsx         # state, refresh-after-every-mutation, toasts, error banner
+    VehicleLayer.tsx   # live fleet markers (heading, status colour)
+    RouteLayer.tsx     # delivery routes, one colour per unit
+    PlaybackLayer.tsx  # recorded track + the ghost marker that walks it
+    PlaybackPanel.tsx  # day picker, slider, play/pause, speed
+  App.tsx         # state, tabs, toasts, error banner
 ```
 
 ## Behavior notes
@@ -52,3 +59,6 @@ src/
 - Delete requires confirmation. Toasts report success/failure; a retry banner
   appears when the list fails to load.
 - Mobile: panels stack (`max-width: 860px`), map shrinks to 360px.
+- Playback: the ghost marker is moved on the Leaflet object itself, so the
+  track runs at the frame rate of the screen while the app is re-rendered only
+  a few times a second (for the slider and the clock).

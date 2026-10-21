@@ -32,6 +32,7 @@ import UserPanel from './components/UserPanel'
 import RegionControls, { type RegionPathEntry } from './components/RegionControls'
 import ConfirmDialog from './components/ConfirmDialog'
 import { openVehicleStream, type StreamState } from './lib/vehicleStream'
+import { usePlayback } from './lib/playback'
 import { KpiGrid, FleetCard, EventsCard, TypeBreakdownCard, ZonesCard, type Kpi } from './components/DashboardParts'
 import { useAuth } from './lib/auth'
 import { useTheme } from './lib/theme'
@@ -162,7 +163,11 @@ export default function App() {
   const [vehiclesLoading, setVehiclesLoading] = useState(true)
   const [vehiclesError, setVehiclesError] = useState<string | null>(null)
   const [vehiclesVisible, setVehiclesVisible] = useState(true)
+  // The vehicle the operator is looking at in the live panel.
   const [selectedVehicleId, setSelectedVehicleId] = useState<number | null>(null)
+  // Playback of a recorded trip: the track of a unit and the ghost marker
+  // that walks along it.
+  const playback = usePlayback()
   const [streamState, setStreamState] = useState<StreamState>('connecting')
   // Every account in the workspace. The fleet form picks drivers out of this
   // list and the admin "Users" page registers and edits them.
@@ -1405,6 +1410,8 @@ export default function App() {
               routesVisible={vehiclesVisible}
               routeColors={routeColors}
               routeDraft={routeDraft}
+              // Playback of a recorded trip
+              playback={playback}
               routePick={routePick !== null}
               onRoutePoint={handleRoutePoint}
               focusRoute={routeFocus}
@@ -1581,6 +1588,7 @@ export default function App() {
                 onDelete={(v) => setVehicleToDelete(v)}
                 drivers={drivers}
                 events={geofenceEvents}
+                playback={playback}
               />
             )}
               </div>

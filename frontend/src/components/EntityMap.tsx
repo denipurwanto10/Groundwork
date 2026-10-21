@@ -18,6 +18,8 @@ import ZoneLayer from './ZoneLayer'
 import RegionLayer from './RegionLayer'
 import VehicleLayer from './VehicleLayer'
 import RouteLayer from './RouteLayer'
+import PlaybackLayer from './PlaybackLayer'
+import type { PlaybackController } from '../lib/playback'
 
 // Custom CSS pin markers (no bundled PNGs needed); colour follows entity type
 // (fixed palette → hash fallback), inactive is the same hue dimmed, new point is black.
@@ -351,6 +353,8 @@ interface Props {
   /** The colour of each unit's line, keyed by vehicle id. */
   routeColors: Map<number, string>
   routePick: boolean
+  /** Playback of a recorded trip: the track and the ghost marker. */
+  playback: PlaybackController
   onRoutePoint: (lat: number, lng: number) => void
   /** The route the camera has to show; the counter makes every plan move it. */
   focusRoute?: { id: number; n: number } | null
@@ -391,6 +395,7 @@ export default function EntityMap({
   routeDraft,
   routeColors,
   routePick,
+  playback,
   onRoutePoint,
   focusRoute,
 }: Props) {
@@ -479,6 +484,15 @@ export default function EntityMap({
         visible={vehiclesVisible}
         canDrive={canDrive}
         onDrive={onDrive}
+      />
+      {/* The recorded trip of a unit, with the ghost marker that walks it */}
+      <PlaybackLayer
+        points={playback.data}
+        cursor={playback.cursor}
+        playing={playback.playing}
+        index={playback.index}
+        kind={vehicles.find((v) => v.id === playback.vehicleId)?.kind ?? 'truck'}
+        visible={vehiclesVisible && playback.vehicleId != null}
       />
       <FollowVehicle
         vehicle={vehicles.find((v) => v.id === selectedVehicleId)}

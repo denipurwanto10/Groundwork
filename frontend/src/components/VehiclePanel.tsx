@@ -29,6 +29,7 @@ import {
   VEHICLE_KINDS,
 } from '../lib/types'
 import { ApiError } from '../lib/api'
+import type { PlaybackController } from '../lib/playback'
 import {
   IconAlert,
   IconClock,
@@ -52,6 +53,7 @@ import {
 } from './Icons'
 import Select from './Select'
 import FormModal from './FormModal'
+import PlaybackPanel from './PlaybackPanel'
 import { VehicleSide } from './VehicleArt'
 
 const STREAM_UI: Record<StreamState, { label: string; title: string }> = {
@@ -129,6 +131,8 @@ interface Props {
   drivers: UserAccount[]
   /** Zone boundary crossings, newest first. */
   events: GeofenceEvent[]
+  /** The playback of a recorded trip: state and actions. */
+  playback: PlaybackController
 }
 
 /** The unit the fleet form is adding or editing. */
@@ -200,6 +204,7 @@ export default function VehiclePanel({
   onDelete,
   drivers,
   events,
+  playback,
 }: Props) {
   const now = useNow()
   const stream = STREAM_UI[streamState]
@@ -501,7 +506,42 @@ export default function VehiclePanel({
                   Plan route
                 </button>
               )}
+              <button
+                type="button"
+                className={`btn small secondary${playback.vehicleId === selected.id ? ' active' : ''}`}
+                aria-pressed={playback.vehicleId === selected.id}
+                onClick={() => {
+                  if (playback.vehicleId === selected.id) {
+                    playback.close()
+                    return
+                  }
+                  playback.open(selected.id)
+                }}
+                title="Play back the recorded trip of this unit"
+              >
+                <IconClock width={15} height={15} />
+                Playback
+              </button>
             </div>
+
+            {playback.vehicleId === selected.id && (
+              <PlaybackPanel
+                vehicleName={selected.name}
+                date={playback.date}
+                points={playback.data}
+                index={playback.index}
+                playing={playback.playing}
+                speed={playback.speed}
+                loading={playback.loading}
+                error={playback.error}
+                onDateChange={playback.setDate}
+                onLoad={() => void playback.load()}
+                onToggle={playback.toggle}
+                onSeek={playback.seek}
+                onSpeedChange={playback.setSpeed}
+                onClose={playback.close}
+              />
+            )}
 
             {activeRoute && (
               <div className="lt-route">

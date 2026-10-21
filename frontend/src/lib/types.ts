@@ -522,6 +522,25 @@ export function formatLastSeen(iso: string | null, now = Date.now()): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
+/** One recorded position of a unit, as the history endpoint returns it. */
+export interface HistoryPoint {
+  lat: number
+  lng: number
+  /** Speed in km/h. */
+  speed: number
+  /** Compass bearing in degrees, when the unit reported one. */
+  heading: number | null
+  /** RFC3339 timestamp of the report. */
+  timestamp: string
+}
+
+/**
+ * Speeds the playback can run at. 1x replays the whole track in about forty
+ * seconds, whatever the number of points.
+ */
+export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8] as const
+export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number]
+
 /* ------------------------------------------------------------------ *
  * Delivery routes (migration 007).
  * A route is the planned from -> to path of one vehicle: what the map

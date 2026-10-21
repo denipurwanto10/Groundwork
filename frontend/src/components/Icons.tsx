@@ -291,6 +291,18 @@ export const IconClock = (p: P) => (
   </svg>
 )
 
+export const IconPlay = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M8 5.5v13l10-6.5-10-6.5Z" fill="currentColor" stroke="none" />
+  </svg>
+)
+
+export const IconPause = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M9 5.5v13M15 5.5v13" strokeWidth={2.4} />
+  </svg>
+)
+
 export const IconLogout = (p: P) => (
   <svg {...base(p)}>
     <path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" />

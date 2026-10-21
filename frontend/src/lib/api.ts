@@ -21,6 +21,7 @@ import type {
   GeofenceEvent,
   LoginResult,
   AuthStatus,
+  HistoryPoint,
 } from './types'
 import { clearRefreshToken, clearToken, getRefreshToken, getToken, notifySessionInvalid, setRefreshToken, setToken } from './session'
 
@@ -407,6 +408,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     })
+  },
+
+  /**
+   * The positions a unit reported in the past, oldest first.
+   *
+   * `date` picks one day (YYYY-MM-DD, in the time zone of the server);
+   * `from`/`to` pick an explicit window. The server samples the points when a
+   * day holds more of them than the browser can use.
+   */
+  vehicleHistory(
+    id: number,
+    params?: { date?: string; from?: string; to?: string; limit?: number },
+  ): Promise<HistoryPoint[]> {
+    const sp = new URLSearchParams()
+    if (params?.date) sp.set('date', params.date)
+    if (params?.from) sp.set('from', params.from)
+    if (params?.to) sp.set('to', params.to)
+    if (params?.limit != null) sp.set('limit', String(params.limit))
+    const qs = sp.toString()
+    return request<HistoryPoint[]>(`/api/vehicles/${id}/history${qs ? `?${qs}` : ''}`)
   },
 
   // ---- Geofence (zone boundary crossings) ----
