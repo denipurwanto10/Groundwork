@@ -9,11 +9,16 @@
 //	go run ./cmd/import-regions -file <geojson|zip> -probe
 //	go run ./cmd/import-regions -file <geojson|zip> -levels 0,1,2
 //	go run ./cmd/import-regions -file <geojson|zip> -levels 3 -parent 12
+//	go run ./cmd/import-regions -url -levels 1
 //
 // The archive holds one FeatureCollection for the whole country (well over a
 // gigabyte of JSON), so features are decoded one at a time and streamed
 // straight into a staging table; nothing is held in memory beyond the current
 // feature.
+//
+// -url downloads the archive from HDX first, so nobody has to look for the
+// 456 MB file by hand. The download lands in data/, which is not in the
+// repository.
 //
 // Re-runnable: rows are upserted on (level, code), so re-running refreshes the
 // same regions instead of duplicating them.
@@ -26,7 +31,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -36,6 +43,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 )
+
+// DefaultDatasetURL is the COD-AB GeoJSON archive on HDX. The importer can
+// fetch it, so the boundaries do not have to be downloaded by hand.
+const DefaultDatasetURL = "https://data.humdata.org/dataset/cod-ab-idn/resource/e1421da4-8f48-47d2-ac49-79ff5bfa4d24/download/idn_admin_boundaries.geojson.zip"
+
+// DefaultArchiveName is where the downloaded archive is kept.
+const DefaultArchiveName = "idn_admin_boundaries.geojson.zip"
 
 type feature struct {
 	Type       string          `json:"type"`
@@ -66,7 +80,7 @@ func main() {
 
 func run() error {
 	var (
-		file       = flag.String("file", "", "path to the COD-AB .zip archive or a single .geojson file (required)")
+		file       = flag.String("file", "", "path to the COD-AB .zip archive or a single .geojson file")
 		entry      = flag.String("entry", "", "zip entry to read (default: derived from -levels, e.g. idn_admin1.geojson)")
 		levelsF    = flag.String("levels", "", "comma-separated levels to import, e.g. 1,2 (default: every level in the file)")
 		parent     = flag.String("parent", "", "only import regions whose parent_code equals this value")
@@ -77,12 +91,18 @@ func run() error {
 		probe      = flag.Bool("probe", false, "print the attribute keys of the first features and exit without writing")
 		limit      = flag.Int("limit", 0, "stop after this many decoded features (0 = no limit); for smoke tests")
 		dbName     = flag.String("db-name", "", "override database name from config (for testing against probe DB)")
+		download   = flag.Bool("url", false, "download the COD-AB archive from HDX first, then import it")
+		datasetURL = flag.String("dataset-url", DefaultDatasetURL, "where -url downloads the archive from")
+		outDir     = flag.String("out", "data", "directory the downloaded archive is written to")
 	)
 	flag.Parse()
 
-	if *file == "" {
+	if *file == "" && !*download {
 		flag.Usage()
-		return fmt.Errorf("-file is required")
+		return fmt.Errorf("-file is required (or -url to download the archive first)")
+	}
+	if *file != "" && *download {
+		return fmt.Errorf("-file and -url cannot be used together")
 	}
 
 	opts := options{
@@ -124,7 +144,19 @@ func run() error {
 		}
 	}
 
-	r, closer, srcName, err := openSource(opts.file, opts.entry)
+	// The archive is downloaded first when -url is used: the dataset is 456 MB
+	// and nobody should have to look for it by hand.
+	source := opts.file
+	if *download {
+		path, err := downloadArchive(*datasetURL, *outDir)
+		if err != nil {
+			return err
+		}
+		source = path
+		opts.file = path
+	}
+
+	r, closer, srcName, err := openSource(source, opts.entry)
 	if err != nil {
 		return err
 	}
@@ -161,6 +193,85 @@ func defaultEntry(current string, level int) string {
 		return current
 	}
 	return fmt.Sprintf("idn_admin%d.geojson", level)
+}
+
+// downloadArchive fetches the COD-AB archive and writes it to the given
+// directory. The file is large, so the progress is printed while it comes
+// in, and an existing file is not downloaded twice.
+func downloadArchive(url, dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create %s: %w", dir, err)
+	}
+	target := filepath.Join(dir, DefaultArchiveName)
+
+	if info, err := os.Stat(target); err == nil && info.Size() > 0 {
+		fmt.Printf("archive already there: %s (%.0f MB)\n", target, float64(info.Size())/(1<<20))
+		return target, nil
+	}
+
+	fmt.Printf("downloading %s\n", url)
+	client := &http.Client{Timeout: 30 * time.Minute}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("download: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download: %s answered %s", url, resp.Status)
+	}
+
+	partial := target + ".part"
+	out, err := os.Create(partial)
+	if err != nil {
+		return "", fmt.Errorf("create %s: %w", partial, err)
+	}
+
+	written, err := copyWithProgress(out, resp.Body, resp.ContentLength)
+	closeErr := out.Close()
+	if err != nil {
+		os.Remove(partial)
+		return "", fmt.Errorf("download: %w", err)
+	}
+	if closeErr != nil {
+		os.Remove(partial)
+		return "", fmt.Errorf("download: %w", closeErr)
+	}
+	if err := os.Rename(partial, target); err != nil {
+		return "", fmt.Errorf("rename: %w", err)
+	}
+
+	fmt.Printf("saved %s (%.0f MB)\n", target, float64(written)/(1<<20))
+	return target, nil
+}
+
+// copyWithProgress copies the body into the file and prints how far it got,
+// every ten percent.
+func copyWithProgress(dst io.Writer, src io.Reader, total int64) (int64, error) {
+	var written int64
+	buf := make([]byte, 1<<20)
+	step := int64(0)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			m, werr := dst.Write(buf[:n])
+			written += int64(m)
+			if werr != nil {
+				return written, werr
+			}
+			if total > 0 {
+				if pct := written * 100 / total; pct >= step+10 {
+					step = pct / 10 * 10
+					fmt.Printf("  %d%% (%.0f MB)\n", step, float64(written)/(1<<20))
+				}
+			}
+		}
+		if err == io.EOF {
+			return written, nil
+		}
+		if err != nil {
+			return written, err
+		}
+	}
 }
 
 // defaultProp builds the COD-AB property name for a level, e.g.
