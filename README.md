@@ -11,7 +11,8 @@ TypeScript + Leaflet di frontend.
   wilayah administratif / gugus pulau.
 - **Armada** — posisi kendaraan real-time lewat WebSocket, dengan simulator
   sebagai sumber data.
-- **Rute** — jalur dari–ke per kendaraan (OSRM), ditutup otomatis saat tiba.
+- **Rute** — jalur jalan raya dari–ke per kendaraan (OSRM), digambar di peta
+  dan ditutup otomatis saat unit tiba.
 
 ## Daftar Isi
 
@@ -32,19 +33,31 @@ TypeScript + Leaflet di frontend.
 | -------- | --------- |
 | Backend  | Go 1.27, Gin, pgx/v5 (`pgxpool`), `coder/websocket`, `godotenv` |
 | Frontend | React 19, TypeScript, Vite 8, Leaflet 1.9 + React-Leaflet 5, Leaflet-Geoman |
-| Database | PostgreSQL 18 + PostGIS (`geometry(MultiPolygon,4326)`, `geography(Point,4326)`) |
-| Routing  | OSRM publik (`router.project-osrm.org`), fallback garis lurus bila dimatikan |
+| Database | PostgreSQL 18 + PostGIS (`geometry(MultiPolygon,4326)`, `geography(Point,4326)`, `geometry(LineString,4326)`) |
+| Peta     | tile raster Google Maps (`mt0–mt3.google.com`), tanpa API key |
+| Routing  | OSRM publik (`router.project-osrm.org`), fallback garis lurus bila engine tidak menjawab |
 | Migrasi  | SQL polos di `migrations/`, tanpa framework |
 
 ## Basemap
 
-Tile raster OpenStreetMap apa adanya, lalu didesaturasi di CSS:
+Satu gaya peta saja: **Google Maps** (road map), diambil langsung dari server
+tile Google — tanpa API key, tanpa akun, tanpa tagihan.
 
-- URL: `https://tile.openstreetmap.org/{z}/{x}/{y}.png` (tanpa API key)
-- Kelas `tiles-mono` — tema terang `grayscale(1) contrast(1.06)`,
-  tema gelap `grayscale(1) invert(1)` (lihat `frontend/src/App.css`)
-- Provider lain lewat `VITE_MAP_TILES_URL` di `frontend/.env`
-- Atribusi "© OpenStreetMap contributors" wajib tetap tampil (sudah ada di peta)
+- URL: `https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}`,
+  `{s}` = `mt0` … `mt3` (lihat `frontend/src/components/EntityMap.tsx`)
+- Ganti gaya cukup mengganti satu nilai `lyrs=`:
+  `m` = jalan raya (default), `y` = satelit + label, `s` = satelit polos,
+  `p` = terrain.
+- Provider lain lewat `VITE_MAP_TILES_URL` di `frontend/.env` (mis. Maps
+  Static API resmi dengan API key).
+- Kredit "Map data © Google" tetap ada di DOM, transparan dan baru muncul
+  saat kursor/fokus keyboard menyentuh pojok peta (lihat `theme-red.css`).
+- Tema gelap membalik tile lewat filter CSS, supaya peta tidak menyilaukan.
+
+> Catatan: endpoint `mt*.google.com/vt` bukan API resmi Google Maps (tidak
+> butuh key, tapi di luar proyek demo pribadi bertentangan dengan ToS Google).
+> Untuk produksi, pakai API resmi: set `VITE_MAP_TILES_URL` ke Maps Static
+> API dengan key milik sendiri.
 
 ## Arsitektur
 
@@ -64,22 +77,23 @@ Go + Gin (:8080 default, :8091 di mesin ini) ── pgxpool ──► PostgreSQL
 | `cmd/import-regions` | importer dataset COD-AB (zip/geojson) → `admin_regions` |
 | `cmd/simulator` | pengirim posisi palsu untuk armada (sumber data live tracking) |
 | `internal/config`, `internal/db` | `.env` + DSN, `pgxpool` + health check |
-| `internal/entity`, `internal/vehicle` | model + `Normalize`/`Validate` + unit test |
+| `internal/entity`, `internal/vehicle` | model + `Normalize`/`Validate` + unit test; `vehicle` juga model rute (`Route`, `RouteStop`) |
 | `internal/handler` | entities, zones, vehicles, routes, regions, islands, zone-from-region, health |
 | `internal/routing` | klien OSRM (`OSRM_BASE_URL`, `off` = fallback `direct`) |
 | `internal/ws` | hub fan-out untuk stream posisi kendaraan |
 
 **Frontend** (`frontend/src/`)
 
-`App.tsx` memegang state dan tiga tab (Places / Zones / Live);
-`EntityMap` menyusun layer peta: `RegionLayer` (batas administratif),
+`App.tsx` memegang state dan lima tab (Overview / Places / Zones / Fleet /
+Users); `EntityMap` menyusun layer peta: `RegionLayer` (batas administratif),
 `ZoneLayer` (polygon + editor Geoman), `VehicleLayer` (puck armada),
 `RouteLayer` (jalur). Panel: `EntityList`/`EntityDetail`/`EntityForm`/
 `ZonePanel`/`RegionZonePicker`/`VehiclePanel`. Kontrak API di `lib/types.ts`,
-client di `lib/api.ts`, stream di `lib/vehicleStream.ts`.
+client di `lib/api.ts`, stream di `lib/vehicleStream.ts`. Tema visual terakhir
+(`theme-red.css`) menentukan warna rute, pin, dan kontrol peta.
 
-REST untuk snapshot, WebSocket untuk stream posisi. Tanpa auth — aplikasi
-lokal satu pengguna (lihat `AGENT.md`).
+REST untuk snapshot, WebSocket untuk stream posisi. Autentikasi JWT lokal
+(`admin` / `viewer` / `driver`); hanya admin yang boleh menulis.
 
 ## Mulai Cepat
 
@@ -109,7 +123,7 @@ cp .env.example .env      # lalu isi DB_PASSWORD
 | `OSRM_BASE_URL` | `https://router.project-osrm.org` | Set `off` untuk rute garis lurus |
 | `VITE_BACKEND` (`frontend/`) | `http://localhost:8091` | Target proxy Vite saat dev |
 | `VITE_API_BASE_URL` (`frontend/`) | _(kosong)_ | Origin backend untuk build produksi |
-| `VITE_MAP_TILES_URL` (`frontend/`) | tile OSM | Provider tile lain |
+| `VITE_MAP_TILES_URL` (`frontend/`) | tile Google Maps | Provider tile lain (mis. Maps Static API) |
 
 ### 2. Migrasi
 
@@ -155,14 +169,20 @@ go run ./cmd/simulator -api http://localhost:8091 -count 5 -interval 2s
 1. Admin pilih unit → **Plan route**. Titik awal otomatis diisi dengan posisi
    terakhir unit tersebut.
 2. Admin klik ikon crosshair pada baris **B** (tujuan), lalu klik peta.
-   Permintaan langsung dikirim ke `POST /api/vehicles/:id/route`.
-3. Backend memanggil OSRM. Bila engine tidak/snapping kedua titik ke simpul
-   yang sama, rute memakai garis lurus (`source: "direct"`), bukan gagal.
-4. Peta menggambar polyline biru tebal dan kamera menyesuai ke jalur baru.
-   Card kendaraan menampilkan *"Following route to [nama tujuan]"*.
+   Permintaan langsung dikirim ke `POST /api/vehicles/:id/route`. (Kalau
+   titik awal dipetik manual, request menunggu tombol **Build route**.)
+3. Backend memanggil OSRM dan menyimpan polyline-nya di
+   `vehicle_routes.geom` (LineString, SRID 4326). Bila OSRM meny snap kedua
+   ujung ke simpul yang sama — garis yang tidak bisa disimpan PostGIS — rute
+   memakai garis lurus (`source: "direct"`), bukan gagal. Rute lama dibatalkan
+   dan rute baru disimpan dalam satu transaksi, jadi satu unit selalu punya
+   paling banyak satu rute aktif.
+4. Peta menggambar polyline (warna tema), kamera menyesuai ke jalur baru,
+   dan card kendaraan menampilkan *"Following route to [nama tujuan]"*.
+   Rute aktif ikut dibawa oleh `GET /api/vehicles` (`active_route`).
 5. Simulator membaca `GET /api/routes` tiap tick: unit tanpa rute bergerak
-   bebas, unit dengan rute menyusuri polyline dan menutup rute (status
-   `completed`) ketika tiba di ujung garis.
+   bebas, unit dengan rute menyusuri polyline selangkah demi selangkah, lalu
+   menutup rute (status `completed`) ketika tiba di ujung garis.
 
 ### 5. Frontend
 
@@ -224,6 +244,22 @@ Bentuk entity:
  "created_at": "…", "updated_at": "…"}
 ```
 
+Bentuk rute (yang di `GET /api/routes` dan di `active_route`):
+
+```json
+{"id": 32, "vehicle_id": 1,
+ "origin": {"lat": -6.929, "lng": 107.636, "name": "Gudang"},
+ "destination": {"lat": -6.95, "lng": 107.61, "name": "Cisitu"},
+ "geometry": {"type": "LineString", "coordinates": [[107.636, -6.929], "…"]},
+ "distance_m": 14187, "duration_s": 1016, "source": "osrm",
+ "status": "active", "progress": 0.05, "remaining_m": 13478,
+ "created_at": "…", "ended_at": null}
+```
+
+`source` = `osrm` (jalur jalan raya) atau `direct` (garis lurus). GeoJSON
+berisi koordinat `[lng, lat]`. `progress` dihitung PostGIS dari posisi
+terakhir unit (`ST_LineLocatePoint`).
+
 Validasi: `name`/`type` wajib (maks 255/100), `status` `active`/`inactive`,
 latitude −90…90, longitude −180…180. `PUT` adalah full replace.
 Error selalu `{"error":{"code":"…","message":"…"}}`, dengan `fields` untuk
@@ -271,8 +307,8 @@ CI (`.github/workflows/ci.yml`): gofmt/vet/build/unit test + `tsc -b` + build.
 
 ## Keterbatasan
 
-- **Tanpa auth** — untuk satu pengguna di mesin lokal; jangan diekspos ke
-  internet apa adanya.
+- **JWT tanpa refresh** — login lokal dengan tiga peran (`admin`, `viewer`,
+  `driver`); hanya admin boleh menulis. Jangan diekspos ke internet apa adanya.
 - **Tanpa kompresi HTTP** — respons JSON dikirim apa adanya. Yang besar hanya
   geometry zona, dan itu sudah diringkas di SQL.
 - **`GET /api/zones/:id` untuk zona sangat besar masih lambat** (±5 detik untuk
@@ -280,7 +316,8 @@ CI (`.github/workflows/ci.yml`): gofmt/vet/build/unit test + `tsc -b` + build.
   penyebabnya belum ditemukan; penyederhanaan geometry memangkas payload, bukan
   latensi query.
 - `heading` kendaraan tidak disimpan; hanya `lat`, `lng`, `speed_kmh`, waktu.
-- Warna rute masih tetap (`#2563eb`), belum bisa diatur per kendaraan.
+- Warna rute mengikuti tema global (merah), belum bisa diatur per kendaraan.
+- Tile peta memakai endpoint non-resmi Google (lihat [Basemap](#basemap)).
 - Hitungan entitas/kendaraan per zona tidak auto-refresh setelah mutasi entitas
   — daftar zona perlu dimuat ulang.
 - Dataset COD-AB (456 MB) tidak ikut repo; tanpa impor, layer wilayah kosong.
@@ -296,15 +333,16 @@ cmd/
   import-regions/         # importer COD-AB → admin_regions
 internal/
   config/ db/             # .env + DSN, pgxpool + health
-  entity/ vehicle/        # model + validasi + unit test
+  entity/ vehicle/        # model + validasi + unit test (vehicle juga model rute)
   handler/                # entities, zones, vehicles, routes, regions, islands
   routing/                # klien OSRM + fallback direct
   ws/                     # hub WebSocket
-migrations/               # 001–007 up/down + seed.sql (opsional) + README
+migrations/               # 001–012 up/down + seed.sql (opsional) + README
 frontend/src/
   lib/                    # api.ts, types.ts, vehicleStream.ts
   components/             # map layers, panel, form, dialog
   App.tsx                 # state, tab, toast, sheet mobile
+  theme-red.css           # tema visual terakhir (warna rute, pin, kontrol)
 AGENT.md                  # aturan kerja proyek
 README.md                 # file ini
 ```

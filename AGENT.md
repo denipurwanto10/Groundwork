@@ -58,6 +58,7 @@ Take-home test untuk posisi Software Developer (tenggat 2 hari). Backend Go + Gi
 - ✅ Unit test (`internal/entity`) + integration test (`internal/handler`, tag `integration`)
 - ✅ Frontend `frontend/` (React + TS + Vite + Leaflet): `VITE_API_BASE_URL`, klien Fetch API, proxy Vite untuk `/api` + `/health`, EntityMap/List/Detail/Form/ConfirmDialog, CRUD penuh tersinkron dengan backend, state loading/empty/error/toast, indikator API 3-state
 (checking/online/offline) + auto-retry tiap 15 dtk saat offline, layout responsif — terverifikasi live (Playwright headless, desktop + mobile)
-- ✅ "Plan route" end-to-end: tombol Plan route mengisi titik awal dari posisi unit, pilihan titik tujuan langsung mengirim `POST /api/vehicles/:id/route`, polyline biru digambar di peta dan kamera menyesuaikan ke jalur, card kendaraan menampilkan "Following route to [tujuan]"
+- ✅ "Plan route" end-to-end: tombol Plan route mengisi titik awal dari posisi unit, pilihan titik tujuan langsung mengirim `POST /api/vehicles/:id/route`, polyline digambar di peta (warna tema) dan kamera menyesuaikan ke jalur, card kendaraan menampilkan "Following route to [tujuan]"
 - ✅ Backend rute: OSRM (`router.project-osrm.org`) dengan fallback garis lurus bila geometri degenerate, penyimpanan polyline di `vehicle_routes` (PostGIS), `GET /api/vehicles` menyertakan `active_route`, pembatalan rute lama + insert baru dalam satu transaksi
 - ✅ Simulator (`cmd/simulator`): membaca rute aktif tiap tick, menyusuri polyline selangkah demi selangkah, menutup rute (`status='completed'`) saat tiba di ujung garis
+- ✅ Peta: satu gaya saja — tile raster Google Maps (`mt0–mt3.google.com`, tanpa API key), kredit transparan sampai kursor menyentuh pojok, tema gelap membalik tile via filter CSS
