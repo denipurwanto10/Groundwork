@@ -481,11 +481,33 @@ textarea,
   filter: invert(1) hue-rotate(180deg) saturate(0.55) brightness(0.86) contrast(1.05);
 }
 
-/* The tile credit stays in its corner instead of spreading over the map. */
-.leaflet-control-attribution {
-  max-width: min(42ch, 58%);
-  font-size: 10px;
-  line-height: 1.35;
+/* The tile credit: no box and no text until the pointer (or the keyboard)
+   comes near the corner, so the map keeps its clean edge. The credit itself
+   stays in the page, which is what the tile providers ask for. */
+.leaflet-control-attribution,
+.dash .leaflet-control-attribution {
+  margin: 0 8px 8px 0 !important;
+  padding: 1px 6px !important;
+  font-size: 10px !important;
+  color: var(--text-2) !important;
+  background: transparent !important;
+  border: 0;
+  border-radius: var(--r-xs);
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.leaflet-control-attribution:hover,
+.leaflet-control-attribution:focus-within,
+.dash .leaflet-control-attribution:hover,
+.dash .leaflet-control-attribution:focus-within {
+  opacity: 1;
+  background: color-mix(in srgb, var(--panel-solid) 82%, transparent) !important;
+}
+.leaflet-control-attribution a,
+.dash .leaflet-control-attribution a {
+  color: var(--text-2) !important;
 }
 
 /* --------------------------------------------------------------------------
