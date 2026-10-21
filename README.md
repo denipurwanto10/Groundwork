@@ -1,17 +1,17 @@
-# Groundwork — Field Operations, Mapped
+# Groundwork â€” Field Operations, Mapped
 
 Platform operasi wilayah untuk Indonesia: peta sebagai antarmuka kerja.
 Setiap aset punya lokasi, setiap operasi punya wilayah, setiap pergerakan
 punya rute. Go + Gin + PostgreSQL/PostGIS di backend, React + Vite +
 TypeScript + Leaflet di frontend.
 
-- **Entitas** — titik aset (destinasi, monumen, kuliner, …) dengan CRUD penuh.
-- **Wilayah administratif** — batas resmi provinsi/kabupaten/kecamatan (L0–L3).
-- **Zona operasional** — polygon buatan sendiri, atau dibuat langsung dari
+- **Entitas** â€” titik aset (destinasi, monumen, kuliner, â€¦) dengan CRUD penuh.
+- **Wilayah administratif** â€” batas resmi provinsi/kabupaten/kecamatan (L0â€“L3).
+- **Zona operasional** â€” polygon buatan sendiri, atau dibuat langsung dari
   wilayah administratif / gugus pulau.
-- **Armada** — posisi kendaraan real-time lewat WebSocket, dengan simulator
+- **Armada** â€” posisi kendaraan real-time lewat WebSocket, dengan simulator
   sebagai sumber data; setiap unit punya arah tempuh dan warna rutenya.
-- **Rute** — jalur jalan raya dari–ke per kendaraan (OSRM), digambar di peta
+- **Rute** â€” jalur jalan raya dariâ€“ke per kendaraan (OSRM), digambar di peta
   dan ditutup otomatis saat unit tiba.
 
 ## Daftar Isi
@@ -35,7 +35,7 @@ TypeScript + Leaflet di frontend.
 | Backend  | Go 1.27, Gin, pgx/v5 (`pgxpool`), `coder/websocket`, `godotenv` |
 | Frontend | React 19, TypeScript, Vite 8, Leaflet 1.9 + React-Leaflet 5, Leaflet-Geoman |
 | Database | PostgreSQL 18 + PostGIS (`geometry(MultiPolygon,4326)`, `geography(Point,4326)`, `geometry(LineString,4326)`) |
-| Peta     | tile raster Google Maps (`mt0–mt3.google.com`), tanpa API key |
+| Peta     | tile raster Google Maps (`mt0â€“mt3.google.com`), tanpa API key |
 | Routing  | OSRM publik (`router.project-osrm.org`), fallback garis lurus bila engine tidak menjawab |
 | Migrasi  | SQL polos di `migrations/`, tanpa framework |
 | HTTP     | kompresi gzip bawaan (`internal/middleware`), tanpa dependensi baru |
@@ -43,16 +43,16 @@ TypeScript + Leaflet di frontend.
 ## Basemap
 
 Satu gaya peta saja: **Google Maps** (road map), diambil langsung dari server
-tile Google — tanpa API key, tanpa akun, tanpa tagihan.
+tile Google â€” tanpa API key, tanpa akun, tanpa tagihan.
 
 - URL: `https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}`,
-  `{s}` = `mt0` … `mt3` (lihat `frontend/src/components/EntityMap.tsx`)
+  `{s}` = `mt0` â€¦ `mt3` (lihat `frontend/src/components/EntityMap.tsx`)
 - Ganti gaya cukup mengganti satu nilai `lyrs=`:
   `m` = jalan raya (default), `y` = satelit + label, `s` = satelit polos,
   `p` = terrain.
 - Provider lain lewat `VITE_MAP_TILES_URL` di `frontend/.env` (mis. Maps
   Static API resmi dengan API key).
-- Kredit "Map data © Google" tetap ada di DOM, transparan dan baru muncul
+- Kredit "Map data Â© Google" tetap ada di DOM, transparan dan baru muncul
   saat kursor/fokus keyboard menyentuh pojok peta (lihat `theme-red.css`).
 - Tema gelap membalik tile lewat filter CSS, supaya peta tidak menyilaukan.
 
@@ -65,10 +65,10 @@ tile Google — tanpa API key, tanpa akun, tanpa tagihan.
 
 ```text
 frontend/ (React + Vite :5173)
-  │  fetch /api/*  +  WebSocket /api/vehicles/stream
-  ▼  (dev proxy: Vite, Gin tanpa CORS)
-Go + Gin (:8080 default, :8091 di mesin ini) ── pgxpool ──► PostgreSQL + PostGIS
-  └── internal/routing ──HTTP──► OSRM
+  â”‚  fetch /api/*  +  WebSocket /api/vehicles/stream
+  â–¼  (dev proxy: Vite, Gin tanpa CORS)
+Go + Gin (:8080 default, :8091 di mesin ini) â”€â”€ pgxpool â”€â”€â–º PostgreSQL + PostGIS
+  â””â”€â”€ internal/routing â”€â”€HTTPâ”€â”€â–º OSRM
 ```
 
 **Backend** (`cmd/` + `internal/`)
@@ -76,7 +76,7 @@ Go + Gin (:8080 default, :8091 di mesin ini) ── pgxpool ──► PostgreSQL
 | Paket | Isi |
 | ----- | --- |
 | `cmd/server` | entry point, Gin, graceful shutdown, registrasi route |
-| `cmd/import-regions` | importer dataset COD-AB (zip/geojson) → `admin_regions`; bisa mengunduh sendiri (`-url`) |
+| `cmd/import-regions` | importer dataset COD-AB (zip/geojson) â†’ `admin_regions`; bisa mengunduh sendiri (`-url`) |
 | `cmd/simulator` | pengirim posisi palsu untuk armada (sumber data live tracking) |
 | `internal/config`, `internal/db` | `.env` + DSN, `pgxpool` + health check |
 | `internal/entity`, `internal/vehicle` | model + `Normalize`/`Validate` + unit test; `vehicle` juga model rute (`Route`, `RouteStop`) |
@@ -152,7 +152,7 @@ done
 Migrasi 015 mengisi 8 landmark se-Indonesia dan 016 mengisi garis batas
 negara + 34 provinsi (versi disederhanakan, sekitar 100 KB SQL), jadi
 database baru tidak pernah kosong. Ingin kembali ke layar **"No entities
-yet."**? Jalankan `scripts/empty-state.sql` — isinya skrip, bukan migrasi,
+yet."**? Jalankan `scripts/empty-state.sql` â€” isinya skrip, bukan migrasi,
 jadi bisa dipakai kapan saja:
 
 ```bash
@@ -160,7 +160,7 @@ PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" \
   -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f scripts/empty-state.sql
 ```
 
-Rollback: jalankan `migrations/*.down.sql` dengan urutan terbalik — menghapus
+Rollback: jalankan `migrations/*.down.sql` dengan urutan terbalik â€” menghapus
 tabel beserta datanya.
 
 ### 3. Akun pertama
@@ -174,7 +174,7 @@ lain dibuat oleh admin dari tab **Users**.
 
 Migrasi 016 sudah mengisi garis batas negara dan provinsi. Untuk batas yang
 lebih detail (kabupaten, kecamatan) dan bentuk yang persis, impor dataset
-COD-AB penuh — lihat [Data Wilayah](#data-wilayah).
+COD-AB penuh â€” lihat [Data Wilayah](#data-wilayah).
 
 ### 5. Backend
 
@@ -189,7 +189,7 @@ HTTP polos tanpa sertifikat, jadi tidak boleh terbuka ke jaringan. Kalau
 `SERVER_HOST` diisi alamat publik, server tetap jalan tapi memberi
 peringatan di log.
 
-Simulator armada (terminal lain) — membuat kendaraan yang belum ada, lalu
+Simulator armada (terminal lain) â€” membuat kendaraan yang belum ada, lalu
 mengirim satu posisi per interval:
 
 ```bash
@@ -199,14 +199,14 @@ go run ./cmd/simulator -api http://127.0.0.1:8091 \
 
 #### Alur "Plan route" (Fleet)
 
-1. Admin pilih unit → **Plan route**. Titik awal otomatis diisi dengan posisi
+1. Admin pilih unit â†’ **Plan route**. Titik awal otomatis diisi dengan posisi
    terakhir unit tersebut.
 2. Admin klik ikon crosshair pada baris **B** (tujuan), lalu klik peta.
    Permintaan langsung dikirim ke `POST /api/vehicles/:id/route`. (Kalau
    titik awal dipetik manual, request menunggu tombol **Build route**.)
 3. Backend memanggil OSRM dan menyimpan polyline-nya di
    `vehicle_routes.geom` (LineString, SRID 4326). Bila OSRM meny snap kedua
-   ujung ke simpul yang sama — garis yang tidak bisa disimpan PostGIS — rute
+   ujung ke simpul yang sama â€” garis yang tidak bisa disimpan PostGIS â€” rute
    memakai garis lurus (`source: "direct"`), bukan gagal. Rute lama dibatalkan
    dan rute baru disimpan dalam satu transaksi, jadi satu unit selalu punya
    paling banyak satu rute aktif.
@@ -215,11 +215,12 @@ go run ./cmd/simulator -api http://127.0.0.1:8091 \
    tujuan]"*. Rute aktif ikut dibawa oleh `GET /api/vehicles`
    (`active_route`).
 5. Simulator membaca `GET /api/routes` tiap tick: unit tanpa rute bergerak
-   bebas, unit dengan rute menyusuri polyline **titik per titik** — posisinya
-   persis di titik-titik garis merah, bukan di sebelahnya. Satu titik per tick
-   secara bawaan (`-step`); `-step 20` membuat jejak lebih cepat ditempuh.
-   Saat unit mencapai titik terakhir, rute ditutup sendiri dan unit berhenti
-   mengikuti garis.
+   bebas, unit dengan rute **menyusuri garis** â€” posisinya selalu tepat di
+   garis rute (0 m dari garis), mulai dari titik pertama (origin), melewati
+   setiap titik dalam urutan, dan berhenti di titik terakhir lalu menutup
+   rutenya. Flag `-pace` (bawaan 20 meter per tick) mengatur seberapa jauh
+   unit berjalan tiap tick: makin kecil, makin dekat marker mengikuti
+   belokan jalannya dan tidak memotong tikungan.
 
 ### 6. Frontend
 
@@ -237,7 +238,7 @@ frontend mencoba lagi otomatis tiap 15 detik.
 ## Data Wilayah
 
 Batas administratif berasal dari **HDX COD-AB Indonesia** (`cod-ab-idn`,
-CC BY-IGO, sumber BPS). Arsipnya ±456 MB dan **tidak ikut repo** (`/data`
+CC BY-IGO, sumber BPS). Arsipnya Â±456 MB dan **tidak ikut repo** (`/data`
 ada di `.gitignore`).
 
 Yang **sudah ikut repo** adalah garis batas negara + 34 provinsi dalam versi
@@ -269,7 +270,7 @@ dengan yang asli.
 | ------ | ---- | ---------- |
 | `GET` | `/health` | `200` bila DB sehat, `503` bila tidak |
 | `GET` | `/api/auth/status` | apakah workspace masih butuh akun pertama |
-| `POST` | `/api/auth/login` | sign in → `token` + `refresh_token` |
+| `POST` | `/api/auth/login` | sign in â†’ `token` + `refresh_token` |
 | `POST` | `/api/auth/refresh` | tukar refresh token dengan access token baru |
 | `POST` | `/api/auth/setup` | buat admin pertama (hanya kalau belum ada akun) |
 | `GET` | `/api/entities` | daftar aset; `?zone=<id>` memfilter yang di dalam zona (`ST_Covers`) |
@@ -280,19 +281,19 @@ dengan yang asli.
 | `GET` `POST` | `/api/zones` | daftar (GeoJSON FeatureCollection) / buat (geometry wajib) |
 | `GET` | `/api/zones/counts` | hitungan entitas/kendaraan per zona (ringan, untuk auto-refresh) |
 | `GET` `PUT` `DELETE` | `/api/zones/:id` | baca / ubah / hapus |
-| `POST` | `/api/zones/import` | impor GeoJSON FeatureCollection → banyak zona |
+| `POST` | `/api/zones/import` | impor GeoJSON FeatureCollection â†’ banyak zona |
 | `POST` | `/api/zones/from-region` | buat zona dari kode wilayah administratif |
 | `GET` | `/api/islands` | gugus pulau yang bisa dijadikan zona |
 | `POST` | `/api/zones/from-island` | buat zona dari gugus pulau |
 | `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir + rute aktif (`active_route`) / daftar unit baru |
 | `PUT` | `/api/vehicles/:id` | ubah unit (nama, tipe, driver, **warna rute**) |
-| `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `heading`, `status` opsional) → disiar ke WS |
+| `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `heading`, `status` opsional) â†’ disiar ke WS |
 | `GET` | `/api/vehicles/:id/history` | histori posisi unit: `?date=YYYY-MM-DD` atau `?from=&to=` |
 | `GET` | `/api/vehicles/stream` | WebSocket: frame `snapshot` saat connect, lalu `position` |
 | `GET` | `/api/routes` | semua rute aktif |
 | `GET` | `/api/vehicles/:id/routes` | riwayat rute satu kendaraan |
 | `GET` | `/api/vehicles/:id/route` | rute aktif satu kendaraan (dengan geometri; `404` bila tidak ada) |
-| `POST` | `/api/vehicles/:id/route` | rencanakan rute `{origin:{lat,lng,name}, destination:{…}}` |
+| `POST` | `/api/vehicles/:id/route` | rencanakan rute `{origin:{lat,lng,name}, destination:{â€¦}}` |
 | `DELETE` | `/api/vehicles/:id/route` | batalkan rute aktif |
 
 Bentuk entity:
@@ -300,7 +301,7 @@ Bentuk entity:
 ```json
 {"id": 1, "name": "Monas", "type": "monument", "status": "active",
  "latitude": -6.1754, "longitude": 106.8272,
- "created_at": "…", "updated_at": "…"}
+ "created_at": "â€¦", "updated_at": "â€¦"}
 ```
 
 Bentuk unit (yang di `GET /api/vehicles`):
@@ -310,7 +311,7 @@ Bentuk unit (yang di `GET /api/vehicles`):
  "status": "moving", "driver_id": null,
  "lat": -6.6942, "lng": 107.2701, "speed_kmh": 33.3,
  "heading": 353.2, "route_color": "#2563eb",
- "last_seen_at": "…", "active_route": {…}}
+ "last_seen_at": "â€¦", "active_route": {â€¦}}
 ```
 
 `heading` adalah arah kompas unit dalam derajat (0 = utara, 90 = timur),
@@ -323,10 +324,10 @@ Bentuk rute (yang di `GET /api/routes` dan di `active_route`):
 {"id": 32, "vehicle_id": 1,
  "origin": {"lat": -6.929, "lng": 107.636, "name": "Gudang"},
  "destination": {"lat": -6.95, "lng": 107.61, "name": "Cisitu"},
- "geometry": {"type": "LineString", "coordinates": [[107.636, -6.929], "…"]},
+ "geometry": {"type": "LineString", "coordinates": [[107.636, -6.929], "â€¦"]},
  "distance_m": 14187, "duration_s": 1016, "source": "osrm",
  "status": "active", "progress": 0.05, "remaining_m": 13478,
- "created_at": "…", "ended_at": null}
+ "created_at": "â€¦", "ended_at": null}
 ```
 
 `source` = `osrm` (jalur jalan raya) atau `direct` (garis lurus). GeoJSON
@@ -334,8 +335,8 @@ berisi koordinat `[lng, lat]`. `progress` dihitung PostGIS dari posisi
 terakhir unit (`ST_LineLocatePoint`).
 
 Validasi: `name`/`type` wajib (maks 255/100), `status` `active`/`inactive`,
-latitude −90…90, longitude −180…180. `PUT` adalah full replace.
-Error selalu `{"error":{"code":"…","message":"…"}}`, dengan `fields` untuk
+latitude âˆ’90â€¦90, longitude âˆ’180â€¦180. `PUT` adalah full replace.
+Error selalu `{"error":{"code":"â€¦","message":"â€¦"}}`, dengan `fields` untuk
 `validation_failed`.
 
 ```bash
@@ -351,20 +352,20 @@ curl 'http://127.0.0.1:8091/api/entities?zone=11'
 - Kategori: `operational`, `restricted`, `planned`, `other`; warna bebas
   (`#rrggbb`), dipakai di peta dan kartu zona.
 - Geometry di respons adalah **salinan tampilan**: polygon di atas 2.000 titik
-  disederhanakan (`ST_SimplifyPreserveTopology`, toleransi `0.0005°`) supaya
+  disederhanakan (`ST_SimplifyPreserveTopology`, toleransi `0.0005Â°`) supaya
   respons tidak membengkak. Data di database tetap utuh.
 - Salinan tampilan, luas, keliling, jumlah titik, dan hitungan entitas/
   kendaraan **dihitung sekali** saat bentuk zona disimpan (migrasi 013,
   tabel `zone_metrics`), bukan dihitung ulang tiap permintaan. Ini yang
   membuat `GET /api/zones/:id` untuk polygon 227 ribu titik turun dari
-  ±7 detik menjadi ±60 milidetik.
+  Â±7 detik menjadi Â±60 milidetik.
 - Hitungan entitas/kendaraan dijaga trigger di database dan dikirim ke
   browser lewat frame `zones`, jadi kartu zona tidak perlu dimuat ulang
   setelah aset ditambah atau unit melewati batas. `GET /api/zones/counts`
   adalah endpoint ringan untuk hal yang sama.
 - Editor vertex hanya aktif sampai `MAX_EDITABLE_VERTICES = 2.000`; di atas itu
   polygon tidak bisa diedit (menghindari freeze browser).
-- `PUT` **tanpa** `geometry` hanya mengubah atribut — bentuk tersimpan tidak
+- `PUT` **tanpa** `geometry` hanya mengubah atribut â€” bentuk tersimpan tidak
   ditulis ulang. Frontend membandingkan geometry saat load vs saat simpan dan
   hanya mengirim geometry bila benar-benar berubah.
 
@@ -374,7 +375,7 @@ Live feed menjawab "di mana unit sekarang". Playback menjawab "di mana unit
 **pernah**": server handing out posisi yang dilaporkan unit, dan peta
 memutar jalannya kembali.
 
-- **Backend** — `GET /api/vehicles/:id/history`. Tanpa parameter berarti hari
+- **Backend** â€” `GET /api/vehicles/:id/history`. Tanpa parameter berarti hari
   ini; `?date=YYYY-MM-DD` memilih satu hari (waktu server), `?from=&to=`
   memilih rentang (RFC3339 atau tanggal), `?limit=` mengatur jumlah titik
   (bawaan 2.000, ceiling 20.000). Satu hari laporan tiap 2 detik berisi
@@ -389,12 +390,12 @@ memutar jalannya kembali.
   Semua role boleh membacanya; driver hanya boleh membaca unitnya sendiri
   (`403` untuk unit orang lain), aturan yang sama dengan daftar armada.
 
-- **Antarmuka** — di tab **Fleet**, pilih satu unit lalu klik **Playback**
+- **Antarmuka** â€” di tab **Fleet**, pilih satu unit lalu klik **Playback**
   (ikon jam) di kartunya. Panel kecil di bawah tombol: pemilih tanggal,
   tombol **Load history**, lalu slider waktu, tombol **Play / Pause**, dan
-  pilihan kecepatan (0,5x – 8x). 1x memutar seluruh jejak dalam ±40 detik.
+  pilihan kecepatan (0,5x â€“ 8x). 1x memutar seluruh jejak dalam Â±40 detik.
 
-- **Peta** — jejak digambar sebagai garis tebal, dan satu *ghost marker*
+- **Peta** â€” jejak digambar sebagai garis tebal, dan satu *ghost marker*
   (ikon kendaraan, 50% transparan) berjalan di sepanjang garis. Kamera
   menyesuaikan ke seluruh jejak begitu dimuat. Slider yang digeser
   memindahkan ghost ke titik yang dipilih; saat jejak habis, animasi berhenti
@@ -411,7 +412,7 @@ memutar jalannya kembali.
 - **Loopback secara bawaan.** `SERVER_HOST` default `127.0.0.1`: API
   memakai HTTP polos tanpa sertifikat, jadi ia tidak boleh terbuka ke
   jaringan. Mengisi `SERVER_HOST` dengan alamat publik tetap bisa, tapi
-  server memberi peringatan di log — taruh di belakang reverse proxy
+  server memberi peringatan di log â€” taruh di belakang reverse proxy
   dengan TLS.
 - **Hash bcrypt.** Password tidak pernah disimpan apa adanya. `JWT_SECRET`
   wajib diisi lewat `.env` dan tidak pernah masuk repo.
@@ -432,7 +433,7 @@ go test -tags integration ./internal/handler/     # butuh DB + migrasi
 cd frontend
 npx tsc -b        # typecheck
 npm run lint      # oxlint
-npm run build     # tsc -b && vite build → dist/
+npm run build     # tsc -b && vite build â†’ dist/
 ```
 
 CI (`.github/workflows/ci.yml`): gofmt/vet/build/unit test + `tsc -b` + build.
@@ -443,7 +444,7 @@ CI (`.github/workflows/ci.yml`): gofmt/vet/build/unit test + `tsc -b` + build.
 cmd/
   server/                 # entry point Gin + graceful shutdown
   simulator/              # sumber data live tracking (armada palsu)
-  import-regions/         # importer COD-AB → admin_regions (bisa unduh sendiri)
+  import-regions/         # importer COD-AB â†’ admin_regions (bisa unduh sendiri)
 internal/
   config/ db/             # .env + DSN, pgxpool + health
   entity/ vehicle/        # model + validasi + unit test (vehicle juga model rute)

@@ -66,11 +66,11 @@ type unit struct {
 	lat  float64
 	lng  float64
 	dir  float64
-	// routeID and routeIdx track the delivery route the unit is following:
-	// routeID is the plan it belongs to, routeIdx the point of that line the
-	// unit stands on.
+	// routeID and routePos track the delivery route the unit is following:
+	// routeID is the plan it belongs to, routePos how far along that line it
+	// has come.
 	routeID  int64
-	routeIdx int
+	routePos float64
 	// arrived remembers that the unit reached the end of its route, so the
 	// simulator can close the delivery and let the unit wander again.
 	arrived bool
@@ -122,7 +122,7 @@ func main() {
 	count := flag.Int("count", 5, "number of vehicles to keep on the map")
 	interval := flag.Duration("interval", 2*time.Second, "delay between position reports")
 	seed := flag.Int64("seed", 1, "random seed, so a run can be repeated")
-	step := flag.Int("step", 1, "how many points of the route a unit covers per tick (1 = one point per tick)")
+	pace := flag.Int("pace", 20, "how many metres a unit covers along its route per tick (smaller = it follows the bends more closely)")
 	email := flag.String("email", "", "account email for API login")
 	password := flag.String("password", "", "account password for API login")
 	flag.Parse()
@@ -133,8 +133,8 @@ func main() {
 	if *interval < 200*time.Millisecond {
 		log.Fatalf("interval must be at least 200ms")
 	}
-	if *step < 1 {
-		log.Fatalf("step must be at least 1")
+	if *pace < 1 {
+		log.Fatalf("pace must be at least 1 metre")
 	}
 	if *email == "" || *password == "" {
 		log.Fatalf("email and password are required (an admin creates the account from the Users tab)")
@@ -169,7 +169,7 @@ func main() {
 			log.Println("simulator stopped")
 			return
 		case <-ticker.C:
-			fleet, err = report(client, *api, fleet, rng, *interval, token, *step)
+			fleet, err = report(client, *api, fleet, rng, *interval, token, float64(*pace))
 			if err != nil {
 				log.Printf("report: %v", err)
 			}
@@ -227,7 +227,7 @@ func newUnit(v apiVehicle, index int) *unit {
 // failing every tick, so the check that rejects its position is not wasted.
 // A temporary failure (the backend is restarting, the network blipped) keeps
 // the whole fleet: the units are still there, and the next tick tries again.
-func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, interval time.Duration, token string, step int) ([]*unit, error) {
+func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, interval time.Duration, token string, pace float64) ([]*unit, error) {
 	plans, err := fetchRoutes(client, api, token)
 	if err != nil {
 		// A route feed that is down must not stop the position feed.
@@ -241,7 +241,7 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 		tag := ""
 		status := "moving"
 		if plan := plans[u.id]; plan != nil {
-			speed = u.follow(plan, interval, step)
+			speed = u.follow(plan, interval, pace)
 			tag = fmt.Sprintf(" rute#%d", plan.id)
 			if u.arrived {
 				// The unit reached the end of the line: the delivery is over,
@@ -421,49 +421,45 @@ func dropRepeated(pts [][2]float64) [][2]float64 {
 // follow drives a unit along its delivery route and returns the speed it
 // reports.
 //
-// The line is walked point by point: the unit stands exactly on a point of the
-// route, so the map shows it on the red line and not somewhere next to it.
-// One point per tick by default; -step covers several points at once, for a
-// route whose points are only metres apart.
+// The unit walks the line, not the gaps between its points: every position it
+// reports lies on the route, and the distance it covers per tick (pace) is
+// small enough that the marker glides along the bends of the road instead of
+// cutting across them. The points of the route are passed in order, one
+// after the other, because the unit walks the line itself.
 //
-// A new route always starts at its first point, the origin of the plan, and the
-// unit walks from there to the last one. Projecting the spot of a unit that is
-// parked in another province onto the line would drop it on whichever end is
-// nearest, and the delivery would finish without driving anywhere.
-//
-// The speed is 0 on the last step: the unit has arrived, and the simulator
-// closes the route itself.
-func (u *unit) follow(plan *pathPlan, interval time.Duration, step int) float64 {
+// A new route always starts at its first point, the origin of the plan. The
+// speed is 0 on the last step: the unit has arrived, and the simulator closes
+// the route itself.
+func (u *unit) follow(plan *pathPlan, interval time.Duration, pace float64) float64 {
 	if u.routeID != plan.id {
 		// A new plan: the unit is placed at the first point of the line, the
 		// origin of the delivery, and the next tick walks on from there.
 		u.routeID = plan.id
-		u.routeIdx = 0
+		u.routePos = 0
 		u.arrived = false
 		u.lat, u.lng = plan.pts[0][0], plan.pts[0][1]
 		u.dir = heading(plan, 0)
 		return 0
 	}
 
-	last := len(plan.pts) - 1
-
-	previous := u.routeIdx
-	u.routeIdx += step
-	if u.routeIdx >= last {
+	previous := u.routePos
+	u.routePos += pace
+	if u.routePos >= plan.total {
 		// The end of the line: the unit parks at the destination and the
 		// delivery is over.
-		u.routeIdx = last
-		u.lat, u.lng = plan.pts[last][0], plan.pts[last][1]
-		u.dir = heading(plan, plan.cum[last])
+		u.routePos = plan.total
+		last := plan.pts[len(plan.pts)-1]
+		u.lat, u.lng = last[0], last[1]
+		u.dir = heading(plan, plan.total)
 		u.arrived = true
 		return 0
 	}
 
-	u.lat, u.lng = plan.pts[u.routeIdx][0], plan.pts[u.routeIdx][1]
-	u.dir = heading(plan, plan.cum[u.routeIdx])
+	u.lat, u.lng = pointAt(plan, u.routePos)
+	u.dir = heading(plan, u.routePos)
 
 	// The speed the unit reports is the distance it really covered.
-	covered := plan.cum[u.routeIdx] - plan.cum[previous]
+	covered := u.routePos - previous
 	return covered / interval.Seconds() * 3.6
 }
 

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// testPlan is a straight line of five points, 100 metres apart.
+// testPlan is a straight line of five points, about 111 metres apart.
 func testPlan() *pathPlan {
 	pts := [][2]float64{
 		{-6.0, 106.0},
@@ -24,61 +24,63 @@ func testPlan() *pathPlan {
 	return plan
 }
 
-func TestFollowWalksTheRoutePointByPoint(t *testing.T) {
+func TestFollowStartsAtTheOriginOfTheRoute(t *testing.T) {
 	plan := testPlan()
 	u := &unit{id: 1, code: "SIM-01"}
-	interval := 2 * time.Second
 
-	// The first tick puts the unit on the first point of the line.
-	u.follow(plan, interval, 1)
+	u.follow(plan, 2*time.Second, 20)
+
 	if u.lat != plan.pts[0][0] || u.lng != plan.pts[0][1] {
-		t.Fatalf("unit at %.4f,%.4f, want the first point %.4f,%.4f",
+		t.Fatalf("unit at %.6f,%.6f, want the first point of the route %.6f,%.6f",
 			u.lat, u.lng, plan.pts[0][0], plan.pts[0][1])
 	}
-
-	// Every following tick moves the unit to the next point of the line, and
-	// never to a place between two points.
-	for i := 1; i < len(plan.pts)-1; i++ {
-		speed := u.follow(plan, interval, 1)
-		if u.routeIdx != i {
-			t.Fatalf("tick %d: index = %d, want %d", i, u.routeIdx, i)
-		}
-		if u.lat != plan.pts[i][0] || u.lng != plan.pts[i][1] {
-			t.Fatalf("tick %d: unit at %.6f,%.6f, want the point %.6f,%.6f",
-				i, u.lat, u.lng, plan.pts[i][0], plan.pts[i][1])
-		}
-		if speed <= 0 {
-			t.Fatalf("tick %d: speed = %f, want the distance it covered", i, speed)
-		}
-	}
-
-	// The last tick parks the unit at the destination and ends the delivery.
-	u.follow(plan, interval, 1)
-	if !u.arrived {
-		t.Fatal("the unit should have arrived at the end of the line")
-	}
-	if u.lat != plan.pts[len(plan.pts)-1][0] {
-		t.Fatalf("unit at %.6f, want the last point %.6f", u.lat, plan.pts[len(plan.pts)-1][0])
+	if u.routePos != 0 {
+		t.Fatalf("route position = %f, want 0", u.routePos)
 	}
 }
 
-func TestFollowCoversSeveralPointsPerTick(t *testing.T) {
+func TestFollowWalksForwardOnTheLine(t *testing.T) {
+	plan := testPlan()
+	u := &unit{id: 1, code: "SIM-01"}
+	interval := 2 * time.Second
+	pace := 20.0
+
+	u.follow(plan, interval, pace)
+
+	// Every tick moves the unit further along the line, never backwards, and
+	// every position it reports lies on the route.
+	previous := u.routePos
+	for i := 0; i < 10; i++ {
+		speed := u.follow(plan, interval, pace)
+		if u.routePos <= previous {
+			t.Fatalf("tick %d: route position = %f, want more than %f", i, u.routePos, previous)
+		}
+		previous = u.routePos
+
+		if !onLine(plan, u.lat, u.lng) {
+			t.Fatalf("tick %d: unit at %.9f,%.9f, which is not on the route", i, u.lat, u.lng)
+		}
+		if u.routePos < plan.total && speed <= 0 {
+			t.Fatalf("tick %d: speed = %f, want the distance it covered", i, speed)
+		}
+	}
+}
+
+func TestFollowEndsAtTheDestination(t *testing.T) {
 	plan := testPlan()
 	u := &unit{id: 1, code: "SIM-01"}
 	interval := 2 * time.Second
 
-	// The first tick starts the route at its origin.
-	u.follow(plan, interval, 2)
-	if u.routeIdx != 0 {
-		t.Fatalf("index = %d, want 0 (the origin of the route)", u.routeIdx)
-	}
+	// A pace of a kilometre per tick reaches the end at once.
+	u.follow(plan, interval, 20)
+	u.follow(plan, interval, 5000)
 
-	u.follow(plan, interval, 2)
-	if u.routeIdx != 2 {
-		t.Fatalf("index = %d, want 2 (two points per tick)", u.routeIdx)
+	if !u.arrived {
+		t.Fatal("the unit should have arrived at the end of the line")
 	}
-	if u.lat != plan.pts[2][0] {
-		t.Fatalf("unit at %.6f, want the third point %.6f", u.lat, plan.pts[2][0])
+	last := plan.pts[len(plan.pts)-1]
+	if u.lat != last[0] || u.lng != last[1] {
+		t.Fatalf("unit at %.6f,%.6f, want the last point %.6f,%.6f", u.lat, u.lng, last[0], last[1])
 	}
 }
 
@@ -88,11 +90,11 @@ func TestFollowStartsOverOnANewRoute(t *testing.T) {
 	other.total = 111
 
 	u := &unit{id: 1, code: "SIM-01"}
-	u.follow(plan, time.Second, 1)
-	u.follow(plan, time.Second, 1)
+	u.follow(plan, time.Second, 20)
+	u.follow(plan, time.Second, 20)
 
 	// A different plan: the unit goes back to the beginning of that line.
-	u.follow(other, time.Second, 1)
+	u.follow(other, time.Second, 20)
 	if u.routeID != other.id {
 		t.Fatalf("route id = %d, want %d", u.routeID, other.id)
 	}
@@ -101,29 +103,53 @@ func TestFollowStartsOverOnANewRoute(t *testing.T) {
 	}
 }
 
-func TestFollowStaysOnTheLine(t *testing.T) {
-	// A line with a corner: every point the unit reports has to be a point of
-	// the line, never somewhere beside it.
-	plan := &pathPlan{
-		id: 3,
-		pts: [][2]float64{
-			{-6.0, 106.0},
-			{-6.0, 106.001},
-			{-6.001, 106.001},
-		},
-		cum: []float64{0, 111, 222},
-	}
-	plan.total = 222
-
+func TestFollowPassesThePointsInOrder(t *testing.T) {
+	// The unit has to pass every point of the route, in order: that is what
+	// "walking the array" means.
+	plan := testPlan()
 	u := &unit{id: 1, code: "SIM-01"}
-	for i := 0; i < 4; i++ {
-		u.follow(plan, 2*time.Second, 1)
-		for _, p := range plan.pts {
-			if math.Abs(u.lat-p[0]) < 1e-9 && math.Abs(u.lng-p[1]) < 1e-9 {
-				goto onLine
-			}
+	interval := 2 * time.Second
+	pace := 20.0
+
+	passed := 0
+	next := 1
+	for i := 0; i < 40 && next < len(plan.pts); i++ {
+		u.follow(plan, interval, pace)
+		if u.routePos >= plan.cum[next] {
+			passed++
+			next++
 		}
-		t.Fatalf("the unit left the line: %.9f,%.9f", u.lat, u.lng)
 	}
-onLine:
+	if passed != len(plan.pts)-1 {
+		t.Fatalf("passed %d points, want %d", passed, len(plan.pts)-1)
+	}
+}
+
+// onLine reports whether the position lies on the route: the distance to the
+// closest point of the line has to be negligible.
+func onLine(plan *pathPlan, lat, lng float64) bool {
+	const tolerance = 1e-7 // about a centimetre in degrees
+	for i := 0; i+1 < len(plan.pts); i++ {
+		a := plan.pts[i]
+		b := plan.pts[i+1]
+		// Project the position on the segment and measure what is left.
+		dx, dy := b[0]-a[0], b[1]-a[1]
+		length := dx*dx + dy*dy
+		if length == 0 {
+			continue
+		}
+		t := ((lat-a[0])*dx + (lng-a[1])*dy) / length
+		if t < 0 {
+			t = 0
+		}
+		if t > 1 {
+			t = 1
+		}
+		nearestLat := a[0] + t*dx
+		nearestLng := a[1] + t*dy
+		if math.Abs(lat-nearestLat) < tolerance && math.Abs(lng-nearestLng) < tolerance {
+			return true
+		}
+	}
+	return false
 }
