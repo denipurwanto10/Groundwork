@@ -14,7 +14,12 @@ import (
 // newTestService builds a service with a fixed secret and no database, so
 // the token and validation logic can be tested on its own.
 func newTestService() *Service {
-	return &Service{secret: []byte("test-secret"), ttl: time.Hour}
+	return &Service{
+		secret:     []byte("test-secret"),
+		ttl:        time.Hour,
+		refreshTTL: 24 * time.Hour,
+		limiter:    newLoginLimiter(defaultLoginAttempts, defaultLoginWindow, defaultLoginCooldown),
+	}
 }
 
 func TestIssueAndParseToken(t *testing.T) {

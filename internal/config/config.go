@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -16,10 +18,38 @@ type Config struct {
 }
 
 type ServerConfig struct {
+	// Host is the interface the server binds to. It defaults to the loopback
+	// address: the API has no TLS of its own, so it must not be reachable
+	// from the network unless somebody deliberately opens it up.
+	Host         string
 	Port         string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+	// Compression turns the gzip layer on or off. It is on by default: the
+	// zone and region answers are large and compress about ten to one.
+	Compression bool
+	// CompressThreshold is the smallest body worth compressing.
+	CompressThreshold int
+}
+
+// Addr is the address the HTTP server listens on.
+func (s ServerConfig) Addr() string {
+	return s.Host + ":" + s.Port
+}
+
+// Loopback reports whether the server only accepts connections from the
+// machine itself. A server that listens on every interface is reachable from
+// the network, and this one speaks plain HTTP: it belongs behind a reverse
+// proxy with TLS, not directly on a public address.
+func (s ServerConfig) Loopback() bool {
+	host := strings.TrimSpace(s.Host)
+	switch strings.ToLower(host) {
+	case "", "localhost":
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // AuthConfig holds the JWT signing secret and token lifetime. The secret is
@@ -27,6 +57,8 @@ type ServerConfig struct {
 type AuthConfig struct {
 	Secret string
 	TTL    time.Duration
+	// RefreshTTL is the lifetime of the token that renews the access token.
+	RefreshTTL time.Duration
 }
 
 type DatabaseConfig struct {
@@ -48,10 +80,13 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Port:         getEnv("SERVER_PORT", "8080"),
-			ReadTimeout:  getDurationEnv("SERVER_READ_TIMEOUT", 10*time.Second),
-			WriteTimeout: getDurationEnv("SERVER_WRITE_TIMEOUT", 10*time.Second),
-			IdleTimeout:  getDurationEnv("SERVER_IDLE_TIMEOUT", 60*time.Second),
+			Host:              getEnv("SERVER_HOST", "127.0.0.1"),
+			Port:              getEnv("SERVER_PORT", "8080"),
+			ReadTimeout:       getDurationEnv("SERVER_READ_TIMEOUT", 10*time.Second),
+			WriteTimeout:      getDurationEnv("SERVER_WRITE_TIMEOUT", 10*time.Second),
+			IdleTimeout:       getDurationEnv("SERVER_IDLE_TIMEOUT", 60*time.Second),
+			Compression:       getBoolEnv("SERVER_COMPRESSION", true),
+			CompressThreshold: getIntEnv("SERVER_COMPRESS_THRESHOLD", 1024),
 		},
 		Database: DatabaseConfig{
 			Host:            getEnv("DB_HOST", "localhost"),
@@ -67,8 +102,9 @@ func Load() (*Config, error) {
 			ConnectTimeout:  getDurationEnv("DB_CONNECT_TIMEOUT", 10*time.Second),
 		},
 		Auth: AuthConfig{
-			Secret: getEnv("JWT_SECRET", ""),
-			TTL:    getDurationEnv("JWT_TTL", 24*time.Hour),
+			Secret:     getEnv("JWT_SECRET", ""),
+			TTL:        getDurationEnv("JWT_TTL", 24*time.Hour),
+			RefreshTTL: getDurationEnv("JWT_REFRESH_TTL", 30*24*time.Hour),
 		},
 	}
 
@@ -109,6 +145,30 @@ func getInt32Env(key string, fallback int32) int32 {
 		if i, err := strconv.ParseInt(v, 10, 32); err == nil {
 			return int32(i)
 		}
+	}
+	return fallback
+}
+
+// getIntEnv reads a plain integer, used for the compression threshold.
+func getIntEnv(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
+	return fallback
+}
+
+// getBoolEnv reads a boolean flag. "1", "true", "yes" and "on" mean true.
+func getBoolEnv(key string, fallback bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch v {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
 	}
 	return fallback
 }
