@@ -22,6 +22,7 @@ import (
 
 	"entity-management/internal/config"
 	"entity-management/internal/db"
+	"entity-management/internal/ws"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -56,7 +57,7 @@ func setupRouter(t *testing.T) (*gin.Engine, *db.Pool) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := NewEntityHandler(pool)
+	h := NewEntityHandler(pool, ws.NewHub())
 	api := r.Group("/api")
 	api.GET("/entities", h.List)
 	api.GET("/entities/:id", h.Get)

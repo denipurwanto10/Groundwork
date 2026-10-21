@@ -10,6 +10,7 @@ import (
 
 	"entity-management/internal/db"
 	"entity-management/internal/entity"
+	"entity-management/internal/ws"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -21,11 +22,12 @@ import (
 const dbTimeout = 5 * time.Second
 
 type EntityHandler struct {
-	db *db.Pool
+	db  *db.Pool
+	hub *ws.Hub
 }
 
-func NewEntityHandler(db *db.Pool) *EntityHandler {
-	return &EntityHandler{db: db}
+func NewEntityHandler(db *db.Pool, hub *ws.Hub) *EntityHandler {
+	return &EntityHandler{db: db, hub: hub}
 }
 
 func errorBody(code, message string) gin.H {
@@ -149,6 +151,24 @@ func (h *EntityHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": e})
 }
 
+// publishZoneCounts pushes the counters of every zone to the subscribers.
+//
+// A place that is added, moved or removed changes how many entities each
+// zone holds. The counters live in the database, but the map still has to
+// learn about them: without this frame the numbers on the zone cards would
+// only be right after a manual reload.
+func (h *EntityHandler) publishZoneCounts(ctx context.Context) {
+	if h.hub == nil {
+		return
+	}
+	counts, err := zoneCounts(ctx, h.db)
+	if err != nil {
+		log.Printf("entities: zone counts failed: %v", err)
+		return
+	}
+	publishFrame(h.hub, "zones", gin.H{"zones": counts})
+}
+
 // Create handles POST /api/entities.
 func (h *EntityHandler) Create(c *gin.Context) {
 	var in entity.EntityInput
@@ -185,6 +205,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"data": e})
+	h.publishZoneCounts(ctx)
 }
 
 // Update handles PUT /api/entities/:id (full replacement).
@@ -234,6 +255,7 @@ func (h *EntityHandler) Update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": e})
+	h.publishZoneCounts(ctx)
 }
 
 // Delete handles DELETE /api/entities/:id.
@@ -259,4 +281,5 @@ func (h *EntityHandler) Delete(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+	h.publishZoneCounts(ctx)
 }

@@ -66,21 +66,21 @@ const geomConds = `g.geom IS NOT NULL
 // head of a zone query, and keeping the keyword inside the constant removes the
 // "SELECTz.id" concatenation hazard.
 //
-// The geometry here is a display copy. Above 2000 vertices a boundary is
-// shipped simplified (200k+ points would be a 5 MB response) and the client
-// never writes that copy back, because vertex editing is off at that size.
+// Every derived value is read from zone_metrics instead of being computed
+// here. Migration 013 stores the display copy, the geodesic area and
+// perimeter, the vertex count and the entity/vehicle counts there: the same
+// expressions cost about a second on a polygon with 200k+ vertices, and they
+// do not change while the zone is not edited.
 const zoneCols = `SELECT z.id, z.name, z.category, z.color, z.description,
        z.region_level, z.region_code, r.name,
-       ST_AsGeoJSON(CASE WHEN ST_NPoints(z.geom) > 2000
-            THEN ST_SimplifyPreserveTopology(z.geom, 0.0005) ELSE z.geom END, 6)::json,
-       ST_Area(z.geom::geography) / 1e6,
-       ST_Perimeter(z.geom::geography) / 1000,
-       ST_NPoints(z.geom), z.created_at, z.updated_at,
-       (SELECT count(*) FROM entities e WHERE ST_Covers(z.geom, e.geom::geometry)),
-       (SELECT count(*) FROM vehicles v WHERE v.last_geom IS NOT NULL AND ST_Covers(z.geom, v.last_geom::geometry))`
+       ST_AsGeoJSON(m.geom_display, 6)::json,
+       COALESCE(m.area_km2, 0), COALESCE(m.perimeter_km, 0),
+       COALESCE(m.vertex_count, 0), z.created_at, z.updated_at,
+       COALESCE(m.entity_count, 0), COALESCE(m.vehicle_count, 0)`
 
 const zoneFrom = ` FROM zones z
-       LEFT JOIN admin_regions r ON r.level = z.region_level AND r.code = z.region_code`
+       LEFT JOIN admin_regions r ON r.level = z.region_level AND r.code = z.region_code
+       LEFT JOIN zone_metrics m ON m.zone_id = z.id`
 
 // zoneFeature is a GeoJSON Feature plus the derived measurements, so a client
 // never has to compute area/perimeter itself (and can never disagree with us).
@@ -277,6 +277,58 @@ func (h *ZoneHandler) List(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"type": "FeatureCollection", "features": features}})
+}
+
+// zoneCount is the small, changing part of a zone: how many entities and how
+// many vehicles are inside it. The counters are maintained by the database
+// (migration 013), so this endpoint is a plain table read.
+type zoneCount struct {
+	ID           int64 `json:"id"`
+	EntityCount  int   `json:"entity_count"`
+	VehicleCount int   `json:"vehicle_count"`
+}
+
+// Counts returns the live counters of every zone.
+//
+// The zone list carries the geometry of every polygon, which is far too heavy
+// to reload whenever a place is added or a unit crosses a border. This
+// endpoint is what the map polls instead: a few hundred bytes per zone, and
+// never slower than the counters it reads.
+func (h *ZoneHandler) Counts(c *gin.Context) {
+	ctx, cancel := h.ctxWithTimeout(c)
+	defer cancel()
+
+	counts, err := zoneCounts(ctx, h.db)
+	if err != nil {
+		log.Printf("zones: counts query failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"zones": counts}})
+}
+
+// zoneCounts reads the counters of every zone. The database keeps them up to
+// date (migration 013), so this is a plain table read.
+func zoneCounts(ctx context.Context, pool *db.Pool) ([]zoneCount, error) {
+	rows, err := pool.Query(ctx, `SELECT zone_id, entity_count, vehicle_count FROM zone_metrics ORDER BY zone_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make([]zoneCount, 0)
+	for rows.Next() {
+		var zc zoneCount
+		if err := rows.Scan(&zc.ID, &zc.EntityCount, &zc.VehicleCount); err != nil {
+			return nil, err
+		}
+		counts = append(counts, zc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return counts, nil
 }
 
 func (h *ZoneHandler) Get(c *gin.Context) {
