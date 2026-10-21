@@ -199,3 +199,35 @@
   display: block;
   margin-top: -2px;
 }
+
+/* ---- 4. Destructive red = the brand red ---------------------------------- */
+/* Older layers left a salmon "danger" tone (dark) and a slightly different red
+   (light). Point it at the same reds as the primary button and accent. */
+:root,
+:root:not([data-theme='dark']) .dash {
+  --danger: #d0171e;
+  --danger-soft: rgb(208 23 30 / 8%);
+  --danger-line: rgb(208 23 30 / 34%);
+}
+
+:root[data-theme='dark'],
+:root[data-theme='dark'] .dash {
+  --danger: #f0575e;
+  --danger-soft: rgb(240 87 94 / 13%);
+  --danger-line: rgb(240 87 94 / 40%);
+}
+
+/* Solid Delete button: same fill and white label as .btn.primary. */
+.btn.danger-solid,
+:root[data-theme='dark'] .btn.danger-solid {
+  color: var(--on-btn, #fff) !important;
+  background: var(--btn) !important;
+  border: 1px solid var(--btn) !important;
+  box-shadow: none !important;
+}
+
+.btn.danger-solid:hover:not(:disabled),
+:root[data-theme='dark'] .btn.danger-solid:hover:not(:disabled) {
+  background: var(--btn-hover) !important;
+  border-color: var(--btn-hover) !important;
+}
