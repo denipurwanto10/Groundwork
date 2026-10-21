@@ -19,7 +19,6 @@ import type {
   VehicleInput,
   VehicleRoute,
 } from './lib/types'
-import { activeRoutesOf, formatDistance, hasPosition, mergeRoutes } from './lib/types'
 import EntityMap from './components/EntityMap'
 import EntityList from './components/EntityList'
 import EntityDetail from './components/EntityDetail'
@@ -178,21 +177,11 @@ export default function App() {
   // Delivery routes: one active path per vehicle, drawn under the markers.
   // The draft holds the two stops picked on the map until they are saved.
   const [routes, setRoutes] = useState<VehicleRoute[]>([])
-  const [routeDraft, setRouteDraft] = useState<{
-    origin: RouteStop | null
-    destination: RouteStop | null
-    /** True while the origin is still the unit's own position. */
-    originIsDefault: boolean
-  }>({
+  const [routeDraft, setRouteDraft] = useState<{ origin: RouteStop | null; destination: RouteStop | null }>({
     origin: null,
     destination: null,
-    originIsDefault: false,
   })
   const [routePick, setRoutePick] = useState<'origin' | 'destination' | null>(null)
-  /** A plan is on its way to the server; the form waits for the line. */
-  const [routeSaving, setRouteSaving] = useState(false)
-  /** The route the camera has to show: the one that was just planned. */
-  const [routeFocus, setRouteFocus] = useState<{ id: number; n: number } | null>(null)
 
   // Which page of the dashboard is open, and whether the nav rail is slimmed to icons.
   const [view, setView] = useState<Tab>('overview')
@@ -344,9 +333,6 @@ export default function App() {
       try {
         const data = await api.listVehicles()
         setVehicles(data.vehicles)
-        // Every unit carries the route it is following, so the map can draw
-        // the lines right away.
-        setRoutes((prev) => mergeRoutes(prev, activeRoutesOf(data.vehicles)))
       } catch (err) {
         setVehiclesError(err instanceof Error ? err.message : 'Could not load vehicles')
       } finally {
@@ -389,10 +375,11 @@ export default function App() {
     const refreshRoutes = useCallback(async () => {
       try {
         const data = await api.listRoutes()
-        setRoutes((prev) => mergeRoutes(prev, data.routes))
+        setRoutes(data.routes)
       } catch {
         // A missing route list must not break the fleet view; the map simply
         // shows no paths until the next attempt.
+        setRoutes([])
       }
     }, [])
 
@@ -411,12 +398,13 @@ export default function App() {
               setVehicles(frame.vehicles)
               setVehiclesError(null)
               setVehiclesLoading(false)
-              // The snapshot carries the active route of every unit.
-              setRoutes((prev) => mergeRoutes(prev, activeRoutesOf(frame.vehicles)))
               return
             }
             if (frame.type === 'route') {
-              setRoutes((prev) => mergeRoutes(prev, [frame.route]))
+              setRoutes((prev) => {
+                const next = prev.filter((r) => !(r.vehicle_id === frame.route.vehicle_id && r.status === 'active'))
+                return [frame.route, ...next]
+              })
               return
             }
             if (frame.type === 'route_cleared') {
@@ -495,7 +483,7 @@ export default function App() {
     // Half-picked stops belong to one vehicle: switching units or closing the
     // picker must not leave a stray A/B marker on the map.
     useEffect(() => {
-      setRouteDraft({ origin: null, destination: null, originIsDefault: false })
+      setRouteDraft({ origin: null, destination: null })
       setRoutePick(null)
     }, [selectedVehicleId])
 
@@ -514,99 +502,15 @@ export default function App() {
       setRoutePick(stage)
     }
 
-    /**
-     * Plan a route and draw it. The server answers with the road path
-     * (OSRM) or the straight line when no engine could be reached, and the
-     * camera moves to the new line so it is never drawn off screen.
-     */
-    const planRoute = useCallback(
-      async (vehicleId: number, origin: RouteStop, destination: RouteStop) => {
-        setRouteSaving(true)
-        try {
-          const route = await api.setVehicleRoute(vehicleId, { origin, destination })
-          setRoutes((prev) => mergeRoutes(prev, [route]))
-          setRouteDraft({ origin: null, destination: null, originIsDefault: false })
-          setRoutePick(null)
-          setRouteFocus((f) => ({ id: route.id, n: (f?.n ?? 0) + 1 }))
-          showToast(
-            'success',
-            `Route planned to ${destination.name || 'the destination'} · ${formatDistance(route.distance_m)}`,
-          )
-        } catch (err) {
-          showToast('error', err instanceof Error ? err.message : 'Could not plan the route')
-          throw err
-        } finally {
-          setRouteSaving(false)
-        }
-      },
-      [showToast],
-    )
-
-    /**
-     * "Plan route" starts the plan at the unit's own position: the operator
-     * only has to pick the destination on the map.
-     */
-    const handleRoutePlanStart = useCallback(
-      (vehicleId: number) => {
-        const unit = vehicles.find((v) => v.id === vehicleId)
-        const origin: RouteStop | null =
-          unit && hasPosition(unit)
-            ? { lat: Number(unit.lat.toFixed(6)), lng: Number(unit.lng.toFixed(6)), name: unit.name }
-            : null
-        setRouteDraft({ origin, destination: null, originIsDefault: origin != null })
-        setRoutePick(null)
-      },
-      [vehicles],
-    )
-
-    /**
-     * A short label for a picked point: the closest place when the operator
-     * picked next to one, a plain name otherwise. The fleet card says where
-     * the unit is heading, so the target needs a name of its own.
-     */
-    const labelForPoint = useCallback(
-      (lat: number, lng: number, fallback: string) => {
-        let best: { name: string; d: number } | null = null
-        for (const e of entities) {
-          const d =
-            Math.hypot(
-              (e.latitude - lat) * 111.32,
-              (e.longitude - lng) * 111.32 * Math.cos((lat * Math.PI) / 180),
-            )
-          if (!best || d < best.d) best = { name: e.name, d }
-        }
-        if (best && best.d <= 2) return best.name
-        return fallback
-      },
-      [entities],
-    )
-
     const handleRoutePoint = (lat: number, lng: number) => {
       if (!routePick) return
       const stop: RouteStop = {
         lat: Number(lat.toFixed(6)),
         lng: Number(lng.toFixed(6)),
-        name: labelForPoint(lat, lng, routePick === 'destination' ? 'Destination' : 'Origin'),
+        name: '',
       }
-      setRouteDraft((prev) => ({
-        ...prev,
-        [routePick]: stop,
-        // A hand-picked origin is not the unit's position any more, so the
-        // plan waits for the "Build route" button instead of going out by
-        // itself.
-        originIsDefault: routePick === 'destination' ? prev.originIsDefault : false,
-      }))
+      setRouteDraft((prev) => ({ ...prev, [routePick]: stop }))
       setRoutePick(null)
-
-      // Picking the destination is the whole job when the plan starts at the
-      // unit's position: the request goes out right away and the line appears
-      // on the map. A hand-picked origin waits for the "Build route" button,
-      // so the operator can still check both stops first.
-      if (routePick === 'destination' && routeDraft.originIsDefault && routeDraft.origin && selectedVehicleId != null) {
-        void planRoute(selectedVehicleId, routeDraft.origin, stop).catch(() => {
-          /* the toast already says what went wrong */
-        })
-      }
     }
 
     const handleRouteLabel = (stage: 'origin' | 'destination', name: string) => {
@@ -619,14 +523,18 @@ export default function App() {
 
     const handleRouteSet = async (vehicleId: number, origin: RouteStop, destination: RouteStop) => {
       if (!canEdit) return
-      await planRoute(vehicleId, origin, destination)
+      const route = await api.setVehicleRoute(vehicleId, { origin, destination })
+      setRoutes((prev) => [route, ...prev.filter((r) => !(r.vehicle_id === vehicleId && r.status === 'active'))])
+      setRouteDraft({ origin: null, destination: null })
+      setRoutePick(null)
+      showToast('success', `Route planned: ${Math.round(route.distance_m / 100) / 10} km`)
     }
 
     const handleRouteClear = async (vehicleId: number) => {
       if (!canEdit) return
       await api.clearVehicleRoute(vehicleId)
       setRoutes((prev) => prev.filter((r) => r.vehicle_id !== vehicleId))
-      setRouteDraft({ origin: null, destination: null, originIsDefault: false })
+      setRouteDraft({ origin: null, destination: null })
       showToast('success', 'Route cleared')
     }
 
@@ -1333,7 +1241,6 @@ export default function App() {
               routeDraft={routeDraft}
               routePick={routePick !== null}
               onRoutePoint={handleRoutePoint}
-              focusRoute={routeFocus}
             />
             {view !== 'overview' && (
               <RegionControls
@@ -1493,10 +1400,8 @@ export default function App() {
                 onPickStart={handleRoutePickStart}
                 onPickCancel={() => setRoutePick(null)}
                 onLabelChange={handleRouteLabel}
-                onPlanStart={handleRoutePlanStart}
-                routeBusy={routeSaving}
                 onClearDraft={() => {
-                  setRouteDraft({ origin: null, destination: null, originIsDefault: false })
+                  setRouteDraft({ origin: null, destination: null })
                   setRoutePick(null)
                 }}
                 onRouteSet={handleRouteSet}

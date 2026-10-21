@@ -48,8 +48,8 @@
   --danger-line: rgb(180 35 31 / 32%);
 
   --scrim: rgb(14 15 18 / 46%);
-  --route: #1d4ed8;
-  --route-done: #94a3b8;
+  --route: #c8161d;
+  --route-done: #bdbfc6;
   --map-ink: #17181b;
 }
 
@@ -90,8 +90,8 @@
   --danger-line: rgb(224 100 92 / 36%);
 
   --scrim: rgb(4 4 6 / 66%);
-  --route: #60a5fa;
-  --route-done: #475569;
+  --route: #ef6a70;
+  --route-done: #4c4f57;
   --map-ink: #ececee;
 }
 
@@ -928,13 +928,11 @@
   border-radius: 10px;
   overflow: hidden;
 }
-/* The destination pin belongs to the route, so it wears the route colour:
-   the whole path (line + endpoints) reads as one blue line on the map. */
 .route-stop.dest {
-  background: var(--route);
+  background: var(--danger);
 }
 .route-stop.dest::after {
-  border-top-color: var(--route);
+  border-top-color: var(--danger);
 }
 ::selection {
   background: color-mix(in srgb, var(--accent) 24%, transparent);

@@ -13,7 +13,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
 import type { Entity, RegionCollection, RegionFeature, Vehicle, VehicleRoute, RouteStop, ZoneFeature, ZoneGeometry } from '../lib/types'
-import { hasPosition, routeLatLngs, typeColorFor } from '../lib/types'
+import { hasPosition, typeColorFor } from '../lib/types'
 import ZoneLayer from './ZoneLayer'
 import RegionLayer from './RegionLayer'
 import VehicleLayer from './VehicleLayer'
@@ -232,38 +232,6 @@ function FitFleet({ vehicles, signal, inset }: { vehicles: Vehicle[]; signal: nu
 }
 
 /**
- * Shows the route that was just planned. A line the camera does not look at
- * is a line the operator never sees, so the map flies to the whole path
- * whenever a new plan comes in.
- */
-function FitRoute({
-  focus,
-  routes,
-}: {
-  focus: { id: number; n: number } | null
-  routes: VehicleRoute[]
-}) {
-  const map = useMap()
-  // The routes change on every position report; only the focus signal may
-  // move the camera.
-  const latest = useRef(routes)
-  latest.current = routes
-
-  useEffect(() => {
-    if (!focus) return
-    const route = latest.current.find((r) => r.id === focus.id)
-    if (!route) return
-    const pts = routeLatLngs(route)
-    if (pts.length < 2) return
-    const bounds = L.latLngBounds(pts)
-    if (!bounds.isValid()) return
-    map.flyToBounds(bounds.pad(0.3), { duration: 0.8, maxZoom: 15 })
-  }, [focus?.n, map])
-
-  return null
-}
-
-/**
  * Vehicle markers glide between positions with a CSS transition. During a zoom
  * or fly the map repositions every marker at once, and the glide would make
  * them lag behind, so it is switched off for the length of the move.
@@ -333,8 +301,6 @@ interface Props {
   routeDraft: { origin: RouteStop | null; destination: RouteStop | null } | null
   routePick: boolean
   onRoutePoint: (lat: number, lng: number) => void
-  /** The route the camera has to show; the counter makes every plan move it. */
-  focusRoute?: { id: number; n: number } | null
 }
 
 export default function EntityMap({
@@ -372,7 +338,6 @@ export default function EntityMap({
   routeDraft,
   routePick,
   onRoutePoint,
-  focusRoute,
 }: Props) {
   const center: [number, number] =
     selected != null
@@ -460,7 +425,6 @@ export default function EntityMap({
       />
       <InvalidateOnResize />
       <FitFleet vehicles={vehicles} signal={fitFleetSignal} inset={inset} />
-      <FitRoute focus={focusRoute ?? null} routes={routes} />
       <GlideGuard />
       <ZoomControl position="topright" />
       <AttributionControl position="bottomright" prefix={false} />

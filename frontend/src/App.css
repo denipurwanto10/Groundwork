@@ -4228,7 +4228,7 @@ html, body { background: var(--bg); color: var(--text); }
   font-size: 11px;
   font-weight: 700;
   color: #fff;
-  background: var(--route, #2563eb);
+  background: #2563eb;
   border: 2px solid #fff;
   border-radius: 50%;
   box-sizing: border-box;
@@ -4252,7 +4252,7 @@ html, body { background: var(--bg); color: var(--text); }
 
 /* Destination reads as a pin, not another waypoint dot. */
 .route-stop.dest {
-  background: var(--route, #1d4ed8);
+  background: #dc2626;
 }
 
 .route-stop.dest::after {

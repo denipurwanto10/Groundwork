@@ -849,27 +849,6 @@
   margin-top: 3px;
 }
 
-/* "Following route to <target>" — the line the unit drives right now. */
-.lt-card-route-name {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--route);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lt-card-route-name b {
-  overflow: hidden;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .lt-card-route em {
   font-size: 11px;
   font-style: normal;
@@ -1059,26 +1038,6 @@
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 13px;
-}
-
-/* Headline of the delivery card: where the unit is heading. */
-.lt-route-heading {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-2);
-}
-
-.lt-route-heading svg {
-  flex: none;
-  color: var(--route);
-}
-
-.lt-route-heading b {
-  color: var(--route);
-  font-weight: 700;
 }
 
 .lt-route-ends {
@@ -1297,18 +1256,18 @@
   --map-ink: #0a0a0a;
   --map-on-ink: #ffffff;
   --map-ring: #ffffff;
-  --route: #1d4ed8;
+  --route: #0a0a0a;
   --route-casing: #ffffff;
-  --route-done: #94a3b8;
+  --route-done: #a3a8ae;
 }
 
 :root[data-theme='dark'] {
   --map-ink: #ffffff;
   --map-on-ink: #0a0a0a;
   --map-ring: #15171b;
-  --route: #60a5fa;
+  --route: #ffffff;
   --route-casing: rgba(10, 11, 13, 0.92);
-  --route-done: #475569;
+  --route-done: #5f6368;
 }
 
 /* Markers glide between two position reports instead of teleporting. */
@@ -1421,10 +1380,7 @@
   border-color: var(--veh, #16a34a);
 }
 
-/* Delivery route: a blue line with a paper casing, travelled part dotted.
-   The colour is deliberately not the accent red: the route is the only line
-   on the map, and it has to read at a glance against the tiles and the red
-   vehicle markers. */
+/* Delivery route: ink line with a paper casing, travelled part dotted. */
 .route-casing {
   stroke: var(--route-casing);
 }

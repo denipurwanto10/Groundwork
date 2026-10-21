@@ -1,0 +1,648 @@
+/* ==========================================================================
+   Red · flat · premium · responsive — loaded LAST (after fleet-final.css).
+
+   Design rules
+   - ONE primary: brand red. Everything else is neutral grey on white / ink.
+   - Flat: solid fills, 1px hairline borders, no gradients, no drop shadows,
+     no hover "lift". Depth comes from borders and tone, never from blur.
+   - Status colours are semantic only (green ok, amber idle, slate offline).
+   - Fluid spacing + type with clamp(); one layout per width band:
+        phone  < 768  · tablet 768–1099 · laptop 1100–1799 · wide ≥ 1800
+   - Touch devices get 44px targets, safe-area aware docks and dvh heights.
+
+   Remove `import './theme-red.css'` in App.tsx to revert.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Tokens
+   -------------------------------------------------------------------------- */
+:root,
+:root:not([data-theme='dark']) .dash {
+  color-scheme: light;
+
+  --bg: #f6f6f7;
+  --panel: #ffffff;
+  --panel-solid: #ffffff;
+  --panel-2: #f3f3f5;
+  --field: #ffffff;
+  --line: #e6e6ea;
+  --line-strong: #d3d3d9;
+
+  --text: #16171a;
+  --text-2: #3e4047;
+  --muted: #6a6d76;
+
+  /* primary red */
+  --accent: #d0171e;
+  --accent-hover: #b01017;
+  --accent-active: #950d13;
+  --accent-soft: rgb(208 23 30 / 8%);
+  --accent-line: rgb(208 23 30 / 34%);
+  --btn: #d0171e;
+  --btn-hover: #b01017;
+  --on-btn: #ffffff;
+  --grad: var(--btn);
+  --grad-hover: var(--btn-hover);
+
+  /* semantic status — used for data, never for chrome */
+  --ok: #1b7f48;
+  --ok-soft: rgb(27 127 72 / 10%);
+  --live: var(--accent);
+  --live-soft: var(--accent-soft);
+  --info: #5a6372;
+  --warn: #b66a00;
+  --warn-soft: rgb(182 106 0 / 11%);
+  --idle: #c98a14;
+  --idle-soft: rgb(201 138 20 / 12%);
+  --danger: #b4231f;
+  --danger-soft: rgb(180 35 31 / 8%);
+  --danger-line: rgb(180 35 31 / 32%);
+
+  --scrim: rgb(14 15 18 / 48%);
+  --route: #d0171e;
+  --route-casing: #ffffff;
+  --route-done: #a3a3ad;
+  --map-ink: #16171a;
+
+  /* flat: no elevation anywhere */
+  --elev-1: none;
+  --elev-2: none;
+  --shadow-panel: none;
+  --shadow-card: none;
+  --shadow-btn: none;
+  --shadow-pop: none;
+  --d-shadow: none;
+  --d-shadow-hover: none;
+
+  /* one radius scale */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+  --d-radius: 14px;
+
+  /* fluid rhythm */
+  --d-pad: clamp(12px, 1.7vw, 24px);
+  --d-gap: clamp(10px, 1.3vw, 18px);
+  --fs-body: clamp(13.5px, 0.2vw + 13px, 15px);
+}
+
+:root[data-theme='dark'],
+:root[data-theme='dark'] .dash {
+  color-scheme: dark;
+
+  --bg: #0d0e10;
+  --panel: #141518;
+  --panel-solid: #181a1d;
+  --panel-2: #202226;
+  --field: #111214;
+  --line: rgb(255 255 255 / 8%);
+  --line-strong: rgb(255 255 255 / 15%);
+
+  --text: #ededef;
+  --text-2: #c8cad0;
+  --muted: #8e919a;
+
+  --accent: #f0575e;
+  --accent-hover: #f57c82;
+  --accent-active: #f99a9f;
+  --accent-soft: rgb(240 87 94 / 13%);
+  --accent-line: rgb(240 87 94 / 40%);
+  --btn: #d4232a;
+  --btn-hover: #e5343b;
+  --on-btn: #ffffff;
+  --grad: var(--btn);
+  --grad-hover: var(--btn-hover);
+
+  --ok: #4cc380;
+  --ok-soft: rgb(76 195 128 / 13%);
+  --info: #9ba2af;
+  --warn: #e0a64a;
+  --warn-soft: rgb(224 166 74 / 13%);
+  --idle: #e0a64a;
+  --idle-soft: rgb(224 166 74 / 13%);
+  --danger: #ee6b64;
+  --danger-soft: rgb(238 107 100 / 13%);
+  --danger-line: rgb(238 107 100 / 38%);
+
+  --scrim: rgb(3 3 5 / 68%);
+  --route: #f0575e;
+  --route-casing: rgb(13 14 16 / 92%);
+  --route-done: #5c5f68;
+  --map-ink: #ededef;
+}
+
+/* data tones used by KPI / filter cards */
+.dash .kpi:has(.kpi-icon.ok) { --k: var(--ok); }
+.dash .kpi:has(.kpi-icon.warn) { --k: var(--warn); }
+.dash .kpi:has(.kpi-icon.info) { --k: var(--info); }
+.dash .um-stat.admin { --k: var(--accent); }
+.dash .um-stat.viewer { --k: var(--info); }
+.dash .um-stat.driver { --k: var(--warn); }
+
+/* --------------------------------------------------------------------------
+   2. Base: surfaces, type, focus
+   -------------------------------------------------------------------------- */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body,
+.app,
+.dash,
+.dash .main,
+.dash .stage,
+:root[data-theme='dark'] .app,
+.auth-screen {
+  background: var(--bg);
+}
+
+body {
+  color: var(--text);
+  overflow-x: clip;
+  font-size: var(--fs-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.app,
+.dash {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.dash .main,
+.dash .stage,
+.dash .topbar,
+.dash .panel-pane,
+.dash .d-card {
+  min-width: 0;
+}
+
+::selection { background: var(--accent-soft); color: inherit; }
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+input, select, textarea { accent-color: var(--accent); }
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: none !important;
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 0;
+}
+
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* --------------------------------------------------------------------------
+   3. Flat surfaces: cards, panels, modals, popups
+   -------------------------------------------------------------------------- */
+.dash .d-card,
+.dash .um-card,
+.dash .kpi,
+.dash .um-stat,
+.dash .map-card,
+.dash .panel-pane,
+.dash .topbar,
+.lt-card,
+.lt-detail,
+.um-modal,
+.dialog-card,
+.sel-menu,
+.toast,
+.dash .toast,
+.auth-form,
+.auth-card,
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip,
+.leaflet-bar,
+.leaflet-control-layers {
+  box-shadow: none !important;
+  background-image: none !important;
+}
+
+.dash .d-card,
+.dash .um-card,
+.dash .kpi,
+.dash .um-stat,
+.lt-card,
+.lt-detail {
+  background-color: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.dash .map-card,
+.dash .panel-pane {
+  border: 1px solid var(--line);
+  border-radius: var(--d-radius);
+}
+
+.dash .topbar {
+  background: var(--panel-solid);
+  border-bottom: 1px solid var(--line);
+}
+
+/* hover on cards: border tone only, never movement */
+.dash .d-card:hover,
+.dash .um-card:hover,
+.dash .kpi:hover,
+.lt-card:hover {
+  transform: none !important;
+  border-color: var(--line-strong);
+}
+.dash button.kpi:hover { border-color: var(--accent-line); }
+
+/* modals / dialogs / menus: separated by a firm hairline, not a shadow */
+.um-modal,
+.dialog-card,
+.sel-menu,
+.toast,
+.dash .toast,
+.auth-card,
+.leaflet-popup-content-wrapper {
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+}
+.leaflet-popup-tip { background: var(--panel-solid); border: 1px solid var(--line-strong); }
+
+/* --------------------------------------------------------------------------
+   4. Controls: buttons, inputs, nav
+   -------------------------------------------------------------------------- */
+.dash .btn,
+.btn,
+button.ghost,
+button.secondary {
+  border-radius: var(--r-md);
+  box-shadow: none !important;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.dash .btn:not(.primary):not(.danger),
+.btn:not(.primary):not(.danger) {
+  background: var(--panel-solid);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+}
+.dash .btn:not(.primary):not(.danger):hover:not(:disabled),
+.btn:not(.primary):not(.danger):hover:not(:disabled) {
+  background: var(--panel-2);
+  border-color: var(--line-strong);
+}
+
+.dash .btn.primary,
+.btn.primary,
+button.primary,
+.auth-form button[type='submit'] {
+  background: var(--btn) !important;
+  background-image: none !important;
+  color: var(--on-btn) !important;
+  border: 1px solid transparent;
+  box-shadow: none !important;
+  font-weight: 650;
+}
+.dash .btn.primary:hover:not(:disabled),
+.btn.primary:hover:not(:disabled),
+button.primary:hover:not(:disabled),
+.auth-form button[type='submit']:hover:not(:disabled) {
+  background: var(--btn-hover) !important;
+  transform: none;
+}
+.dash .btn.primary:active:not(:disabled),
+.btn.primary:active:not(:disabled),
+button.primary:active:not(:disabled) {
+  background: var(--accent-active) !important;
+}
+.dash .btn:disabled,
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dash .btn.danger,
+.btn.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger-line);
+}
+
+.dash .icon-btn,
+.icon-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  box-shadow: none !important;
+}
+.dash .icon-btn:hover,
+.icon-btn:hover { background: var(--panel-2); color: var(--text); }
+
+input,
+select,
+textarea,
+.dash .search {
+  background: var(--field);
+  border-radius: var(--r-md);
+}
+
+/* sidebar rail: active = tinted row + 3px red bar */
+.dash .rail { background: var(--panel-solid); border-right: 1px solid var(--line); box-shadow: none; }
+.dash .rail-item {
+  position: relative;
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  background: transparent;
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.dash .rail-item:hover { background: var(--panel-2); color: var(--text); }
+.dash .rail-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: none;
+}
+.dash .rail-item.active::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 22%;
+  bottom: 22%;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.dash .rail-count {
+  background: var(--panel-2);
+  color: var(--text-2);
+  border-radius: 999px;
+}
+.dash .rail-item.active .rail-count { background: var(--accent); color: var(--on-btn); }
+
+/* --------------------------------------------------------------------------
+   5. Status filter cards (All / Moving / Idle / Offline) — flat
+   -------------------------------------------------------------------------- */
+.lt .lt-stats {
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: clamp(6px, 1vw, 10px);
+}
+.lt .lt-stats .lt-stat {
+  border-radius: var(--r-lg);
+  box-shadow: none !important;
+  background: var(--panel-solid) !important;
+  border: 1px solid var(--line) !important;
+}
+.lt .lt-stats .lt-stat.all     { --k: #3f4047; --k-text: var(--text); --on: #fff; }
+.lt .lt-stats .lt-stat.moving  { --k: var(--accent); --k-text: var(--accent); --on: #fff; }
+.lt .lt-stats .lt-stat.idle    { --k: var(--idle); --k-text: var(--warn); --on: #231600; }
+.lt .lt-stats .lt-stat.offline { --k: #7d8491; --k-text: var(--info); --on: #fff; }
+:root[data-theme='dark'] .lt .lt-stats .lt-stat {
+  background: var(--panel-solid) !important;
+  border-color: var(--line) !important;
+}
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.all     { --k: #d2d3d8; --k-text: var(--text); --on: #101113; }
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.moving  { --k: var(--accent); --k-text: var(--accent); --on: #fff; }
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.idle    { --k: var(--idle); --k-text: var(--warn); --on: #231600; }
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.offline { --k: #8d94a1; --k-text: var(--info); --on: #101113; }
+
+.lt .lt-stats .lt-stat:hover {
+  transform: none;
+  border-color: var(--k) !important;
+}
+.lt .lt-stats .lt-stat.on,
+:root[data-theme='dark'] .lt .lt-stats .lt-stat.on {
+  background: var(--k) !important;
+  border-color: var(--k) !important;
+  box-shadow: none !important;
+}
+.lt .lt-stats .lt-stat.moving:not(.on) b::after { box-shadow: none; }
+
+/* --------------------------------------------------------------------------
+   6. Map: flat controls, red route
+   -------------------------------------------------------------------------- */
+.leaflet-container,
+.map { background: #e9eaec; }
+:root[data-theme='dark'] .map,
+:root[data-theme='dark'] .leaflet-container { background: #101114; }
+
+.leaflet-bar,
+.leaflet-control-layers {
+  border: 1px solid var(--line-strong) !important;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--panel-solid);
+  color: var(--text);
+}
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  width: 34px;
+  height: 34px;
+  line-height: 34px;
+  color: var(--text-2);
+  background: var(--panel-solid);
+  border-bottom: 1px solid var(--line);
+}
+.leaflet-bar a:last-child { border-bottom: 0; }
+.leaflet-bar a:hover { background: var(--panel-2); color: var(--accent); }
+.leaflet-control-layers-selector { accent-color: var(--accent); }
+
+.leaflet-popup-content { max-width: min(300px, calc(100vw - 88px)); overflow-wrap: anywhere; }
+.leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+
+/* route: solid red line with a white casing, grey dashes behind the vehicle */
+.route-casing { stroke: var(--route-casing); }
+.route-ahead  { stroke: var(--route); }
+.route-done   { stroke: var(--route-done); }
+
+.route-stop,
+.route-stop.dest { box-shadow: none !important; }
+.route-stop { border: 3px solid var(--route); background: var(--panel-solid); color: var(--route); }
+.route-stop.dest { background: var(--route); color: #fff; }
+.route-stop.dest::after { border-top-color: var(--route); }
+
+/* --------------------------------------------------------------------------
+   7. Responsive layout
+   -------------------------------------------------------------------------- */
+
+/* KPI + overview blocks adapt to the space they get, not to a fixed count */
+.kpi-grid {
+  display: grid;
+  gap: var(--d-gap);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 156px), 1fr));
+}
+.stage-extra {
+  gap: var(--d-gap);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+.kpi-value { font-size: clamp(22px, 1.2vw + 16px, 30px); }
+
+/* top bar: long titles truncate instead of wrapping */
+.topbar-title { min-width: 0; }
+.topbar-title h2,
+.topbar-title p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-tools { flex-shrink: 0; }
+
+/* ---- laptop & desktop (≥ 1100) ---- */
+@media (min-width: 1100px) {
+  .dash { --pane-w: clamp(340px, 27vw, 440px); }
+  .stage[data-view='overview'] {
+    grid-template-columns: minmax(0, 1fr) clamp(340px, 27vw, 460px);
+  }
+}
+
+/* ---- wide screens (≥ 1800): keep line lengths and cards in proportion ---- */
+@media (min-width: 1800px) {
+  .dash { --pane-w: 460px; --d-pad: 28px; --d-gap: 20px; }
+  .stage[data-view='overview'] > * { max-width: 2000px; }
+  .stage[data-view='overview'] { justify-content: center; }
+}
+
+/* ---- tablet (768 – 1099): slim rail, map + panel side by side ---- */
+@media (min-width: 768px) and (max-width: 1099px) {
+  .dash { --rail-w: 76px; --pane-w: clamp(300px, 38vw, 360px); }
+  .stage[data-view='overview'] {
+    grid-template-rows: auto minmax(380px, 52vh) auto auto;
+  }
+  .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); }
+}
+
+/* ---- phone (< 768): docked flat tab bar, flat segmented switch ---- */
+@media (max-width: 767px) {
+  .dash {
+    --nav-h: 58px;
+    --d-radius: 14px;
+    --d-pad: 12px;
+    --d-gap: 10px;
+  }
+
+  .bottom-nav {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--nav-h) + var(--safe-b));
+    padding: 4px 6px var(--safe-b);
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--panel-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .bottom-nav button {
+    position: relative;
+    border-radius: var(--r-md);
+    color: var(--muted);
+    background: transparent;
+  }
+  .bottom-nav button.active {
+    background: transparent;
+    color: var(--accent);
+  }
+  .bottom-nav button.active::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 24%;
+    right: 24%;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--accent);
+  }
+  .bottom-nav button.active .bn-icon svg { animation: none; }
+
+  .pane-switch {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+  }
+  .pane-switch::before {
+    background: var(--panel-solid);
+    border: 1px solid var(--line-strong);
+    box-shadow: none !important;
+  }
+  :root[data-theme='dark'] .pane-switch::before { background: var(--panel-solid); box-shadow: none; }
+  .pane-switch button.on { color: var(--accent); }
+
+  /* dialogs become full-width sheets that never overflow the screen */
+  .um-modal,
+  .dialog-card {
+    width: min(100% - 20px, 520px);
+    max-height: calc(100dvh - 20px - var(--safe-b));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .stage[data-view='overview'] { grid-template-rows: auto clamp(280px, 42dvh, 380px) auto auto; }
+}
+
+/* very small phones */
+@media (max-width: 360px) {
+  .dash { --d-pad: 10px; --d-gap: 8px; }
+  .topbar-title h2 { font-size: 16px; }
+  .topbar-title p { display: none; }
+  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* landscape phones: give the map the height, shrink chrome */
+@media (max-height: 500px) and (orientation: landscape) {
+  .dash { --topbar-h: 48px; --nav-h: 46px; }
+  .topbar-title p { display: none; }
+  .stage:not([data-view='overview']) { grid-template-rows: 70dvh minmax(0, 1fr); }
+}
+
+/* --------------------------------------------------------------------------
+   8. Touch & motion
+   -------------------------------------------------------------------------- */
+@media (pointer: coarse) {
+  .dash .btn,
+  .btn,
+  .dash .icon-btn,
+  .icon-btn,
+  .dash .rail-item,
+  .pane-switch button,
+  input:not([type='checkbox']):not([type='radio']),
+  select {
+    min-height: 44px;
+  }
+  .leaflet-bar a,
+  .leaflet-bar a:hover { width: 40px; height: 40px; line-height: 40px; }
+  input, select, textarea { font-size: 16px; } /* stops iOS zoom-on-focus */
+}
+
+@media (hover: none) {
+  .dash .d-card:hover,
+  .dash .kpi:hover,
+  .lt-card:hover,
+  .lt .lt-stats .lt-stat:hover { border-color: var(--line); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root { --line: #b9b9c0; --line-strong: #8d8d96; }
+}
