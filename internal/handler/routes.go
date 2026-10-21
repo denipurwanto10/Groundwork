@@ -180,6 +180,10 @@ func (h *RouteHandler) History(c *gin.Context) {
 		return
 	}
 
+	if !h.vehicleReadable(c, id) {
+		return
+	}
+
 	ctx, cancel := h.ctxWithTimeout(c)
 	defer cancel()
 
@@ -192,6 +196,64 @@ func (h *RouteHandler) History(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"routes": routes, "count": len(routes)}})
+}
+
+// Active returns the route a vehicle is following right now, with its
+// geometry: the line a driver (or the simulator) needs to walk the delivery.
+//
+// A unit without an active route answers 404.
+func (h *RouteHandler) Active(c *gin.Context) {
+	id, ok := vehicleIDParam(c)
+	if !ok {
+		return
+	}
+
+	if !h.vehicleReadable(c, id) {
+		return
+	}
+
+	ctx, cancel := h.ctxWithTimeout(c)
+	defer cancel()
+
+	routes, err := h.queryRoutes(ctx,
+		routeCols+" WHERE rt.vehicle_id = $1 AND rt.status = 'active' ORDER BY rt.id DESC LIMIT 1", id)
+	if err != nil {
+		log.Printf("routes: active route failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+	if len(routes) == 0 {
+		c.JSON(http.StatusNotFound, errorBody("not_found", "this vehicle has no active route"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": routes[0]})
+}
+
+// vehicleReadable reports whether the signed-in account may read the routes
+// of this vehicle. Everyone but a driver may; a driver only sees the unit that
+// is theirs, the same rule the fleet list follows. It writes the error
+// response itself, so the caller can simply return.
+func (h *RouteHandler) vehicleReadable(c *gin.Context, id int64) bool {
+	scope := driverScope(c)
+	if scope == nil {
+		return true
+	}
+
+	ctx, cancel := h.ctxWithTimeout(c)
+	defer cancel()
+
+	allowed, err := vehicleBelongsToDriver(ctx, h.db, id, *scope)
+	if err != nil {
+		log.Printf("routes: driver scope for vehicle %d failed: %v", id, err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return false
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, errorBody("forbidden", "this vehicle is not assigned to you"))
+		return false
+	}
+	return true
 }
 
 // Set plans and stores a new active route. An earlier active route for the same

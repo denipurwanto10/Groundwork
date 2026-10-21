@@ -215,8 +215,11 @@ go run ./cmd/simulator -api http://127.0.0.1:8091 \
    tujuan]"*. Rute aktif ikut dibawa oleh `GET /api/vehicles`
    (`active_route`).
 5. Simulator membaca `GET /api/routes` tiap tick: unit tanpa rute bergerak
-   bebas, unit dengan rute menyusuri polyline selangkah demi selangkah, lalu
-   menutup rute (status `completed`) ketika tiba di ujung garis.
+   bebas, unit dengan rute menyusuri polyline **titik per titik** — posisinya
+   persis di titik-titik garis merah, bukan di sebelahnya. Satu titik per tick
+   secara bawaan (`-step`); `-step 20` membuat jejak lebih cepat ditempuh.
+   Saat unit mencapai titik terakhir, rute ditutup sendiri dan unit berhenti
+   mengikuti garis.
 
 ### 6. Frontend
 
@@ -286,8 +289,9 @@ dengan yang asli.
 | `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `heading`, `status` opsional) → disiar ke WS |
 | `GET` | `/api/vehicles/:id/history` | histori posisi unit: `?date=YYYY-MM-DD` atau `?from=&to=` |
 | `GET` | `/api/vehicles/stream` | WebSocket: frame `snapshot` saat connect, lalu `position` |
-| `GET` | `/api/routes` | semua rute |
+| `GET` | `/api/routes` | semua rute aktif |
 | `GET` | `/api/vehicles/:id/routes` | riwayat rute satu kendaraan |
+| `GET` | `/api/vehicles/:id/route` | rute aktif satu kendaraan (dengan geometri; `404` bila tidak ada) |
 | `POST` | `/api/vehicles/:id/route` | rencanakan rute `{origin:{lat,lng,name}, destination:{…}}` |
 | `DELETE` | `/api/vehicles/:id/route` | batalkan rute aktif |
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"entity-management/internal/db"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 )
@@ -79,7 +80,7 @@ func (h *VehicleHandler) History(c *gin.Context) {
 	defer cancel()
 
 	if scope := driverScope(c); scope != nil {
-		allowed, err := h.vehicleBelongsToDriver(ctx, id, *scope)
+		allowed, err := vehicleBelongsToDriver(ctx, h.db, id, *scope)
 		if err != nil {
 			log.Printf("history: driver scope for vehicle %d failed: %v", id, err)
 			c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
@@ -127,9 +128,9 @@ func (h *VehicleHandler) History(c *gin.Context) {
 
 // vehicleBelongsToDriver reports whether the unit is assigned to the driver.
 // A unit without a driver belongs to the admins, not to a driver.
-func (h *VehicleHandler) vehicleBelongsToDriver(ctx context.Context, id, driverID int64) (bool, error) {
+func vehicleBelongsToDriver(ctx context.Context, pool *db.Pool, id, driverID int64) (bool, error) {
 	var owner *int64
-	err := h.db.QueryRow(ctx, `SELECT driver_id FROM vehicles WHERE id = $1`, id).Scan(&owner)
+	err := pool.QueryRow(ctx, `SELECT driver_id FROM vehicles WHERE id = $1`, id).Scan(&owner)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

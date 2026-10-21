@@ -119,6 +119,7 @@ func main() {
 			routeHandler := handler.NewRouteHandler(pool, hub)
 			protected.GET("/routes", routeHandler.List)
 			protected.GET("/vehicles/:id/routes", routeHandler.History)
+			protected.GET("/vehicles/:id/route", routeHandler.Active)
 			protected.POST("/vehicles/:id/route", routeHandler.Set)
 			protected.DELETE("/vehicles/:id/route", routeHandler.Clear)
 		}
