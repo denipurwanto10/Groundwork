@@ -13,7 +13,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
 import type { Entity, RegionCollection, RegionFeature, Vehicle, VehicleRoute, RouteStop, ZoneFeature, ZoneGeometry } from '../lib/types'
-import { hasPosition, typeColorFor } from '../lib/types'
+import { hasPosition, routeLatLngs, typeColorFor } from '../lib/types'
 import ZoneLayer from './ZoneLayer'
 import RegionLayer from './RegionLayer'
 import VehicleLayer from './VehicleLayer'
@@ -35,14 +35,65 @@ function pinIcon(status: 'active' | 'inactive' | 'draft', type: string, selected
 
 const JAKARTA: [number, number] = [-6.2, 106.85]
 
-// OpenStreetMap standard raster tiles: free, no API key. Tinted in CSS
-// (.tiles-gmaps) towards the Google Maps palette. Override the endpoint with
-// VITE_MAP_TILES_URL.
-const TILE_URL =
-  (import.meta.env.VITE_MAP_TILES_URL as string | undefined) || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+/**
+ * Basemaps. Esri serves its raster tiles without an API key and without a
+ * billing account, so the map can look like the street map everybody uses
+ * (white land, orange motorways, green parks, street names) plus a satellite
+ * view, all for free.
+ *
+ * The satellite view is the same imagery the big providers show, with a
+ * separate label layer on top of it.
+ *
+ * VITE_MAP_TILES_URL still wins: with it set, the app uses that single tile
+ * source and hides the switcher.
+ */
+export type BasemapId = 'streets' | 'satellite' | 'terrain'
 
-const MAP_ATTRIBUTION =
+interface Basemap {
+  id: BasemapId
+  label: string
+  /** Tile layers, bottom first; the last one is the label overlay. */
+  tiles: { url: string; attribution: string }[]
+  maxZoom: number
+}
+
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services'
+
+const ESRI_ATTRIBUTION =
+  'Tiles &copy; <a href="https://www.esri.com/" target="_blank" rel="noreferrer">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
+
+const ESRI_IMAGERY_ATTRIBUTION =
+  'Imagery &copy; <a href="https://www.esri.com/" target="_blank" rel="noreferrer">Esri</a> &mdash; Esri, Maxar, Earthstar Geographics'
+
+const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
+
+const BASEMAPS: Basemap[] = [
+  {
+    id: 'streets',
+    label: 'Streets',
+    tiles: [{ url: `${ESRI}/World_Street_Map/MapServer/tile/{z}/{y}/{x}`, attribution: ESRI_ATTRIBUTION }],
+    maxZoom: 18,
+  },
+  {
+    id: 'satellite',
+    label: 'Satellite',
+    tiles: [
+      { url: `${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, attribution: ESRI_IMAGERY_ATTRIBUTION },
+      { url: `${ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`, attribution: OSM_ATTRIBUTION },
+    ],
+    maxZoom: 18,
+  },
+  {
+    id: 'terrain',
+    label: 'Terrain',
+    tiles: [{ url: `${ESRI}/World_Topo_Map/MapServer/tile/{z}/{y}/{x}`, attribution: ESRI_ATTRIBUTION }],
+    maxZoom: 18,
+  },
+]
+
+/** The tile source an operator pinned in the environment, if any. */
+const CUSTOM_TILE_URL = (import.meta.env.VITE_MAP_TILES_URL as string | undefined) || ''
 
 function ClickPicker({
   picking,
@@ -211,6 +262,67 @@ function FollowVehicle({
   return null
 }
 
+/**
+ * Basemap switcher, top left of the map: the same three choices the big map
+ * providers offer. Only shown when the tile source is not pinned in the
+ * environment.
+ */
+function BasemapControl({
+  basemap,
+  onChange,
+}: {
+  basemap: BasemapId
+  onChange: (id: BasemapId) => void
+}) {
+  const map = useMap()
+  const boxRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const Control = L.Control.extend({
+      onAdd() {
+        const box = L.DomUtil.create('div', 'basemap-switch')
+        // The map is a coordinate picker in some modes: a click on the
+        // control must not pick a point.
+        L.DomEvent.disableClickPropagation(box)
+        for (const b of BASEMAPS) {
+          const btn = L.DomUtil.create('button', 'basemap-btn', box) as HTMLButtonElement
+          btn.type = 'button'
+          btn.textContent = b.label
+          btn.dataset.id = b.id
+          btn.setAttribute('aria-label', `Show the ${b.label.toLowerCase()} map`)
+          L.DomEvent.on(btn, 'click', (e) => {
+            L.DomEvent.stop(e)
+            onChange(b.id)
+          })
+        }
+        boxRef.current = box
+        return box
+      },
+    })
+    // Top right, under the zoom control: the top left of the map belongs to
+    // the region panel of the app.
+    const ctrl = new Control({ position: 'topright' })
+    ctrl.addTo(map)
+    return () => {
+      ctrl.remove()
+      boxRef.current = null
+    }
+  }, [map, onChange])
+
+  useEffect(() => {
+    const box = boxRef.current
+    if (!box) return
+    box.querySelectorAll('button').forEach((b) => {
+      const btn = b as HTMLButtonElement
+      const on = btn.dataset.id === basemap
+      btn.classList.toggle('on', on)
+      btn.setAttribute('aria-pressed', String(on))
+    })
+  }, [basemap])
+
+  return null
+}
+
 /** Fits every located vehicle whenever `signal` changes (the "fit fleet" button). */
 function FitFleet({ vehicles, signal, inset }: { vehicles: Vehicle[]; signal: number; inset: MapInset }) {
   const map = useMap()
@@ -228,6 +340,38 @@ function FitFleet({ vehicles, signal, inset }: { vehicles: Vehicle[]; signal: nu
       duration: 0.8,
     })
   }, [signal, map])
+  return null
+}
+
+/**
+ * Shows the route that was just planned. A line the camera does not look at
+ * is a line the operator never sees, so the map flies to the whole path
+ * whenever a new plan comes in.
+ */
+function FitRoute({
+  focus,
+  routes,
+}: {
+  focus: { id: number; n: number } | null
+  routes: VehicleRoute[]
+}) {
+  const map = useMap()
+  // The routes change on every position report; only the focus signal may
+  // move the camera.
+  const latest = useRef(routes)
+  latest.current = routes
+
+  useEffect(() => {
+    if (!focus) return
+    const route = latest.current.find((r) => r.id === focus.id)
+    if (!route) return
+    const pts = routeLatLngs(route)
+    if (pts.length < 2) return
+    const bounds = L.latLngBounds(pts)
+    if (!bounds.isValid()) return
+    map.flyToBounds(bounds.pad(0.3), { duration: 0.8, maxZoom: 15 })
+  }, [focus?.n, map])
+
   return null
 }
 
@@ -301,6 +445,11 @@ interface Props {
   routeDraft: { origin: RouteStop | null; destination: RouteStop | null } | null
   routePick: boolean
   onRoutePoint: (lat: number, lng: number) => void
+  /** The route the camera has to show; the counter makes every plan move it. */
+  focusRoute?: { id: number; n: number } | null
+  /** Which basemap is shown. */
+  basemap: BasemapId
+  onBasemapChange: (id: BasemapId) => void
 }
 
 export default function EntityMap({
@@ -338,6 +487,9 @@ export default function EntityMap({
   routeDraft,
   routePick,
   onRoutePoint,
+  focusRoute,
+  basemap,
+  onBasemapChange,
 }: Props) {
   const center: [number, number] =
     selected != null
@@ -345,6 +497,16 @@ export default function EntityMap({
       : entities.length > 0
         ? [entities[0].latitude, entities[0].longitude]
         : JAKARTA
+
+  // A tile source pinned in the environment replaces the whole switcher.
+  const activeBasemap: Basemap = CUSTOM_TILE_URL
+    ? {
+        id: 'streets',
+        label: 'Custom',
+        tiles: [{ url: CUSTOM_TILE_URL, attribution: OSM_ATTRIBUTION }],
+        maxZoom: 19,
+      }
+    : BASEMAPS.find((b) => b.id === basemap) ?? BASEMAPS[0]
 
   return (
     <MapContainer
@@ -355,7 +517,15 @@ export default function EntityMap({
       attributionControl={false}
       className={picking || routePick ? 'map picking' : 'map'}
     >
-      <TileLayer key={theme} attribution={MAP_ATTRIBUTION} url={TILE_URL} className="tiles-gmaps" maxZoom={19} />
+      {activeBasemap.tiles.map((t, i) => (
+        <TileLayer
+          key={`${activeBasemap.id}-${i}-${theme}`}
+          attribution={t.attribution}
+          url={t.url}
+          className={`tiles-gmaps tiles-${activeBasemap.id}`}
+          maxZoom={activeBasemap.maxZoom}
+        />
+      ))}
       {/* Official administrative boundaries (read-only, underneath zones) */}
       <RegionLayer
         level={regionLevel}
@@ -425,6 +595,10 @@ export default function EntityMap({
       />
       <InvalidateOnResize />
       <FitFleet vehicles={vehicles} signal={fitFleetSignal} inset={inset} />
+      <FitRoute focus={focusRoute ?? null} routes={routes} />
+      {!CUSTOM_TILE_URL && (
+        <BasemapControl basemap={activeBasemap.id} onChange={onBasemapChange} />
+      )}
       <GlideGuard />
       <ZoomControl position="topright" />
       <AttributionControl position="bottomright" prefix={false} />

@@ -355,6 +355,8 @@ export interface Vehicle {
   lng: number | null
   speed_kmh: number
   last_seen_at: string | null
+  /** The delivery route the unit is following, if any. */
+  active_route?: VehicleRoute | null
 }
 
 /** Body of the create/update vehicle calls. */
@@ -582,4 +584,24 @@ export function formatDuration(seconds: number): string {
 export function routeForVehicle(routes: VehicleRoute[], vehicleId: number | null): VehicleRoute | undefined {
   if (vehicleId == null) return undefined
   return routes.find((r) => r.vehicle_id === vehicleId && r.status === 'active')
+}
+
+/**
+ * Merge route lists into one, newest wins. The same route arrives from
+ * several places — the fleet list carries the active route of every unit,
+ * the route list returns all of them and the live feed pushes the progress
+ * — so the map keeps one line per route id.
+ */
+export function mergeRoutes(current: VehicleRoute[], incoming: VehicleRoute[]): VehicleRoute[] {
+  const byId = new Map<number, VehicleRoute>()
+  for (const r of current) byId.set(r.id, r)
+  for (const r of incoming) byId.set(r.id, r)
+  return [...byId.values()].filter((r) => r.status === 'active')
+}
+
+/** The routes of the units in a fleet list. */
+export function activeRoutesOf(vehicles: Vehicle[]): VehicleRoute[] {
+  return vehicles
+    .map((v) => v.active_route)
+    .filter((r): r is VehicleRoute => !!r && r.status === 'active')
 }
