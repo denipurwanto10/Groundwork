@@ -108,6 +108,7 @@ func main() {
 			protected.PUT("/vehicles/:id", adminOnly, vehicleHandler.Update)
 			protected.DELETE("/vehicles/:id", adminOnly, vehicleHandler.Delete)
 			protected.POST("/vehicles/:id/position", vehicleHandler.UpdatePosition)
+			protected.GET("/vehicles/:id/history", vehicleHandler.History)
 			protected.GET("/vehicles/stream", vehicleHandler.Stream)
 
 			// Crossing history of the zone boundaries. Every signed-in role may
