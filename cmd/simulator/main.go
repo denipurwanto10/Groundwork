@@ -261,6 +261,9 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 			"lng":       u.lng,
 			"speed_kmh": math.Round(speed*10) / 10,
 			"status":    status,
+			// The direction the unit faces: a compass bearing in degrees,
+			// which is what the map turns the marker by.
+			"heading": math.Round(toDegrees(u.dir)*10) / 10,
 		}
 		if err := postJSON(client, fmt.Sprintf("%s/api/vehicles/%d/position", api, u.id), body, nil, token); err != nil {
 			var se *statusError
@@ -475,6 +478,17 @@ func haversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
 		math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLng/2)*math.Sin(dLng/2)
 
 	return 2 * earthRadius * math.Asin(math.Min(1, math.Sqrt(h)))
+}
+
+// toDegrees turns a compass direction in radians into degrees (0 = north,
+// 90 = east), the unit the API and the map use.
+func toDegrees(rad float64) float64 {
+	deg := rad * 180 / math.Pi
+	deg = math.Mod(deg, 360)
+	if deg < 0 {
+		deg += 360
+	}
+	return deg
 }
 
 func joinLines(parts []string) string {

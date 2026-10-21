@@ -8,6 +8,7 @@ package vehicle
 import (
 	"encoding/json"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -72,6 +73,13 @@ type Vehicle struct {
 	SpeedKmh   float64    `json:"speed_kmh"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	DriverID   *int64     `json:"driver_id"`
+	// Compass bearing the unit is facing, in degrees (0 = north, 90 = east).
+	// Null until the unit reports one; the map then falls back to the direction
+	// between the last two positions.
+	Heading *float64 `json:"heading"`
+	// Colour of the delivery line of this unit. Every vehicle can have its
+	// own, so two units are told apart on the map.
+	RouteColor string `json:"route_color"`
 	// The delivery route the unit is following right now, if any. It travels
 	// with the fleet list so the map can draw the line and the fleet card can
 	// say where the unit is heading without a second request.
@@ -110,15 +118,29 @@ type CreateInput struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
 	DriverID *int64 `json:"driver_id"`
+	// Colour of the delivery line. Empty means "use the default".
+	RouteColor string `json:"route_color"`
 }
 
-// Normalize trims the text fields and applies the default kind.
+// DefaultRouteColor is the colour a unit gets when nobody picked one.
+const DefaultRouteColor = "#d0171e"
+
+// colorPattern matches a #rrggbb colour, the same shape the zone colour and
+// the database CHECK constraint use.
+var colorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+
+// Normalize trims the text fields and applies the default kind and route
+// colour.
 func (in *CreateInput) Normalize() {
 	in.Code = strings.TrimSpace(in.Code)
 	in.Name = strings.TrimSpace(in.Name)
 	in.Kind = strings.ToLower(strings.TrimSpace(in.Kind))
 	if in.Kind == "" {
 		in.Kind = KindTruck
+	}
+	in.RouteColor = strings.ToLower(strings.TrimSpace(in.RouteColor))
+	if in.RouteColor == "" {
+		in.RouteColor = DefaultRouteColor
 	}
 }
 
@@ -138,6 +160,9 @@ func (in *CreateInput) Validate() FieldErrors {
 	if !kinds[in.Kind] {
 		errs["kind"] = "kind must be one of truck, van, motorcycle, pickup"
 	}
+	if in.RouteColor != "" && !colorPattern.MatchString(in.RouteColor) {
+		errs["route_color"] = "route_color must be a hex colour like #d0171e"
+	}
 	return errs
 }
 
@@ -150,6 +175,9 @@ type PositionInput struct {
 	Lng      *float64 `json:"lng"`
 	SpeedKmh *float64 `json:"speed_kmh"`
 	Status   string   `json:"status"`
+	// Compass bearing the unit is facing, in degrees. Optional: a feed that
+	// does not know the direction simply leaves it out.
+	Heading *float64 `json:"heading"`
 }
 
 // Normalize trims the status and applies the default status.
@@ -175,6 +203,9 @@ func (in *PositionInput) Validate() FieldErrors {
 	}
 	if in.SpeedKmh != nil && (math.IsNaN(*in.SpeedKmh) || *in.SpeedKmh < 0 || *in.SpeedKmh > 300) {
 		errs["speed_kmh"] = "speed_kmh must be between 0 and 300"
+	}
+	if in.Heading != nil && (math.IsNaN(*in.Heading) || *in.Heading < 0 || *in.Heading >= 360) {
+		errs["heading"] = "heading must be between 0 and 360 degrees"
 	}
 	if !statuses[in.Status] {
 		errs["status"] = "status must be one of idle, moving, offline"

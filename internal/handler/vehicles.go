@@ -39,7 +39,8 @@ func (h *VehicleHandler) ctxWithTimeout(c *gin.Context) (context.Context, contex
 }
 
 const vehicleCols = `SELECT v.id, v.code, v.name, v.kind, v.status, v.driver_id,
-       v.last_lat, v.last_lng, v.last_speed_kmh, v.last_seen_at`
+       v.last_lat, v.last_lng, v.last_speed_kmh, v.last_seen_at,
+       v.last_heading, v.route_color`
 
 const vehicleFrom = ` FROM vehicles v`
 
@@ -51,6 +52,7 @@ const vehicleFrom = ` FROM vehicles v`
 // route, and the join keeps the fleet list a single round trip.
 const vehicleColsWithRoute = `SELECT v.id, v.code, v.name, v.kind, v.status, v.driver_id,
        v.last_lat, v.last_lng, v.last_speed_kmh, v.last_seen_at,
+       v.last_heading, v.route_color,
        rt.id, rt.origin_name, rt.origin_lat, rt.origin_lng,
        rt.dest_name, rt.dest_lat, rt.dest_lng,
        COALESCE(ST_AsGeoJSON(rt.geom, 6)::json, '{}'::json),
@@ -79,7 +81,7 @@ type rowScanner interface {
 func scanVehicle(row rowScanner, extra ...any) (vehicle.Vehicle, error) {
 	var v vehicle.Vehicle
 	dest := []any{&v.ID, &v.Code, &v.Name, &v.Kind, &v.Status, &v.DriverID,
-		&v.Lat, &v.Lng, &v.SpeedKmh, &v.LastSeenAt}
+		&v.Lat, &v.Lng, &v.SpeedKmh, &v.LastSeenAt, &v.Heading, &v.RouteColor}
 	dest = append(dest, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return vehicle.Vehicle{}, err
@@ -111,7 +113,7 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 	)
 
 	if err := row.Scan(&v.ID, &v.Code, &v.Name, &v.Kind, &v.Status, &v.DriverID,
-		&v.Lat, &v.Lng, &v.SpeedKmh, &v.LastSeenAt,
+		&v.Lat, &v.Lng, &v.SpeedKmh, &v.LastSeenAt, &v.Heading, &v.RouteColor,
 		&routeID, &originName, &originLat, &originLng,
 		&destName, &destLat, &destLng,
 		&geojson, &distanceM, &durationS, &source, &status, &createdAt, &progress); err != nil {
@@ -220,8 +222,8 @@ func (h *VehicleHandler) Create(c *gin.Context) {
 
 	var id int64
 	err := h.db.QueryRow(ctx,
-		`INSERT INTO vehicles (code, name, kind, driver_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-		in.Code, in.Name, in.Kind, in.DriverID).Scan(&id)
+		`INSERT INTO vehicles (code, name, kind, driver_id, route_color) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		in.Code, in.Name, in.Kind, in.DriverID, in.RouteColor).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
@@ -275,7 +277,7 @@ func (h *VehicleHandler) Update(c *gin.Context) {
 	ctx, cancel := h.ctxWithTimeout(c)
 	defer cancel()
 
-	updated, err := scanVehicle(h.db.QueryRow(ctx, updateVehicleSQL, id, in.Code, in.Name, in.Kind, in.DriverID))
+	updated, err := scanVehicle(h.db.QueryRow(ctx, updateVehicleSQL, id, in.Code, in.Name, in.Kind, in.DriverID, in.RouteColor))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		c.JSON(http.StatusNotFound, errorBody("not_found", "vehicle not found"))
@@ -305,10 +307,11 @@ func (h *VehicleHandler) Update(c *gin.Context) {
 // updateVehicleSQL edits the fleet row and reads it back in one round trip.
 const updateVehicleSQL = `WITH updated AS (
          UPDATE vehicles
-            SET code = $2, name = $3, kind = $4, driver_id = $5, updated_at = now()
+            SET code = $2, name = $3, kind = $4, driver_id = $5, route_color = $6, updated_at = now()
           WHERE id = $1
          RETURNING id, code, name, kind, status, driver_id,
-                   last_lat, last_lng, last_speed_kmh, last_seen_at
+                   last_lat, last_lng, last_speed_kmh, last_seen_at,
+                   last_heading, route_color
      )
 ` + vehicleCols + ` FROM updated v`
 
@@ -367,13 +370,20 @@ func (h *VehicleHandler) UpdatePosition(c *gin.Context) {
 		speed = *in.SpeedKmh
 	}
 
+	// A report without a heading keeps the one the unit had: the direction a
+	// vehicle faces is not always known, but it is not lost either.
+	var heading *float64
+	if in.Heading != nil {
+		heading = in.Heading
+	}
+
 	ctx, cancel := h.ctxWithTimeout(c)
 	defer cancel()
 
 	// The query also returns the coordinates the vehicle had before this
 	// report; the geofence check compares them with the new ones.
 	var prevLat, prevLng *float64
-	updated, err := scanVehicle(h.db.QueryRow(ctx, reportPositionSQL, id, *in.Lat, *in.Lng, speed, in.Status),
+	updated, err := scanVehicle(h.db.QueryRow(ctx, reportPositionSQL, id, *in.Lat, *in.Lng, speed, in.Status, heading),
 		&prevLat, &prevLng)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -417,6 +427,9 @@ func (h *VehicleHandler) UpdatePosition(c *gin.Context) {
 // CTEs of a statement see the same snapshot, so it holds the old position even
 // though `updated` overwrites it — that is what the geofence check compares
 // the new position against.
+//
+// The heading is written with COALESCE: a report that carries no direction
+// keeps the last known one instead of clearing it.
 const reportPositionSQL = `WITH previous AS (
          SELECT last_lat AS prev_lat, last_lng AS prev_lng
            FROM vehicles
@@ -424,17 +437,20 @@ const reportPositionSQL = `WITH previous AS (
      ), updated AS (
          UPDATE vehicles
             SET last_lat = $2, last_lng = $3, last_speed_kmh = $4, status = $5,
+                last_heading = COALESCE($6, last_heading),
                 last_seen_at = now(), updated_at = now()
           WHERE id = $1
          RETURNING id, code, name, kind, status, driver_id,
-                   last_lat, last_lng, last_speed_kmh, last_seen_at
+                   last_lat, last_lng, last_speed_kmh, last_seen_at,
+                   last_heading, route_color
      ), logged AS (
-         INSERT INTO vehicle_positions (vehicle_id, lat, lng, speed_kmh)
-         SELECT $1, $2, $3, $4 FROM updated
+         INSERT INTO vehicle_positions (vehicle_id, lat, lng, speed_kmh, heading)
+         SELECT $1, $2, $3, $4, $6 FROM updated
          RETURNING id
      )
      SELECT v.id, v.code, v.name, v.kind, v.status, v.driver_id,
             v.last_lat, v.last_lng, v.last_speed_kmh, v.last_seen_at,
+            v.last_heading, v.route_color,
             p.prev_lat, p.prev_lng
        FROM updated v
        CROSS JOIN previous p`
