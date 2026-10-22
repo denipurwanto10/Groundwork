@@ -173,6 +173,57 @@
   background: var(--panel-2);
 }
 
+/* ----- the state of Web Push ----- */
+
+/* A small lamp with the state of the feature: green when the messages
+   reach the operator, amber when something is missing. */
+.nb-push {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.nb-push-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 18%, transparent);
+}
+
+.nb-push-dot.active {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.nb-push-dot.error {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
+.nb-push-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nb-push-text strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.nb-push-text span {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
 .nb-foot-actions {
   display: flex;
   align-items: center;

@@ -250,6 +250,26 @@ function filenameFromDisposition(header: string | null): string {
   return match ? match[1] : 'groundwork-report.csv'
 }
 
+/**
+ * The public key of the server and whether the Web Push feature is on.
+ *
+ * The key is empty when the server has no VAPID pair: the feature is off
+ * then, and the frontend says so in plain words.
+ */
+export interface VapidPublicKey {
+  public_key: string
+  enabled: boolean
+}
+
+/** The answer of the test push: how many subscriptions got the message. */
+export interface PushTestResult {
+  sent: number
+  enabled: boolean
+}
+
+/**
+ * The name of a request that already carries the token.
+ */
 export const api = {
   health(): Promise<{ status: string; checks: { database: string }; timestamp: string }> {
     return request('/health')
@@ -699,6 +719,49 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     })
+  },
+
+  // ---- Web Push (VAPID) ----
+
+  /**
+   * The public key of the server.
+   *
+   * The browser needs it before it can subscribe. When `enabled` is false
+   * the server has no key pair and the feature is off.
+   */
+  getVapidPublicKey(): Promise<VapidPublicKey> {
+    return request<VapidPublicKey>('/api/push/vapid-public-key')
+  },
+
+  /**
+   * Hand a subscription of this browser to the server.
+   *
+   * The body is the PushSubscription JSON of the browser. The server keeps
+   * one row per endpoint, so subscribing twice does not create a second one.
+   */
+  subscribePush(subscription: PushSubscriptionJSON): Promise<{ saved: boolean }> {
+    return request<{ saved: boolean }>('/api/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    })
+  },
+
+  /** Remove the subscription of this browser from the server. */
+  unsubscribePush(endpoint: string): Promise<void> {
+    return request<void>('/api/push/subscribe', {
+      method: 'DELETE',
+      body: JSON.stringify({ endpoint }),
+    })
+  },
+
+  /**
+   * Send a test message to the subscriptions of the signed-in account.
+   *
+   * The answer says how many of them got it, so the operator can see that
+   * the whole chain works.
+   */
+  sendTestPush(): Promise<PushTestResult> {
+    return request<PushTestResult>('/api/push/test', { method: 'POST' })
   },
 }
 

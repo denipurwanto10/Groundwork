@@ -14,6 +14,7 @@ import (
 
 	"entity-management/internal/auth"
 	"entity-management/internal/db"
+	"entity-management/internal/push"
 	"entity-management/internal/vehicle"
 	"entity-management/internal/ws"
 	"github.com/coder/websocket"
@@ -31,10 +32,12 @@ type VehicleHandler struct {
 	// offlineAfter is how long a unit may stay silent before it counts as
 	// offline. Zero turns the check off.
 	offlineAfter time.Duration
+	// push tells the operators that a unit arrived.
+	push *push.Service
 }
 
-func NewVehicleHandler(pool *db.Pool, hub *ws.Hub) *VehicleHandler {
-	return &VehicleHandler{db: pool, hub: hub}
+func NewVehicleHandler(pool *db.Pool, hub *ws.Hub, pushService *push.Service) *VehicleHandler {
+	return &VehicleHandler{db: pool, hub: hub, push: pushService}
 }
 
 // SetOfflineAfter turns the automatic offline detection on: a unit that has

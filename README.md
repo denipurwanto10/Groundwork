@@ -361,6 +361,10 @@ dengan yang asli.
 | `GET` | `/api/reports` | laporan operasional satu periode (`from`, `to`, `vehicle_id` opsional) |
 | `GET` | `/api/reports/export.csv` | laporan yang sama sebagai file CSV (unduhan) |
 | `GET` | `/api/audit-logs` | jejak aktivitas (admin); `?limit=&offset=&action=&entity_type=&q=` |
+| `GET` | `/api/push/vapid-public-key` | kunci publik VAPID + `enabled` (false kalau server belum punya pasangan kunci) |
+| `POST` | `/api/push/subscribe` | simpan subscription Web Push browser ini (`{endpoint, keys:{p256dh, auth}}`) |
+| `DELETE` | `/api/push/subscribe` | hapus subscription milik akun yang login (`{endpoint}`) |
+| `POST` | `/api/push/test` | kirim push percobaan ke subscription milik pemanggil; balas `{sent, enabled}` |
 
 Bentuk entity:
 
@@ -745,11 +749,22 @@ curl -o report.csv "http://127.0.0.1:8091/api/reports/export.csv?from=2026-10-16
 ## Notifikasi Desktop (Web Push)
 
 Lonceng di pojok kanan atas top bar adalah **pusat notifikasi** aplikasi.
-Saat ini panelnya masih kosong: fitur peringatan kecepatan dan notifikasi
-lintasan zona sudah dihapus, jadi tidak ada lagi yang mengisi lonceng dengan
-peringatan. Yang tersisa adalah kerangkanya — tombol lonceng, izin notifikasi
-desktop, dan service worker — supaya notifikasi berikutnya (unit yang
-berangkat atau singgah) punya tempatnya.
+Panelnya masih kosong — daftar riwayat notifikasi belum diisi — tapi dua
+lapis notifikasi sudah jalan: notifikasi desktop (saat tab masih hidup) dan
+**Web Push** (VAPID), yang tetap sampai walau tab aplikasinya sudah ditutup.
+
+Yang diteruskan lewat push:
+
+| Event | Judul | Body | Tag | Tujuan |
+| ----- | ----- | ---- | --- | ------ |
+| Unit memulai perjalanan | `Unit berangkat` | `TRK-001 berangkat menuju Gudang Cisitu` | `route-started-<route_id>` | `/` |
+| Unit tiba di tujuan | `Unit tiba` | `TRK-001 tiba di Gudang Cisitu` | `route-completed-<route_id>` | `/` |
+| Tugas ditugaskan | `Tugas baru` | `Antar 3 palet oli ke Monas — tenggat 2026-10-25` | `task-assigned-<task_id>` | `/driver` (driver) / `/` (lainnya) |
+
+Penerima event rute (berangkat / tiba) adalah semua akun berperan **admin**
+atau **staff**, kecuali akun yang memicu event itu sendiri (driver yang
+menekan *Start trip* tidak diberi tahu soal keberangkatannya sendiri). Push
+tugas hanya sampai ke **satu** orang: yang ditugasi.
 
 - **Yang dihapus** — fitur peringatan kecepatan dibuang seluruhnya:
   `internal/handler/telematics.go`, endpoint `GET /api/telematics-events`,
@@ -770,22 +785,94 @@ berangkat atau singgah) punya tempatnya.
   saat tab di background), dengan `new Notification()` sebagai cadangan bila
   registrasi worker gagal. Worker itu diimpor ke worker PWA
   (`vite-plugin-pwa`), jadi aplikasi hanya punya satu service worker.
-- **Tahap berikutnya** — notifikasi kendaraan yang berangkat / singgah:
-  sumbernya sudah ada di live feed (`route`, `route_completed`), tinggal
-  mengisinya ke daftar lonceng. Untuk browser yang sudah ditutup, tahap
-  berikutnya adalah Web Push API (VAPID): handle `push` sudah ada di worker,
-  yang perlu ditambahkan hanya sisi backend.
+- **Web Push** — protokol terbuka, tanpa layanan pihak ketiga (tanpa
+  Firebase / Pusher / OneSignal). Server punya pasangan kunci **VAPID**
+  sendiri; browser berlangganan dengan kunci publiknya, dan server
+  meneruskan pesan ke alamat push service browser tersebut. Handle `push`
+  di service worker sudah ada dari awal — bentuk payloadnya
+  `{"title","body","tag","url"}` dan tidak diubah.
+
+### Cara membuat kunci VAPID
+
+Kunci VAPID dibuat sekali jalan. Programnya hanya mencetak ke stdout; ia
+tidak membaca dan tidak menulis `.env` sendiri:
+
+```bash
+go run ./cmd/gen-vapid
+```
+
+```
+# Copy these two lines into your .env file.
+# The private key is a secret: never commit it, never paste it anywhere.
+VAPID_PUBLIC_KEY=BLxxxx...
+VAPID_PRIVATE_KEY=xxxx...
+```
+
+Salin kedua baris ke `.env` (file itu tidak masuk Git), lalu restart backend:
+
+```
+VAPID_PUBLIC_KEY=BLxxxx...
+VAPID_PRIVATE_KEY=xxxx...
+VAPID_SUBJECT=mailto:admin@localhost
+```
+
+`VAPID_SUBJECT` adalah identitas pengirim yang dilihat push service
+(mailto: atau URL https); bawaannya `mailto:admin@localhost`.
+
+**Kalau kunci dikosongkan, fiturnya mati dengan rapi**: server tetap jalan
+normal, `GET /api/push/vapid-public-key` membalas `enabled: false`, dan
+pengiriman push dilewati (cuma ditulis di log sebagai peringatan). Server
+tidak pernah gagal start hanya karena VAPID belum dikonfigurasi.
+
+> Kunci privat tidak pernah masuk repo, log, respons API, atau README. Pasangan
+> yang pernah dipublikasikan tidak bisa "dibatalkan" — buat yang baru dan
+> biarkan browser berlangganan ulang.
+
+### Endpoint push
+
+| Method | Path | Keterangan |
+| ------ | ---- | ---------- |
+| `GET` | `/api/push/vapid-public-key` | `{"public_key":"…","enabled":true}` |
+| `POST` | `/api/push/subscribe` | body = `PushSubscription` JSON browser; upsert per `endpoint` |
+| `DELETE` | `/api/push/subscribe` | body `{"endpoint":"…"}`; hanya milik akun yang login |
+| `POST` | `/api/push/test` | kirim push percobaan ke subscription milik pemanggil |
+
+Penyimpanan: tabel `push_subscriptions` (migrasi 026) — satu baris per
+browser (`endpoint` unik), satu akun boleh punya banyak baris (banyak
+browser/perangkat). Subscription yang dijawab `404`/`410` oleh push service
+dihapus otomatis.
 
 ### Cara mengetesnya
 
-1. Jalankan backend + frontend, lalu masuk ke aplikasi.
-2. Klik lonceng di pojok kanan atas top bar -> izinkan notifikasi saat
-   browser meminta. Lonceng berubah warna dan satu notifikasi tes langsung
-   muncul di pojok layar.
-3. Uji juga dalam keadaan background: minimize jendela browser (bukan
+1. Buat kunci: `go run ./cmd/gen-vapid`, salin ke `.env`, restart backend.
+   Di log server akan muncul `web push is on (subject …)`.
+2. Build produksi frontend (service worker hanya ada di build produksi, bukan
+   di `npm run dev`):
+
+   ```bash
+   cd frontend
+   npm run build
+   npm run preview
+   ```
+
+3. Masuk ke aplikasi, klik lonceng di pojok kanan atas top bar, lalu
+   izinkan notifikasi saat browser meminta. Panel lonceng lalu menunjukkan
+   **Web Push: On** — artinya browser sudah berlangganan ke server.
+4. Klik **Send a Web Push test**. Notifikasi sistem harus muncul, dengan
+   judul "Notifikasi tes Groundwork".
+5. **Tutup tab aplikasi** (browser jangan dimatikan). Dari sesi lain
+   (misalnya simulator atau akun driver), mulai sebuah rute sampai selesai.
+   Notifikasi "Unit berangkat" dan "Unit tiba" harus tetap muncul, dan
+   mengkliknya membuka kembali aplikasi.
+6. Uji juga notifikasi lokal (tanpa push): minimize jendela browser (bukan
    tutup), lalu tekan *Send a test notification* di panel lonceng.
-   Notifikasi tetap muncul; kalau hanya `new Notification()` yang dipakai,
-   Chrome bisa menahan notifikasi di tab yang di-minimize.
+
+> **Batas yang jujur**: selama backend lokal tidak berjalan, tidak ada push
+> yang bisa dikirim — tidak ada yang memegang alamat push service-nya. Untuk
+> portofolio lokal ini memang disengaja begitu: backend dan browser ada di
+> mesin yang sama, dan tidak ada layanan pihak ketiga yang menyimpan
+> subscription. Aplikasi tetap hidup dan notifikasi desktop (tanpa push)
+> tetap jalan.
 
 ## Playback Rute (History Perjalanan)
 

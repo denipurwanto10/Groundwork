@@ -32,6 +32,7 @@ Plain SQL files, applied in filename order. No migration framework
 | `023_drop_telematics_events.up.sql` | buang `telematics_events` (fitur peringatan kecepatan dihapus) |
 | `024_single_route_color.up.sql` | semua `vehicles.route_color` diseragamkan ke merah primer tema (satu warna rute untuk semua unit) |
 | `025_report_indexes.up.sql` | index tanggal untuk `vehicle_routes` dan `tasks` (bacaan rentang laporan operasional) |
+| `026_create_push_subscriptions.up.sql` | tabel `push_subscriptions` (subscription Web Push per browser: endpoint, kunci p256dh/auth) |
 
 Tiap file punya pasangan `*.down.sql` untuk rollback (urutan terbalik).
 

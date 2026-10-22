@@ -48,7 +48,7 @@ func offlineFixture(t *testing.T, after time.Duration) (*VehicleHandler, *db.Poo
 		pool.Exec(ctx, `DELETE FROM vehicles WHERE code LIKE 'offtest-%'`)
 	})
 
-	h := NewVehicleHandler(pool, ws.NewHub())
+	h := NewVehicleHandler(pool, ws.NewHub(), nil)
 	h.SetOfflineAfter(after)
 
 	return h, pool

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"entity-management/internal/auth"
 	"entity-management/internal/db"
+	"entity-management/internal/push"
 	"entity-management/internal/task"
 
 	"github.com/gin-gonic/gin"
@@ -25,10 +27,12 @@ import (
 // or a staff member may do that — a driver only on the tasks that are theirs.
 type TaskHandler struct {
 	db *db.Pool
+	// push tells the assigned account that a work order is waiting for them.
+	push *push.Service
 }
 
-func NewTaskHandler(pool *db.Pool) *TaskHandler {
-	return &TaskHandler{db: pool}
+func NewTaskHandler(pool *db.Pool, pushService *push.Service) *TaskHandler {
+	return &TaskHandler{db: pool, push: pushService}
 }
 
 func (h *TaskHandler) ctxWithTimeout(c *gin.Context) (context.Context, context.CancelFunc) {
@@ -184,7 +188,51 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Somebody was put on the job: that person hears about it, and nobody
+	// else does.
+	h.notifyTaskAssigned(ctx, created)
+
 	c.JSON(http.StatusCreated, gin.H{"data": created})
+}
+
+// notifyTaskAssigned tells the assigned account that a work order is
+// waiting for them.
+//
+// The receiver is the one the task was assigned to — not the whole board.
+// The push goes out in the background, so it never holds this answer up.
+//
+// The link of the notification is the trip screen for a driver and the
+// board for everybody else.
+func (h *TaskHandler) notifyTaskAssigned(ctx context.Context, t task.Task) {
+	if h.push == nil || t.AssignedUserID == nil {
+		return
+	}
+
+	body := t.Title
+	if t.DueDate != nil {
+		body += " — tenggat " + t.DueDate.Format(task.DateLayout)
+	}
+
+	url := "/"
+	var role string
+	err := h.db.QueryRow(ctx, `SELECT role FROM users WHERE id = $1`, *t.AssignedUserID).Scan(&role)
+	if err != nil {
+		log.Printf("tasks: read the role of account %d failed: %v", *t.AssignedUserID, err)
+	} else if role == auth.RoleDriver {
+		url = "/driver"
+	}
+
+	payload := push.Payload{
+		Title: "Tugas baru",
+		Body:  body,
+		Tag:   fmt.Sprintf("task-assigned-%d", t.ID),
+		URL:   url,
+	}
+
+	assigned := *t.AssignedUserID
+	push.Background(func(ctx context.Context) {
+		h.push.NotifyUser(ctx, assigned, payload)
+	})
 }
 
 // Update handles PUT /api/tasks/:id (full replacement).

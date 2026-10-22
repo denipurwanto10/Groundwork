@@ -16,7 +16,27 @@ type Config struct {
 	Database DatabaseConfig
 	Auth     AuthConfig
 	Fleet    FleetConfig
+	Push     PushConfig
 }
+
+// PushConfig holds the VAPID keys of the Web Push feature.
+//
+// The keys are optional on purpose: a server without them runs exactly as
+// before, it simply never sends a push. The private key never leaves the
+// server — not the log, not the API, not the repository.
+type PushConfig struct {
+	// PublicKey is handed to the browser so it can subscribe.
+	PublicKey string
+	// PrivateKey signs the requests to the push service.
+	PrivateKey string
+	// Subject says who the sender is: a mailto: address or an https URL.
+	Subject string
+}
+
+// DefaultPushSubject is the sender the push services are told about when
+// nothing else is configured. It names the local machine, which is honest:
+// this feature runs on localhost.
+const DefaultPushSubject = "mailto:admin@localhost"
 
 // FleetConfig holds the settings of the tracked fleet.
 type FleetConfig struct {
@@ -118,6 +138,11 @@ func Load() (*Config, error) {
 		Fleet: FleetConfig{
 			OfflineAfter: getDurationEnv("SERVER_OFFLINE_AFTER", 60*time.Second),
 		},
+		Push: PushConfig{
+			PublicKey:  getEnv("VAPID_PUBLIC_KEY", ""),
+			PrivateKey: getEnv("VAPID_PRIVATE_KEY", ""),
+			Subject:    getEnv("VAPID_SUBJECT", DefaultPushSubject),
+		},
 	}
 
 	return cfg, nil
@@ -125,6 +150,9 @@ func Load() (*Config, error) {
 
 // Validate rejects an incomplete config instead of letting the server boot with
 // a random signing key, which would silently invalidate every token on restart.
+//
+// The VAPID keys are not part of this: they switch the Web Push feature on,
+// and a server without them simply never sends a push.
 func (c *Config) Validate() error {
 	if c.Auth.Secret == "" {
 		return fmt.Errorf("JWT_SECRET is required (generate one with: openssl rand -base64 32)")

@@ -19,6 +19,8 @@
  * worker: the one that caches the map tiles and the one that notifies.
  */
 
+import { api, type VapidPublicKey } from './api'
+
 /** What the browser is willing to do with notifications. */
 export type NotifyPermission = 'unsupported' | 'default' | 'granted' | 'denied'
 
@@ -126,4 +128,132 @@ export async function notifyTest(): Promise<void> {
     tag: 'groundwork-test',
     data: { url: '/', kind: 'test' },
   })
+}
+
+/**
+ * The state of the Web Push feature in this browser.
+ *
+ * - `unsupported` — the browser has no PushManager, or the service worker is
+ *   not there (it only exists in a production build).
+ * - `off` — the browser is ready, but there is no subscription yet.
+ * - `not-configured` — the server has no VAPID keys, so it sends nothing.
+ * - `active` — the browser is subscribed: the messages arrive even when the
+ *   tab of the app is closed.
+ * - `error` — something went wrong; the message says what.
+ */
+export type PushStatus = 'unsupported' | 'off' | 'not-configured' | 'active' | 'error'
+
+/** What the subscription attempt came down to. */
+export interface PushResult {
+  status: PushStatus
+  /** The sentence the panel shows under the status. */
+  message: string
+}
+
+/**
+ * Turns a base64url key into the bytes the browser wants.
+ *
+ * The public key of the server travels as base64url (the text form of the
+ * key), while `applicationServerKey` wants the raw bytes.
+ */
+export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+
+  const raw = atob(base64)
+  const output = new Uint8Array(new ArrayBuffer(raw.length))
+  for (let i = 0; i < raw.length; i += 1) {
+    output[i] = raw.charCodeAt(i)
+  }
+  return output
+}
+
+/**
+ * Subscribes this browser to the Web Push messages of the server.
+ *
+ * Nothing here throws: the panel of the bell shows what happened, and a
+ * browser that cannot do Web Push is a normal thing, not a failure.
+ *
+ * The steps, and where each of them can stop:
+ *
+ * 1. the permission has to be granted already — the bell asks for it, and
+ *    the browser only accepts that question from a click;
+ * 2. the service worker has to be registered — it only exists in a
+ *    production build, never in the dev server;
+ * 3. the server has to have a VAPID key pair — without one it sends
+ *    nothing at all;
+ * 4. the browser subscribes with the public key, and the subscription is
+ *    handed to the server, which keeps it.
+ *
+ * A browser that is already subscribed keeps its subscription: only the
+ * server is told about it again, so a renewed key never breaks the old one.
+ */
+export async function subscribeToPush(): Promise<PushResult> {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return { status: 'unsupported', message: 'This browser does not support notifications.' }
+  }
+  if (Notification.permission !== 'granted') {
+    return { status: 'off', message: 'The permission for notifications is not given yet.' }
+  }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return { status: 'unsupported', message: 'This browser does not support Web Push.' }
+  }
+
+  const sw = await registerServiceWorker()
+  if (!sw || !sw.pushManager) {
+    return {
+      status: 'unsupported',
+      message: 'The service worker is not registered yet — Web Push needs a production build.',
+    }
+  }
+
+  let key: VapidPublicKey
+  try {
+    key = await api.getVapidPublicKey()
+  } catch {
+    return { status: 'error', message: 'The backend cannot be reached.' }
+  }
+  if (!key.enabled || !key.public_key) {
+    return { status: 'not-configured', message: 'Web Push is not configured on the server yet.' }
+  }
+
+  try {
+    // A browser that is already subscribed keeps its subscription: asking
+    // again would hand a new endpoint to the server and lose the old one.
+    const existing = await sw.pushManager.getSubscription()
+    const subscription =
+      existing ??
+      (await sw.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key.public_key),
+      }))
+
+    await api.subscribePush(subscription.toJSON())
+    return { status: 'active', message: 'Web Push is on — the messages arrive even when this tab is closed.' }
+  } catch {
+    return { status: 'error', message: 'The browser refused the Web Push subscription.' }
+  }
+}
+
+/**
+ * Removes the subscription of this browser from the server.
+ *
+ * A browser that never subscribed has nothing to remove, so the call is
+ * skipped and the result stays quiet.
+ */
+export async function unsubscribeFromPush(): Promise<void> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return
+
+  try {
+    const sw = await registerServiceWorker()
+    if (!sw || !sw.pushManager) return
+
+    const subscription = await sw.pushManager.getSubscription()
+    if (!subscription) return
+
+    await api.unsubscribePush(subscription.endpoint)
+    await subscription.unsubscribe()
+  } catch {
+    /* the browser or the server refused; the panel keeps its state */
+  }
 }

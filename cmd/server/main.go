@@ -15,6 +15,7 @@ import (
 	"entity-management/internal/db"
 	"entity-management/internal/handler"
 	"entity-management/internal/middleware"
+	"entity-management/internal/push"
 	"entity-management/internal/ws"
 	"github.com/gin-gonic/gin"
 )
@@ -78,6 +79,24 @@ func main() {
 			// counters that change while the operator works.
 			hub := ws.NewHub()
 
+			// Web Push: the notifications that reach the operator even
+			// when the tab of the app is closed. Without the VAPID keys the
+			// feature is simply off — the server runs as before and sends
+			// nothing.
+			pushConfig := push.Config{
+				PublicKey:  cfg.Push.PublicKey,
+				PrivateKey: cfg.Push.PrivateKey,
+				Subject:    cfg.Push.Subject,
+			}
+			var pushSender push.Sender
+			if pushConfig.Enabled() {
+				pushSender = push.NewSender(pushConfig)
+				log.Printf("web push is on (subject %s)", pushConfig.Subject)
+			} else {
+				log.Print("web push is off: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set")
+			}
+			pushService := push.NewService(pool, pushConfig, pushSender)
+
 			entityHandler := handler.NewEntityHandler(pool, hub)
 			protected.GET("/entities", entityHandler.List)
 			protected.GET("/entities/:id", entityHandler.Get)
@@ -110,7 +129,7 @@ func main() {
 			protected.PUT("/zones/:id", adminOnly, zoneHandler.Update)
 			protected.DELETE("/zones/:id", adminOnly, zoneHandler.Delete)
 
-			vehicleHandler := handler.NewVehicleHandler(pool, hub)
+			vehicleHandler := handler.NewVehicleHandler(pool, hub, pushService)
 			protected.GET("/vehicles", vehicleHandler.List)
 			protected.POST("/vehicles", adminOnly, vehicleHandler.Create)
 			protected.PUT("/vehicles/:id", adminOnly, vehicleHandler.Update)
@@ -134,7 +153,7 @@ func main() {
 			geofenceHandler := handler.NewGeofenceHandler(pool)
 			protected.GET("/geofence-events", geofenceHandler.List)
 
-			routeHandler := handler.NewRouteHandler(pool, hub)
+			routeHandler := handler.NewRouteHandler(pool, hub, pushService)
 			protected.GET("/routes", routeHandler.List)
 			protected.GET("/vehicles/:id/routes", routeHandler.History)
 			protected.GET("/vehicles/:id/route", routeHandler.Active)
@@ -151,7 +170,7 @@ func main() {
 			// read the board (a driver only sees their own tasks); writing a
 			// task is admin-only, while moving one along is the work of the
 			// field: a driver or a staff member does that.
-			taskHandler := handler.NewTaskHandler(pool)
+			taskHandler := handler.NewTaskHandler(pool, pushService)
 			protected.GET("/tasks", taskHandler.List)
 			protected.GET("/tasks/:id", taskHandler.Get)
 			protected.POST("/tasks", adminOnly, taskHandler.Create)
@@ -165,6 +184,16 @@ func main() {
 			// accounts of the workspace.
 			auditHandler := handler.NewAuditHandler(auditRecorder)
 			protected.GET("/audit-logs", adminOnly, auditHandler.List)
+
+			// Web Push: the subscriptions of the browsers of the
+			// operator, the public key of the server and the test message.
+			// Every signed-in role may use them: the one who asked for the
+			// notifications is the one who receives them.
+			pushHandler := handler.NewPushHandler(pushService)
+			protected.GET("/push/vapid-public-key", pushHandler.PublicKey)
+			protected.POST("/push/subscribe", pushHandler.Subscribe)
+			protected.DELETE("/push/subscribe", pushHandler.Unsubscribe)
+			protected.POST("/push/test", pushHandler.Test)
 
 			// The operational report: what the fleet did in a period, as
 			// numbers and as a CSV file. Every role may read it, but a

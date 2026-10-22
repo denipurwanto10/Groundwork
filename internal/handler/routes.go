@@ -14,6 +14,7 @@ import (
 
 	"entity-management/internal/auth"
 	"entity-management/internal/db"
+	"entity-management/internal/push"
 	"entity-management/internal/routing"
 	"entity-management/internal/vehicle"
 	"entity-management/internal/ws"
@@ -27,10 +28,12 @@ type RouteHandler struct {
 	db     *db.Pool
 	hub    *ws.Hub
 	router *routing.Client
+	// push tells the operators that a unit left for its destination.
+	push *push.Service
 }
 
-func NewRouteHandler(pool *db.Pool, hub *ws.Hub) *RouteHandler {
-	return &RouteHandler{db: pool, hub: hub, router: routing.NewClient()}
+func NewRouteHandler(pool *db.Pool, hub *ws.Hub, pushService *push.Service) *RouteHandler {
+	return &RouteHandler{db: pool, hub: hub, router: routing.NewClient(), push: pushService}
 }
 
 // arrivalRadiusM is how close a reported position must be to the destination
@@ -592,7 +595,59 @@ func (h *RouteHandler) Start(c *gin.Context) {
 
 	publishFrame(h.hub, "route", gin.H{"route": started})
 
+	// The unit is on its way. The operators hear about it, even when their
+	// tab is closed: the push goes out in the background, so it never holds
+	// this answer up.
+	h.notifyRouteStarted(c, started, h.vehicleLabel(ctx, id))
+
 	c.JSON(http.StatusOK, gin.H{"data": started})
+}
+
+// notifyRouteStarted tells the operators that a unit left for its
+// destination.
+//
+// Only this one moment counts: the route was planned before, and the frame
+// of the route is published again and again while the unit drives it. A
+// departure is one push, not a stream of them.
+//
+// The account that pressed the button is left out — a driver does not have
+// to be told that their own trip began.
+func (h *RouteHandler) notifyRouteStarted(c *gin.Context, route routeView, label string) {
+	if h.push == nil {
+		return
+	}
+
+	actor := int64(0)
+	if id, err := strconv.ParseInt(auth.UserID(c), 10, 64); err == nil {
+		actor = id
+	}
+
+	payload := push.Payload{
+		Title: "Unit berangkat",
+		Body:  fmt.Sprintf("%s berangkat menuju %s", label, route.Destination.Name),
+		Tag:   fmt.Sprintf("route-started-%d", route.ID),
+		URL:   "/",
+	}
+
+	push.Background(func(ctx context.Context) {
+		h.push.NotifyOperators(ctx, actor, payload)
+	})
+}
+
+// vehicleLabel is how a unit is named in a notification: the code if it has
+// one, the name otherwise.
+func (h *RouteHandler) vehicleLabel(ctx context.Context, vehicleID int64) string {
+	var code, name string
+	err := h.db.QueryRow(ctx, `SELECT code, name FROM vehicles WHERE id = $1`, vehicleID).
+		Scan(&code, &name)
+	if err != nil {
+		log.Printf("routes: read the label of unit %d failed: %v", vehicleID, err)
+		return fmt.Sprintf("unit %d", vehicleID)
+	}
+	if strings.TrimSpace(code) != "" {
+		return code
+	}
+	return name
 }
 
 // mayStart reports whether the caller may start the route of this vehicle.
@@ -639,27 +694,41 @@ func (h *RouteHandler) mayStart(c *gin.Context, id int64) bool {
 // the tour may even lead back there — and without that guard the route would
 // close on the very first position report.
 func (h *VehicleHandler) completeRouteIfArrived(ctx context.Context, vehicleID int64, lat, lng float64) {
-	var routeID int64
+	var (
+		routeID     int64
+		destName    string
+		vehicleCode string
+		vehicleName string
+	)
+	// The closed route is read back together with the unit it belongs to:
+	// the notification names both, and the statement does it in one round
+	// trip.
 	err := h.db.QueryRow(ctx, `
-        UPDATE vehicle_routes rt
-           SET status = 'completed', ended_at = now()
-         WHERE rt.vehicle_id = $1 AND rt.status = 'active'
-           AND (
-                ST_Distance(
-                    ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
-                    ST_Endpoint(rt.geom)::geography
-                ) <= $4
-                OR (
+        WITH closed AS (
+            UPDATE vehicle_routes rt
+               SET status = 'completed', ended_at = now()
+             WHERE rt.vehicle_id = $1 AND rt.status = 'active'
+               AND (
                     ST_Distance(
                         ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
-                        ST_SetSRID(ST_MakePoint(rt.dest_lng, rt.dest_lat), 4326)::geography
+                        ST_Endpoint(rt.geom)::geography
                     ) <= $4
-                    AND ST_LineLocatePoint(
-                        rt.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326)
-                    ) >= 0.95
-                )
-           )
-        RETURNING rt.id`, vehicleID, lat, lng, arrivalRadiusM).Scan(&routeID)
+                    OR (
+                        ST_Distance(
+                            ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+                            ST_SetSRID(ST_MakePoint(rt.dest_lng, rt.dest_lat), 4326)::geography
+                        ) <= $4
+                        AND ST_LineLocatePoint(
+                            rt.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326)
+                        ) >= 0.95
+                    )
+               )
+            RETURNING rt.id, rt.dest_name, rt.vehicle_id
+        )
+        SELECT closed.id, closed.dest_name, v.code, v.name
+          FROM closed
+          JOIN vehicles v ON v.id = closed.vehicle_id`,
+		vehicleID, lat, lng, arrivalRadiusM).Scan(&routeID, &destName, &vehicleCode, &vehicleName)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return
@@ -669,6 +738,37 @@ func (h *VehicleHandler) completeRouteIfArrived(ctx context.Context, vehicleID i
 	}
 
 	publishFrame(h.hub, "route_completed", gin.H{"route_id": routeID, "vehicle_id": vehicleID})
+
+	// The unit arrived. The operators hear about it, even when their tab is
+	// closed.
+	h.notifyRouteCompleted(routeID, vehicleCode, vehicleName, destName)
+}
+
+// notifyRouteCompleted tells the operators that a unit reached its
+// destination.
+//
+// This is the one moment the route really ends, so this is the only moment
+// the arrival is announced.
+func (h *VehicleHandler) notifyRouteCompleted(routeID int64, code, name, destination string) {
+	if h.push == nil {
+		return
+	}
+
+	label := strings.TrimSpace(code)
+	if label == "" {
+		label = strings.TrimSpace(name)
+	}
+
+	payload := push.Payload{
+		Title: "Unit tiba",
+		Body:  fmt.Sprintf("%s tiba di %s", label, destination),
+		Tag:   fmt.Sprintf("route-completed-%d", routeID),
+		URL:   "/",
+	}
+
+	push.Background(func(ctx context.Context) {
+		h.push.NotifyOperators(ctx, 0, payload)
+	})
 }
 
 // followRoute closes the delivery when the unit arrives, otherwise re-publishes
