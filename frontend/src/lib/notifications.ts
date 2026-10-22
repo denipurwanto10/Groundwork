@@ -193,6 +193,9 @@ export async function subscribeToPush(): Promise<PushResult> {
     return { status: 'unsupported', message: 'This browser does not support notifications.' }
   }
   if (Notification.permission !== 'granted') {
+    if (Notification.permission === 'denied') {
+      return { status: 'off', message: 'The browser blocked the notifications for this site.' }
+    }
     return { status: 'off', message: 'The permission for notifications is not given yet.' }
   }
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {

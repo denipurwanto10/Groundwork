@@ -206,7 +206,7 @@ export default function NotificationBell({ onNotice }: Props) {
             <span className={`nb-push-dot ${push.status}`} aria-hidden="true" />
             <div className="nb-push-text">
               <strong>Web Push</strong>
-              <span>{pushLabel[push.status]}</span>
+              <span>{push.message}</span>
             </div>
           </div>
 

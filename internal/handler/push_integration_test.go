@@ -606,22 +606,24 @@ func TestPushDepartureReachesTheOperatorsOnly(t *testing.T) {
 		t.Fatalf("the start answered %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// Wait for at least the two test-created operators. Other admins/staff
+	// may exist in the database and also receive the push.
 	deliveries := f.sender.waitFor(t, 2)
-	if len(deliveries) != 2 {
-		t.Fatalf("%d messages were delivered, want 2 (the admin and the staff)", len(deliveries))
-	}
 
 	receivers := map[int64]bool{}
 	for _, d := range deliveries {
 		receivers[d.UserID] = true
 	}
+	// The test-created admin and staff must receive the notification.
 	if !receivers[admin] || !receivers[staff] {
-		t.Errorf("the messages went to %v, want the admin and the staff", receivers)
+		t.Errorf("the messages went to %v, want at least the admin and the staff", receivers)
 	}
+	// The driver who triggered the event must not receive it.
 	if receivers[driver] {
 		t.Error("the driver was told about their own departure")
 	}
 
+	// All deliveries must have the correct payload.
 	for _, d := range deliveries {
 		if d.Payload.Title != "Unit berangkat" {
 			t.Errorf("the title is %q, want \"Unit berangkat\"", d.Payload.Title)
@@ -658,15 +660,29 @@ func TestPushArrivalIsAnnouncedOnce(t *testing.T) {
 		t.Fatalf("the position answered %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// Wait for at least the test-created admin. Other admins/staff may exist
+	// in the database and also receive the push.
 	deliveries := f.sender.waitFor(t, 1)
-	if deliveries[0].Payload.Title != "Unit tiba" {
-		t.Errorf("the title is %q, want \"Unit tiba\"", deliveries[0].Payload.Title)
+
+	// The test-created admin must receive the notification.
+	found := false
+	for _, d := range deliveries {
+		if d.UserID == admin {
+			found = true
+			if d.Payload.Title != "Unit tiba" {
+				t.Errorf("the title is %q, want \"Unit tiba\"", d.Payload.Title)
+			}
+			if d.Payload.Tag != fmt.Sprintf("route-completed-%d", routeID) {
+				t.Errorf("the tag is %q, want \"route-completed-%d\"", d.Payload.Tag, routeID)
+			}
+			if !strings.Contains(d.Payload.Body, "Gudang Cisitu") {
+				t.Errorf("the body %q does not name the destination", d.Payload.Body)
+			}
+			break
+		}
 	}
-	if deliveries[0].Payload.Tag != fmt.Sprintf("route-completed-%d", routeID) {
-		t.Errorf("the tag is %q, want \"route-completed-%d\"", deliveries[0].Payload.Tag, routeID)
-	}
-	if !strings.Contains(deliveries[0].Payload.Body, "Gudang Cisitu") {
-		t.Errorf("the body %q does not name the destination", deliveries[0].Payload.Body)
+	if !found {
+		t.Errorf("the test-created admin (id=%d) did not receive the arrival notification", admin)
 	}
 
 	// The route is closed now: the next report announces nothing.
@@ -676,8 +692,9 @@ func TestPushArrivalIsAnnouncedOnce(t *testing.T) {
 		t.Fatalf("the second position answered %d: %s", rec.Code, rec.Body.String())
 	}
 	time.Sleep(300 * time.Millisecond)
-	if got := len(f.sender.deliveries()); got != 1 {
-		t.Errorf("%d messages were delivered, want 1", got)
+	// The total delivery count must not have increased.
+	if got := len(f.sender.deliveries()); got != len(deliveries) {
+		t.Errorf("%d messages were delivered after second report, want %d (no new delivery)", got, len(deliveries))
 	}
 }
 

@@ -514,3 +514,32 @@
   left: 0;
   right: 0;
 }
+
+/* ==========================================================================
+   Notification panel on phones.
+   The panel was anchored to the bell (right: 0), but the bell sits left of
+   the theme and sign-out buttons, so a 380px panel hung off the left edge
+   of the screen. Here it anchors to the top bar instead and spans the
+   viewport with an even 12px gutter.
+   ========================================================================== */
+@media (max-width: 767px) {
+  .nb-wrap { position: static; }
+
+  .nb-panel {
+    top: calc(100% + 8px);
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: calc(100dvh - var(--topbar-h, 64px) - var(--safe-t, 0px) - var(--nav-h, 72px) - var(--safe-b, 0px) - 32px);
+    border-radius: 16px;
+  }
+
+  .nb-foot { padding: 10px 14px; }
+  .nb-foot-actions {
+    flex-wrap: wrap;
+    gap: 6px 16px;
+  }
+  /* comfortable touch targets for the text buttons */
+  .nb-link { padding: 6px 0; font-size: 12.5px; }
+  .nb-push-text span { overflow-wrap: anywhere; }
+}
