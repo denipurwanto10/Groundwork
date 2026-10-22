@@ -527,7 +527,8 @@ func (h *VehicleHandler) UpdatePosition(c *gin.Context) {
 	// The query also returns the coordinates the vehicle had before this
 	// report; the geofence check compares them with the new ones. It also
 	// returns what the idle detection needs: the anchor of the unit and the
-	// distance between the anchor and the new position.	var (
+	// distance between the anchor and the new position.
+	var (
 		prevLat, prevLng *float64
 		anchorSince      *time.Time
 		anchorDistanceM  *float64

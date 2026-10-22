@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { IconChevronRight } from './Icons'
 
 interface Props {
@@ -45,7 +46,11 @@ function IconCal() {
  */
 export default function DatePicker({ value, max, onChange, ariaLabel }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  // The calendar is drawn in <body> with fixed coordinates, so no scrolling
+  // or clipping parent (modal body, toolbar) can cut it off.
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const selected = parse(value)
   const limit = max ?? todayISO()
 
@@ -58,25 +63,54 @@ export default function DatePicker({ value, max, onChange, ariaLabel }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null)
+      return
+    }
+    const place = () => {
+      const field = rootRef.current?.getBoundingClientRect()
+      if (!field) return
+      const pop = popRef.current
+      const w = pop?.offsetWidth ?? 264
+      const h = pop?.offsetHeight ?? 320
+      const gap = 8
+      const left = Math.max(8, Math.min(field.left, window.innerWidth - w - 8))
+      const below = field.bottom + gap
+      const fitsBelow = below + h <= window.innerHeight - 8
+      const top = fitsBelow ? below : Math.max(8, field.top - gap - h)
+      setPos((p) => (p && p.left === left && p.top === top ? p : { left, top }))
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open, view])
+
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent | TouchEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (!rootRef.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         // Close only the calendar, not the playback dialog behind it.
         e.preventDefault()
+        e.stopPropagation()
         setOpen(false)
       }
     }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('touchstart', onDown)
-    window.addEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('touchstart', onDown)
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
     }
   }, [open])
 
@@ -114,8 +148,14 @@ export default function DatePicker({ value, max, onChange, ariaLabel }: Props) {
         <IconCal />
       </button>
 
-      {open && (
-        <div className="dp-pop" role="dialog" aria-label="Choose a day">
+      {open && createPortal(
+        <div
+          ref={popRef}
+          className="dp-pop"
+          role="dialog"
+          aria-label="Choose a day"
+          style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden' }}
+        >
           <div className="dp-nav">
             <button type="button" className="dp-arrow" onClick={() => shift(-1)} aria-label="Previous month">
               <span className="dp-flip"><IconChevronRight width={16} height={16} /></span>
@@ -164,7 +204,8 @@ export default function DatePicker({ value, max, onChange, ariaLabel }: Props) {
               Today
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

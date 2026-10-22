@@ -377,13 +377,14 @@ func TestIdleEventsAndDriverScope(t *testing.T) {
 	idleSeedSession(t, f.pool, mine, time.Now().Add(-10*time.Minute), nil)
 	idleSeedSession(t, f.pool, other, time.Now().Add(-5*time.Minute), nil)
 
-	// The admin sees both.
+	// The admin sees both. Only the sessions of the two units of this test
+	// are counted: the workspace may hold sessions of its own.
 	admin := idleToken(t, f, 1, "idletest-admin", auth.RoleAdmin)
 	rec := idleRequest(t, f, http.MethodGet, "/api/idle-events", admin, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/idle-events answered %d: %s", rec.Code, rec.Body.String())
 	}
-	events := readIdleEvents(t, rec)
+	events := idleSessionsOf(readIdleEvents(t, rec), mine, other)
 	if len(events) != 2 {
 		t.Fatalf("the admin sees %d session(s), want 2", len(events))
 	}
@@ -407,7 +408,7 @@ func TestIdleEventsAndDriverScope(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/idle-events answered %d: %s", rec.Code, rec.Body.String())
 	}
-	events = readIdleEvents(t, rec)
+	events = idleSessionsOf(readIdleEvents(t, rec), mine, other)
 	if len(events) != 1 {
 		t.Fatalf("the driver sees %d session(s), want only their own", len(events))
 	}
@@ -625,4 +626,20 @@ func readIdleEvents(t *testing.T, rec *httptest.ResponseRecorder) []IdleEvent {
 	}
 
 	return body.Data
+}
+
+// idleSessionsOf keeps the sessions of the given units: the workspace may
+// hold sessions of its own, and they are none of the test's business.
+func idleSessionsOf(events []IdleEvent, vehicleIDs ...int64) []IdleEvent {
+	kept := make([]IdleEvent, 0, len(events))
+	for _, ev := range events {
+		for _, id := range vehicleIDs {
+			if ev.VehicleID == id {
+				kept = append(kept, ev)
+				break
+			}
+		}
+	}
+
+	return kept
 }

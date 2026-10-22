@@ -935,10 +935,8 @@ textarea,
 .dp-field[aria-expanded='true'] { border-color: var(--accent); outline: none; }
 
 .dp-pop {
-  position: absolute;
-  z-index: 5;
-  left: 0;
-  bottom: calc(100% + 8px);
+  position: fixed;
+  z-index: 5000;
   width: 264px;
   max-width: calc(100vw - 32px);
   padding: 12px;
