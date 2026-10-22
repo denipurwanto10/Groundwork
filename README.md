@@ -19,33 +19,10 @@ TypeScript + Leaflet di frontend.
   dan peringatan lewat Web Push saat unit mendekati jadwalnya (lihat
   [Pengingat Servis](#pengingat-servis)).
 
-## Screenshot
-
-Tiga tampilan desktop dari workspace lokal ini (data simulasi, 1600 × 1000).
-Pada screenshot ini `SIM-03` (interval servis sendiri 1.600 km) dan `SIM-04`
-(interval 1.000 km) sengaja punya interval sendiri, jadi keduanya terlihat
-dalam status `due_soon` dan `overdue`.
-
-**Overview** — angka hari ini, peta, dan kartu armada:
-
-![Overview: kartu angka hari ini, peta dengan zona, dan daftar armada](docs/screenshots/01-overview.png)
-
-**Places** — daftar aset yang bisa dicari, difilter, dan disortir, dengan
-peta yang menandai titiknya:
-
-![Places: daftar aset dengan filter dan peta](docs/screenshots/02-places.png)
-
-**Fleet / live tracking** — unit yang sedang ditelusuri: peta mengikuti unit,
-jalur pengiriman digambar dengan warna merah tema (A → B), dan blok **Servis**
-menampilkan odometer, servis terakhir, jadwal berikutnya, serta chip status:
-
-![Fleet: unit yang mengikuti jalur merah dengan blok Servis](docs/screenshots/03-fleet-red-route.png)
-
 ## Daftar Isi
 
 - [Tech Stack](#tech-stack)
 - [Basemap](#basemap)
-- [Screenshot](#screenshot)
 - [Arsitektur](#arsitektur)
 - [Mulai Cepat](#mulai-cepat)
 - [Data Wilayah](#data-wilayah)
