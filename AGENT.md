@@ -26,7 +26,12 @@ Take-home test untuk posisi Software Developer (tenggat 2 hari). Backend Go + Gi
 ## Keamanan
 
 - `.env` tidak pernah di-commit. `.gitignore` ditegakkan.
-- Tanpa password, token, API key di source maupun dokumentasi.
+- Tanpa password, token, API key di source maupun dokumentasi. Satu-satunya
+  pengecualian yang disengaja: **akun demo lokal** (akun-akun dummy di
+  database workspace, satu password bersama `Groundwork123`) yang ditulis di
+  README — karena repo ini demo portofolio dan API-nya hanya listen di
+  loopback. Password database, `JWT_SECRET`, dan kunci privat VAPID tetap
+  tidak boleh masuk repo.
 - Kredensial DB hanya via environment variable.
 - Mode SSL bisa dikonfigurasi (default `disable` untuk pengembangan lokal).
 

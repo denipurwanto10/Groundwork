@@ -184,6 +184,25 @@ Layar login berubah jadi form **"Create the first admin"** selama workspace
 masih kosong (`GET /api/auth/status` yang memberi tahu). Setelah itu, akun
 lain dibuat oleh admin dari tab **Users**.
 
+#### Akun demo di workspace lokal ini
+
+Akun-akun ini sudah dibuat di database lokal dan **semuanya memakai password
+yang sama**:
+
+| Username | Peran | Untuk apa |
+| -------- | ----- | --------- |
+| `admin` | admin | akun penuh: semua tab, armada, zona, akun, laporan |
+| `budi.driver` | driver | layar `/driver` — unit `TRK-001` ditugaskan ke sini |
+| `taskdriver` | driver | driver lain, untuk menguji batas akses |
+| `taskstaff` | staff | orang lapangan (hanya memindahkan status tugas) |
+| `fleetview` | viewer | hanya membaca |
+
+Password semuanya: **`Groundwork123`**
+
+> Password ini **hanya untuk demo lokal** — API-nya listen di loopback, jadi
+> tidak ada yang bisa memakainya dari luar mesin ini. Password database, JWT
+> secret, dan kunci privat VAPID tetap di `.env` (tidak masuk repo).
+
 ### 4. Data wilayah (opsional, tapi lebih detail)
 
 Migrasi 016 sudah mengisi garis batas negara dan provinsi. Untuk batas yang
@@ -208,7 +227,7 @@ mengirim satu posisi per interval:
 
 ```bash
 go run ./cmd/simulator -api http://127.0.0.1:8091 \
-  -email fleetadm@test.local -password <password> -count 5 -interval 2s
+  -email fleetadm@test.local -password Groundwork123 -count 5 -interval 2s
 ```
 
 Tiap laporan posisi membawa `heading`: arah kompas dalam derajat (0 = utara,
@@ -712,7 +731,7 @@ motor, layar kecil.
 
    ```bash
    go run ./cmd/simulator -api http://127.0.0.1:8091 \
-     -email <email-admin> -password <password> -count 4 -interval 2s
+     -email fleetadm@test.local -password Groundwork123 -count 4 -interval 2s
    ```
 
    Di log simulator, unit itu menunggu: `TRK-001 ... 0km/h rute menunggu`.
@@ -724,7 +743,7 @@ motor, layar kecil.
    `TRK-001 ... 27km/h rute#43`. Peta bergerak mengikuti garis rute.
 
 > Akun driver uji yang sudah dibuat di workspace lokal ini:
-> `budi.driver` / `driver-pass-123` (email `budi.driver@test.local`), dengan
+> `budi.driver` / `Groundwork123` (email `budi.driver@test.local`), dengan
 > unit `TRK-001` yang ditugaskan ke sana. Hapus dari tab **Users** kalau
 > sudah tidak dipakai.
 
@@ -820,7 +839,7 @@ dari unit lain dijawab `403`.
 
    ```bash
    go run ./cmd/simulator -api http://127.0.0.1:8080 \
-     -email <email-admin> -password <password> -count 1 -interval 2s -pace 10
+     -email fleetadm@test.local -password Groundwork123 -count 1 -interval 2s -pace 10
    ```
 
    `-pace` adalah meter per tick: makin kecil, unit makin dekat mengikuti
