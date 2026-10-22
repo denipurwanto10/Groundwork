@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
-import type { Entity, GeofenceEvent, Vehicle, ZoneFeature } from '../lib/types'
+import type { Entity, Vehicle, ZoneFeature } from '../lib/types'
 import {
   ZONE_CATEGORY_LABELS,
   formatLastSeen,
@@ -20,11 +20,14 @@ import { VehicleSide } from './VehicleArt'
 
 export function Card({
   title,
+  count,
   action,
   children,
   className = '',
 }: {
   title: string
+  /** A number next to the title: how many rows the card holds. */
+  count?: number
   action?: { label: string; onClick: () => void }
   children: ReactNode
   className?: string
@@ -32,7 +35,10 @@ export function Card({
   return (
     <section className={`d-card ${className}`}>
       <header className="d-card-head">
-        <h2>{title}</h2>
+        <h2>
+          {title}
+          {count != null && count > 0 && <span className="d-count">{count}</span>}
+        </h2>
         {action && (
           <button type="button" className="d-link" onClick={action.onClick}>
             {action.label}
@@ -47,50 +53,6 @@ export function Card({
 
 function Empty({ children }: { children: ReactNode }) {
   return <p className="d-empty">{children}</p>
-}
-
-/* -------------------------------------------------------------------------- */
-/* KPI tiles                                                                   */
-/* -------------------------------------------------------------------------- */
-
-export interface Kpi {
-  key: string
-  label: string
-  value: string
-  unit?: string
-  sub: ReactNode
-  tone: 'accent' | 'ok' | 'warn' | 'info'
-  icon: ReactNode
-  onClick?: () => void
-}
-
-export function KpiGrid({ items }: { items: Kpi[] }) {
-  return (
-    <div className="kpi-grid">
-      {items.map((k) => {
-        const inner = (
-          <>
-            <span className={`kpi-icon ${k.tone}`}>{k.icon}</span>
-            <span className="kpi-label">{k.label}</span>
-            <span className="kpi-value">
-              {k.value}
-              {k.unit && <small>{k.unit}</small>}
-            </span>
-            <span className="kpi-sub">{k.sub}</span>
-          </>
-        )
-        return k.onClick ? (
-          <button key={k.key} type="button" className="kpi" onClick={k.onClick}>
-            {inner}
-          </button>
-        ) : (
-          <div key={k.key} className="kpi">
-            {inner}
-          </div>
-        )
-      })}
-    </div>
-  )
 }
 
 /* -------------------------------------------------------------------------- */
@@ -177,39 +139,6 @@ export function FleetCard({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Zone crossings                                                              */
-/* -------------------------------------------------------------------------- */
-
-export function EventsCard({ events, onOpen }: { events: GeofenceEvent[]; onOpen: () => void }) {
-  return (
-    <Card title="Recent zone crossings" action={{ label: 'Live view', onClick: onOpen }}>
-      {events.length === 0 ? (
-        <Empty>No crossings yet. They show up here the moment a unit enters or leaves a zone.</Empty>
-      ) : (
-        <ul className="d-list">
-          {events.slice(0, 6).map((ev) => (
-            <li key={ev.id} className="d-row static">
-              <span className={`d-badge ${ev.event_type === 'ENTER' ? 'ok' : 'warn'}`}>
-                {ev.event_type === 'ENTER' ? 'IN' : 'OUT'}
-              </span>
-              <span className="d-row-main">
-                <b>{ev.vehicle_name}</b>
-                <small>
-                  {ev.event_type === 'ENTER' ? 'entered' : 'left'} {ev.zone_name}
-                </small>
-              </span>
-              <span className="d-row-end">
-                <small>{formatLastSeen(ev.created_at)}</small>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
 /* Places by type                                                              */
 /* -------------------------------------------------------------------------- */
 
@@ -223,7 +152,7 @@ export function TypeBreakdownCard({ entities, onOpen }: { entities: Entity[]; on
   const max = Math.max(1, ...rows.map((r) => r[1]))
 
   return (
-    <Card title="Places by type" action={{ label: 'All places', onClick: onOpen }}>
+    <Card title="Places by type" count={entities.length} action={{ label: 'All places', onClick: onOpen }}>
       {rows.length === 0 ? (
         <Empty>No places yet.</Empty>
       ) : (
@@ -257,7 +186,7 @@ export function ZonesCard({
   onOpen: () => void
 }) {
   return (
-    <Card title="Zones" action={{ label: 'Manage zones', onClick: onOpen }}>
+    <Card title="Zones" count={zones.length} action={{ label: 'Manage zones', onClick: onOpen }}>
       {zones.length === 0 ? (
         <Empty>No zones drawn yet.</Empty>
       ) : (

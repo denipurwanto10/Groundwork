@@ -60,6 +60,7 @@ func (m *Middleware) Require() gin.HandlerFunc {
 
 		c.Set("auth_user_id", claims.Subject)
 		c.Set("auth_user_email", claims.Email)
+		c.Set("auth_user_name", claims.Username)
 		c.Set("auth_user_role", claims.Role)
 		c.Next()
 	}
@@ -95,6 +96,14 @@ func UserEmail(c *gin.Context) string {
 	v, _ := c.Get("auth_user_email")
 	email, _ := v.(string)
 	return email
+}
+
+// UserName returns the authenticated username stored by the middleware. An
+// account may have no address at all, so the username is the identity then.
+func UserName(c *gin.Context) string {
+	v, _ := c.Get("auth_user_name")
+	name, _ := v.(string)
+	return name
 }
 
 // UserRole returns the authenticated role stored by the middleware.

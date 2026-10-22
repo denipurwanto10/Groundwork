@@ -4,6 +4,7 @@ import type {
   Entity,
   EntityFieldErrors,
   EntityInput,
+  AuditLog,
   GeofenceEvent,
   ZoneCount,
   ZoneFeature,
@@ -13,14 +14,20 @@ import type {
   ZoneImportReport,
   RegionFeature,
   RegionCollection,
+  RouteDraft,
+  RoutePick,
   RouteStop,
+  Task,
+  TaskInput,
+  TaskStatus,
   UserAccount,
   UserInput,
   Vehicle,
   VehicleInput,
   VehicleRoute,
+  Overview,
 } from './lib/types'
-import { activeRoutesOf, bearingBetween, formatDistance, hasPosition, mergeRoutes } from './lib/types'
+import { activeRoutesOf, bearingBetween, formatDistance, hasPosition, mergeRoutes, taskStatusLabel } from './lib/types'
 import EntityMap from './components/EntityMap'
 import EntityList from './components/EntityList'
 import EntityDetail from './components/EntityDetail'
@@ -31,20 +38,27 @@ import VehiclePanel from './components/VehiclePanel'
 import UserPanel from './components/UserPanel'
 import RegionControls, { type RegionPathEntry } from './components/RegionControls'
 import ConfirmDialog from './components/ConfirmDialog'
+import PlaybackDialog from './components/PlaybackDialog'
+import NotificationBell from './components/NotificationBell'
+import ActivityLogPanel, { AUDIT_PAGE_SIZE } from './components/ActivityLogPanel'
+import TaskBoard from './components/TaskBoard'
 import { openVehicleStream, type StreamState } from './lib/vehicleStream'
 import { usePlayback } from './lib/playback'
-import { KpiGrid, FleetCard, EventsCard, TypeBreakdownCard, ZonesCard, type Kpi } from './components/DashboardParts'
+import { FleetCard, TypeBreakdownCard, ZonesCard } from './components/DashboardParts'
+import { OverviewStatCards, OverviewActivityCard } from './components/OverviewDashboard'
 import { useAuth } from './lib/auth'
 import { useTheme } from './lib/theme'
 import {
   IconAlert,
   IconCheck,
+  IconClipboard,
   IconCrosshair,
+  IconHistory,
+  IconMore,
   IconLayers,
   IconLogout,
   IconMapPin,
   IconMoon,
-  IconActivity,
   IconDashboard,
   IconMaximize,
   IconPanelLeft,
@@ -67,14 +81,28 @@ import './flat.css'
 import './fleet-final.css'
 import './theme-red.css'
 import './mobile-fix.css'
+import './notify.css'
+import './activity.css'
+import './driver.css'
+import './polish.css'
+import './tasks.css'
+import './modern-ui.css'
+import './motion.css'
 
-type Toast = { kind: 'success' | 'error'; text: string } | null
+type Toast = { kind: 'success' | 'error' | 'alert'; text: string; id: number } | null
 type ApiState = 'checking' | 'online' | 'offline'
 
 const API_STATE_UI: Record<ApiState, { label: string; title: string; cls: string }> = {
   checking: { label: 'API checking', title: 'Checking the backend connection', cls: 'checking' },
   online: { label: 'API online', title: 'Connected to the backend', cls: 'up' },
   offline: { label: 'API offline', title: 'The backend is not reachable', cls: 'down' },
+}
+
+/** The label the toast shows above its message. */
+const TOAST_LABEL: Record<'success' | 'error' | 'alert', string> = {
+  success: 'Berhasil',
+  error: 'Gagal',
+  alert: 'Peringatan',
 }
 
 
@@ -102,17 +130,22 @@ function mergeGeofenceEvents(incoming: GeofenceEvent[], existing: GeofenceEvent[
 
 
 
-type Tab = 'overview' | 'entities' | 'zones' | 'vehicles' | 'users'
+type Tab = 'overview' | 'entities' | 'zones' | 'vehicles' | 'tasks' | 'users' | 'activity'
 const NAV: { key: Tab; label: string; title: string; sub: string }[] = [
   { key: 'overview', label: 'Overview', title: 'Overview', sub: 'Your whole operation at a glance' },
   { key: 'entities', label: 'Places', title: 'Places', sub: 'Browse, search and manage locations' },
   { key: 'zones', label: 'Zones', title: 'Zones', sub: 'Draw and manage work areas' },
-  { key: 'vehicles', label: 'Fleet', title: 'Live fleet', sub: 'Track units and plan delivery routes' },
+  { key: 'vehicles', label: 'Fleet', title: 'Fleet', sub: 'Live fleet: track units and plan delivery routes' },
+  { key: 'tasks', label: 'Tasks', title: 'Tasks', sub: 'The work orders of the field: who does what, and where' },
   { key: 'users', label: 'Users', title: 'Users', sub: 'Register accounts and set their user type' },
+  { key: 'activity', label: 'Activity Log', title: 'Activity Log', sub: 'Who changed what, and when' },
 ]
 
-/** Only admins manage accounts, so the tab is hidden for everyone else. */
-const ADMIN_TABS: Tab[] = ['users']
+/** Only admins manage accounts and read the trail, so those tabs are hidden. */
+const ADMIN_TABS: Tab[] = ['users', 'activity']
+
+/** The tabs that stay on the phone dock; every other tab opens from "More". */
+const DOCK_MAIN: Tab[] = ['overview', 'entities', 'vehicles', 'tasks']
 
 /** The map sits in its own card now, so no part of it is hidden behind a panel. */
 const NO_INSET: MapInset = { left: 0, bottom: 0 }
@@ -168,6 +201,12 @@ export default function App() {
   // Playback of a recorded trip: the track of a unit and the ghost marker
   // that walks along it.
   const playback = usePlayback()
+  // The unit whose trip is being played back, for the name on the dialog.
+  const playbackVehicle = useMemo(
+    () => (playback.vehicleId == null ? null : vehicles.find((v) => v.id === playback.vehicleId) ?? null),
+    [playback.vehicleId, vehicles],
+  )
+
   const [streamState, setStreamState] = useState<StreamState>('connecting')
   // Every account in the workspace. The fleet form picks drivers out of this
   // list and the admin "Users" page registers and edits them.
@@ -179,24 +218,43 @@ export default function App() {
   const [vehicleToDelete, setVehicleToDelete] = useState<Vehicle | null>(null)
   const [vehicleDeleting, setVehicleDeleting] = useState(false)
 
+  // The trail of successful writes, shown in the admin "Activity Log" tab.
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
+  const [auditTotal, setAuditTotal] = useState(0)
+  const [auditLoading, setAuditLoading] = useState(true)
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [auditAction, setAuditAction] = useState('')
+  const [auditQuery, setAuditQuery] = useState('')
+  const [auditOffset, setAuditOffset] = useState(0)
+
   // Zone boundary crossings. The history arrives on mount; every new crossing
   // is pushed over the live feed and lands on top of the list.
   const [geofenceEvents, setGeofenceEvents] = useState<GeofenceEvent[]>([])
 
+  // Work orders: the jobs the field has to do. The list is asked for when
+  // the tab opens and again after every change.
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [tasksLoading, setTasksLoading] = useState(true)
+  const [tasksError, setTasksError] = useState<string | null>(null)
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null)
+  const [taskDeleting, setTaskDeleting] = useState(false)
+
+  // The aggregate of the day behind the Overview tab: the distance the fleet
+  // drove, the fleet counted by status and the crossings of today. The server
+  // adds it up, so the browser only draws it.
+  const [overview, setOverview] = useState<Overview | null>(null)
+  const [overviewLoading, setOverviewLoading] = useState(true)
+  const [overviewError, setOverviewError] = useState<string | null>(null)
+
   // Delivery routes: one active path per vehicle, drawn under the markers.
-  // The draft holds the two stops picked on the map until they are saved.
+  // The draft holds the origin and the stops picked on the map until they
+  // are saved.
   const [routes, setRoutes] = useState<VehicleRoute[]>([])
-  const [routeDraft, setRouteDraft] = useState<{
-    origin: RouteStop | null
-    destination: RouteStop | null
-    /** True while the origin is still the unit's own position. */
-    originIsDefault: boolean
-  }>({
+  const [routeDraft, setRouteDraft] = useState<RouteDraft>({
     origin: null,
-    destination: null,
-    originIsDefault: false,
+    stops: [],
   })
-  const [routePick, setRoutePick] = useState<'origin' | 'destination' | null>(null)
+  const [routePick, setRoutePick] = useState<RoutePick | null>(null)
   /** A plan is on its way to the server; the form waits for the line. */
   const [routeSaving, setRouteSaving] = useState(false)
   /** The route the camera has to show: the one that was just planned. */
@@ -225,6 +283,12 @@ export default function App() {
   // Phone: workspace pages show either the list or the map, never both squeezed together.
   const [mobilePane, setMobilePane] = useState<'list' | 'map'>('list')
 
+  // The playback is watched on the map, so a phone switches to the map pane
+  // when a trip is opened.
+  useEffect(() => {
+    if (playback.vehicleId != null) setMobilePane('map')
+  }, [playback.vehicleId])
+
   // Live tracking camera: follow the selected unit, and a counter the map
   // watches to fit the whole fleet into view.
   const [following, setFollowing] = useState(false)
@@ -245,13 +309,15 @@ export default function App() {
     const listSlotRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // A toast answers an action, so it goes away on its own. The warnings of
+    // the fleet do not live here: they stay in the bell of the top bar.
     if (!toast) return
     const t = setTimeout(() => setToast(null), 4000)
     return () => clearTimeout(t)
   }, [toast])
 
-  const showToast = useCallback((kind: 'success' | 'error', text: string) => {
-    setToast({ kind, text })
+  const showToast = useCallback((kind: 'success' | 'error' | 'alert', text: string) => {
+    setToast({ kind, text, id: Date.now() })
   }, [])
 
   // The crossing history of the live panel. The stored id is the key, so a
@@ -272,6 +338,32 @@ export default function App() {
       alive = false
     }
   }, [])
+
+  /**
+   * The aggregate of the day. The server adds the kilometres up over the
+   * reported positions, so the browser never sees the raw history.
+   */
+  const refreshOverview = useCallback(async () => {
+    setOverviewLoading(true)
+    try {
+      const data = await api.getOverview()
+      setOverview(data)
+      setOverviewError(null)
+    } catch (err) {
+      setOverviewError(err instanceof Error ? err.message : 'Could not load the overview.')
+    } finally {
+      setOverviewLoading(false)
+    }
+  }, [])
+
+  // The overview opens with the page and then keeps itself fresh: the day
+  // does not stand still, so the numbers are pulled in again every half
+  // minute.
+  useEffect(() => {
+    void refreshOverview()
+    const id = window.setInterval(() => void refreshOverview(), 30000)
+    return () => window.clearInterval(id)
+  }, [refreshOverview])
 
   // A selected work area narrows the entity list and the map pins to it.
   const refresh = useCallback(async () => {
@@ -443,8 +535,85 @@ export default function App() {
       void refreshAccounts()
     }, [refreshAccounts])
 
+    // The work orders of the board. They are asked for on mount, so the
+    // count in the sidebar is right, and again whenever the tab opens.
+    const refreshTasks = useCallback(async () => {
+      setTasksLoading(true)
+      try {
+        setTasks(await api.listTasks())
+        setTasksError(null)
+      } catch (err) {
+        setTasksError(err instanceof Error ? err.message : 'Could not load the tasks.')
+      } finally {
+        setTasksLoading(false)
+      }
+    }, [])
+
+    useEffect(() => {
+      void refreshTasks()
+    }, [refreshTasks])
+
+    useEffect(() => {
+      if (view !== 'tasks') return
+      void refreshTasks()
+    }, [view, refreshTasks])
+
+    // The trail of successful writes. It is only read when the tab is open,
+    // so the other roles never ask for it.
+    const refreshAuditLogs = useCallback(async () => {
+      if (!canEdit) {
+        setAuditLoading(false)
+        return
+      }
+      setAuditLoading(true)
+      try {
+        const data = await api.listAuditLogs({
+          limit: AUDIT_PAGE_SIZE,
+          offset: auditOffset,
+          action: auditAction,
+          q: auditQuery,
+        })
+        setAuditLogs(data.logs)
+        setAuditTotal(data.total)
+        setAuditError(null)
+      } catch (err) {
+        setAuditError(err instanceof Error ? err.message : 'Could not load the activity log.')
+      } finally {
+        setAuditLoading(false)
+      }
+    }, [canEdit, auditOffset, auditAction, auditQuery])
+
+    // The trail is loaded when the tab opens, and again whenever the filter
+    // changes. A change made in another tab shows up on the next visit.
+    useEffect(() => {
+      if (view !== 'activity') return
+      void refreshAuditLogs()
+    }, [view, refreshAuditLogs])
+
+    /** Narrow the trail down to one kind of action. */
+    const setAuditActionFilter = useCallback((action: string) => {
+      setAuditAction(action)
+      setAuditOffset(0)
+    }, [])
+
+    /** Search the trail for a user or a message. */
+    const setAuditSearch = useCallback((query: string) => {
+      setAuditQuery(query)
+      setAuditOffset(0)
+    }, [])
+
     /** Driver accounts a unit can be handed over to. */
     const drivers = useMemo(() => accounts.filter((u) => u.role === 'driver'), [accounts])
+
+    /**
+     * The accounts a work order can be handed to: the drivers on the road and
+     * the staff in the field. The admin and the viewer do not do the work, so
+     * they are not on the list.
+     */
+    const taskAssignees = useMemo(
+      () => accounts.filter((u) => u.role === 'driver' || u.role === 'staff'),
+      [accounts],
+    )
 
     // Routes are a separate list: the map draws them for the whole fleet, not
     // only for the selected unit.
@@ -489,7 +658,7 @@ export default function App() {
               // The line leaving the map is quiet, so say it out loud: the unit
               // reached its destination and the server closed the delivery.
               setRoutes((prev) => prev.filter((r) => r.id !== frame.route_id))
-              setToast({ kind: 'success', text: 'Delivery complete — route closed.' })
+              setToast({ kind: 'success', text: 'Delivery complete — route closed.', id: Date.now() })
               return
             }
             if (frame.type === 'zones') {
@@ -515,13 +684,9 @@ export default function App() {
               return
             }
             if (frame.type === 'geofence') {
-              // A unit crossed a zone boundary: say it out loud and keep the
-              // crossing history of the panel in step.
-              const entering = frame.event === 'ENTER'
-              showToast(
-                entering ? 'success' : 'error',
-                `${entering ? '🚚' : '⚠️'} ${frame.vehicle_name} ${entering ? 'MASUK ke' : 'KELUAR dari'} ${frame.zone_name}`,
-              )
+              // A unit crossed a zone boundary. The crossing is written to
+              // the history of the live panel, where it stays until the
+              // operator scrolls it away.
               setGeofenceEvents((prev) =>
                 mergeGeofenceEvents(
                   [
@@ -538,6 +703,9 @@ export default function App() {
                   prev,
                 ),
               )
+              // The aggregate of the day counts this crossing too, so the
+              // Overview tab is asked for fresh numbers.
+              void refreshOverview()
               return
             }
             const incoming = frame.vehicle
@@ -551,7 +719,7 @@ export default function App() {
           },
           onState: setStreamState,
         }),
-      [applyZoneCounts],
+      [applyZoneCounts, refreshOverview],
     )
 
     // Drop the selection when a unit leaves the fleet.
@@ -563,7 +731,7 @@ export default function App() {
     // Half-picked stops belong to one vehicle: switching units or closing the
     // picker must not leave a stray A/B marker on the map.
     useEffect(() => {
-      setRouteDraft({ origin: null, destination: null, originIsDefault: false })
+      setRouteDraft({ origin: null, stops: [] })
       setRoutePick(null)
     }, [selectedVehicleId])
 
@@ -576,29 +744,33 @@ export default function App() {
       setView('vehicles')
     }, [])
 
-    const handleRoutePickStart = (stage: 'origin' | 'destination') => {
+    const handleRoutePickStart = (pick: RoutePick) => {
       // One map mode at a time: arming a route stop disarms entity pinning.
       setPicking(false)
-      setRoutePick(stage)
+      setRoutePick(pick)
     }
 
     /**
      * Plan a route and draw it. The server answers with the road path
      * (OSRM) or the straight line when no engine could be reached, and the
      * camera moves to the new line so it is never drawn off screen.
+     *
+     * The server also decides the order the stops are visited in, so the
+     * answer carries the stops in that order: the map numbers them.
      */
     const planRoute = useCallback(
-      async (vehicleId: number, origin: RouteStop, destination: RouteStop) => {
+      async (vehicleId: number, origin: RouteStop, stops: RouteStop[]) => {
         setRouteSaving(true)
         try {
-          const route = await api.setVehicleRoute(vehicleId, { origin, destination })
+          const route = await api.setVehicleRoute(vehicleId, { origin, destinations: stops })
           setRoutes((prev) => mergeRoutes(prev, [route]))
-          setRouteDraft({ origin: null, destination: null, originIsDefault: false })
+          setRouteDraft({ origin: null, stops: [] })
           setRoutePick(null)
           setRouteFocus((f) => ({ id: route.id, n: (f?.n ?? 0) + 1 }))
+          const last = route.stops?.length ? route.stops[route.stops.length - 1] : route.destination
           showToast(
             'success',
-            `Route planned to ${destination.name || 'the destination'} · ${formatDistance(route.distance_m)}`,
+            `Route planned to ${last?.name || 'the destination'} · ${formatDistance(route.distance_m)}`,
           )
         } catch (err) {
           showToast('error', err instanceof Error ? err.message : 'Could not plan the route')
@@ -621,7 +793,7 @@ export default function App() {
           unit && hasPosition(unit)
             ? { lat: Number(unit.lat.toFixed(6)), lng: Number(unit.lng.toFixed(6)), name: unit.name }
             : null
-        setRouteDraft({ origin, destination: null, originIsDefault: origin != null })
+        setRouteDraft({ origin, stops: [] })
         setRoutePick(null)
       },
       [vehicles],
@@ -654,47 +826,74 @@ export default function App() {
       const stop: RouteStop = {
         lat: Number(lat.toFixed(6)),
         lng: Number(lng.toFixed(6)),
-        name: labelForPoint(lat, lng, routePick === 'destination' ? 'Destination' : 'Origin'),
+        name: labelForPoint(lat, lng, routePick.stage === 'origin' ? 'Origin' : 'Stop'),
       }
-      setRouteDraft((prev) => ({
-        ...prev,
-        [routePick]: stop,
-        // A hand-picked origin is not the unit's position any more, so the
-        // plan waits for the "Build route" button instead of going out by
-        // itself.
-        originIsDefault: routePick === 'destination' ? prev.originIsDefault : false,
-      }))
+      setRouteDraft((prev) =>
+        routePick.stage === 'origin'
+          ? { ...prev, origin: stop }
+          : {
+              ...prev,
+              stops: prev.stops.map((s, i) => (i === routePick.index ? stop : s)),
+            },
+      )
       setRoutePick(null)
-
-      // Picking the destination is the whole job when the plan starts at the
-      // unit's position: the request goes out right away and the line appears
-      // on the map. A hand-picked origin waits for the "Build route" button,
-      // so the operator can still check both stops first.
-      if (routePick === 'destination' && routeDraft.originIsDefault && routeDraft.origin && selectedVehicleId != null) {
-        void planRoute(selectedVehicleId, routeDraft.origin, stop).catch(() => {
-          /* the toast already says what went wrong */
-        })
-      }
     }
 
-    const handleRouteLabel = (stage: 'origin' | 'destination', name: string) => {
+    const handleRouteLabel = (pick: RoutePick, name: string) => {
       setRouteDraft((prev) => {
-        const current = prev[stage]
+        if (pick.stage === 'origin') {
+          if (!prev.origin) return prev
+          return { ...prev, origin: { ...prev.origin, name } }
+        }
+        const current = prev.stops[pick.index]
         if (!current) return prev
-        return { ...prev, [stage]: { ...current, name } }
+        return {
+          ...prev,
+          stops: prev.stops.map((s, i) => (i === pick.index ? { ...current, name } : s)),
+        }
       })
     }
 
-    const handleRouteSet = async (vehicleId: number, origin: RouteStop, destination: RouteStop) => {
+    /**
+     * A new destination row, armed for picking on the map straight away.
+     *
+     * The index is read before the state is updated: arming the picker from
+     * inside the updater would be a side effect during the render, and React
+     * may run the updater more than once.
+     */
+    const handleRouteAddStop = useCallback(() => {
+      const index = routeDraft.stops.length
+      setRouteDraft((prev) => ({ ...prev, stops: [...prev.stops, null] }))
+      setRoutePick({ stage: 'stop', index })
+    }, [routeDraft.stops.length])
+
+    /**
+     * Drop a destination row. The rows after it move up, so the index of an
+     * armed row has to follow.
+     */
+    const handleRouteRemoveStop = useCallback((index: number) => {
+      setRouteDraft((prev) => ({
+        ...prev,
+        stops: prev.stops.filter((_, i) => i !== index),
+      }))
+      setRoutePick((pick) => {
+        if (!pick || pick.stage !== 'stop') return pick
+        if (pick.index === index) return null
+        if (pick.index > index) return { stage: 'stop', index: pick.index - 1 }
+        return pick
+      })
+    }, [])
+
+    const handleRouteSet = async (vehicleId: number, origin: RouteStop, stops: RouteStop[]) => {
       if (!canEdit) return
-      await planRoute(vehicleId, origin, destination)
+      await planRoute(vehicleId, origin, stops)
     }
 
     const handleRouteClear = async (vehicleId: number) => {
       if (!canEdit) return
       await api.clearVehicleRoute(vehicleId)
       setRoutes((prev) => prev.filter((r) => r.vehicle_id !== vehicleId))
-      setRouteDraft({ origin: null, destination: null, originIsDefault: false })
+      setRouteDraft({ origin: null, stops: [] })
       showToast('success', 'Route cleared')
     }
 
@@ -765,6 +964,50 @@ export default function App() {
       }
     }
 
+    // Work orders: the board of the field. An admin fills it, a driver or a
+    // staff member moves the cards along.
+    const handleTaskCreate = async (input: TaskInput) => {
+      if (!canEdit) return
+      const created = await api.createTask(input)
+      setTasks((prev) => [created, ...prev])
+      showToast('success', `"${created.title}" added to the board`)
+    }
+
+    const handleTaskUpdate = async (id: number, input: TaskInput) => {
+      if (!canEdit) return
+      const updated = await api.updateTask(id, input)
+      setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)))
+      showToast('success', `"${updated.title}" saved`)
+    }
+
+    const handleTaskDelete = async () => {
+      if (!canEdit || !taskToDelete) return
+      setTaskDeleting(true)
+      try {
+        await api.deleteTask(taskToDelete.id)
+        setTasks((prev) => prev.filter((t) => t.id !== taskToDelete.id))
+        setTaskToDelete(null)
+        showToast('success', `"${taskToDelete.title}" removed`)
+      } catch (err) {
+        showToast('error', err instanceof Error ? err.message : 'Could not delete the task')
+      } finally {
+        setTaskDeleting(false)
+      }
+    }
+
+    // Moving a card along is the work of the field: a driver closes their
+    // own task, a staff member closes any task.
+    const handleTaskStatus = async (id: number, status: TaskStatus) => {
+      try {
+        const updated = await api.updateTaskStatus(id, status)
+        setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)))
+        showToast('success', `"${updated.title}" is now ${taskStatusLabel(status).toLowerCase()}`)
+      } catch (err) {
+        showToast('error', err instanceof Error ? err.message : 'Could not change the status')
+        throw err
+      }
+    }
+
     // Account changes: the list feeds both the Users page and the fleet form's
     // driver picker, so a new driver is assignable straight away.
     const handleAccountCreate = async (input: UserInput) => {
@@ -821,13 +1064,6 @@ export default function App() {
     }, [apiState, refresh])
 
   const selected = entities.find((e) => e.id === selectedId)
-
-  /** The colour of every unit's delivery line, keyed by vehicle id. */
-  const routeColors = useMemo(() => {
-    const m = new Map<number, string>()
-    for (const v of vehicles) if (v.route_color) m.set(v.id, v.route_color)
-    return m
-  }, [vehicles])
 
   const fleet = useMemo(() => {
     const c = { moving: 0, idle: 0, offline: 0 }
@@ -1093,64 +1329,14 @@ export default function App() {
   // The detail card and the form take over the list pane while they are open.
   const covered = selected != null || formOpen
 
-  const placesActive = entities.filter((e) => e.status === 'active').length
-  const zoneArea = zones.reduce((sum, z) => sum + (z.properties.area_km2 || 0), 0)
-  const online = fleet.moving + fleet.idle
-  const lastEvent = geofenceEvents[0]
-
-  const kpis: Kpi[] = [
-    {
-      key: 'fleet',
-      label: 'Fleet online',
-      value: String(online),
-      unit: `/ ${vehicles.length}`,
-      sub: (
-        <>
-          <b>{fleet.moving}</b> moving · <b>{fleet.idle}</b> idle · <b>{fleet.offline}</b> offline
-        </>
-      ),
-      tone: 'ok',
-      icon: <IconTruck width={18} height={18} />,
-      onClick: () => setView('vehicles'),
-    },
-    {
-      key: 'places',
-      label: 'Places',
-      value: String(entities.length),
-      sub: (
-        <>
-          <b>{placesActive}</b> active · <b>{entities.length - placesActive}</b> inactive
-        </>
-      ),
-      tone: 'accent',
-      icon: <IconPin width={18} height={18} />,
-      onClick: () => setView('entities'),
-    },
-    {
-      key: 'zones',
-      label: 'Zones',
-      value: String(zones.length),
-      sub: <>{zoneArea.toLocaleString(undefined, { maximumFractionDigits: 0 })} km² covered</>,
-      tone: 'info',
-      icon: <IconPolygon width={18} height={18} />,
-      onClick: () => setView('zones'),
-    },
-    {
-      key: 'events',
-      label: 'Zone crossings',
-      value: String(geofenceEvents.length),
-      sub: lastEvent ? (
-        <>
-          Last: <b>{lastEvent.vehicle_name}</b> {lastEvent.event_type === 'ENTER' ? 'in' : 'out'}
-        </>
-      ) : (
-        'Nothing recorded yet'
-      ),
-      tone: 'warn',
-      icon: <IconActivity width={18} height={18} />,
-      onClick: () => setView('vehicles'),
-    },
-  ]
+  // The summary row of the Overview tab: the aggregate of the day as the
+  // server counted it (distance, fleet status, zone crossings).
+  const overviewProps = {
+    data: overview,
+    loading: overviewLoading,
+    error: overviewError,
+    onRetry: () => void refreshOverview(),
+  }
 
   const page = NAV.find((n) => n.key === view) ?? NAV[0]
   const navCount = (k: Tab): number | null =>
@@ -1160,15 +1346,65 @@ export default function App() {
         ? zones.length
         : k === 'vehicles'
           ? vehicles.length
-          : k === 'users'
-            ? accounts.length
-            : null
+          : k === 'tasks'
+            ? tasks.length
+            : k === 'users'
+              ? accounts.length
+              : null
 
   /** Tabs the signed-in role may open; the sidebar renders only these. */
   const visibleNav = useMemo(
     () => NAV.filter((n) => canEdit || !ADMIN_TABS.includes(n.key)),
     [canEdit],
   )
+
+  /** Which way the page moves: forward along the tab order, or back. */
+  const [prevView, setPrevView] = useState<Tab>(view)
+  const [navDir, setNavDir] = useState<'fwd' | 'back'>('fwd')
+  if (prevView !== view) {
+    setPrevView(view)
+    setNavDir(
+      NAV.findIndex((n) => n.key === view) >= NAV.findIndex((n) => n.key === prevView) ? 'fwd' : 'back',
+    )
+  }
+
+  /** Phone dock: four tabs in reach, the rest tucked behind "More". */
+  const [moreOpen, setMoreOpen] = useState(false)
+  const dockMain = useMemo(
+    () => visibleNav.filter((n) => DOCK_MAIN.includes(n.key)),
+    [visibleNav],
+  )
+  const dockExtra = useMemo(
+    () => visibleNav.filter((n) => !DOCK_MAIN.includes(n.key)),
+    [visibleNav],
+  )
+  const navIcon = (k: Tab) =>
+    k === 'overview'
+      ? IconDashboard
+      : k === 'entities'
+        ? IconPin
+        : k === 'zones'
+          ? IconPolygon
+          : k === 'tasks'
+            ? IconClipboard
+            : k === 'users'
+              ? IconUsers
+              : k === 'activity'
+                ? IconHistory
+                : IconTruck
+
+  useEffect(() => {
+    setMoreOpen(false)
+  }, [view])
+
+  useEffect(() => {
+    if (!moreOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moreOpen])
 
   const goTo = (t: Tab) => {
     // A viewer must never land on an admin screen, even from stale state.
@@ -1206,7 +1442,7 @@ export default function App() {
   )
 
   return (
-    <div className={`dash${railCollapsed ? ' rail-slim' : ''}`} data-view={view}>
+    <div className={`dash${railCollapsed ? ' rail-slim' : ''}`} data-view={view} data-dir={navDir}>
       {/* ---- Navigation rail (desktop / tablet) ---------------------------- */}
       <aside className="rail" aria-label="Main">
         <div className="rail-head">
@@ -1229,9 +1465,13 @@ export default function App() {
                   ? IconPin
                   : n.key === 'zones'
                     ? IconPolygon
-                    : n.key === 'users'
-                      ? IconUsers
-                      : IconTruck
+                    : n.key === 'tasks'
+                      ? IconClipboard
+                      : n.key === 'users'
+                        ? IconUsers
+                        : n.key === 'activity'
+                          ? IconHistory
+                          : IconTruck
             const count = navCount(n.key)
             return (
               <button
@@ -1309,15 +1549,16 @@ export default function App() {
           </div>
           <div className="topbar-tools">
             {vehicles.length > 0 && (
-              <span className={`chip stream ${streamState}`} title="Live vehicle feed">
+              <span className={`chip stream ${streamState}`} title="Live vehicle feed" aria-label={streamLabel}>
                 <i aria-hidden="true" />
-                {streamLabel}
+                <span className="chip-text">{streamLabel}</span>
               </span>
             )}
             <span className={`chip api ${apiUi.cls}`} title={apiUi.title}>
               <i aria-hidden="true" />
               <span className="chip-text">{apiUi.label}</span>
             </span>
+            <NotificationBell onNotice={showToast} />
             <span className="topbar-mobile-tools">
               {themeBtn}
               {logoutBtn}
@@ -1327,7 +1568,7 @@ export default function App() {
 
         {/* ---- Stage -------------------------------------------------------- */}
         <main className="stage" data-view={view} data-tall={mapTall ? 'true' : 'false'} data-mpane={mobilePane}>
-          {view !== 'overview' && view !== 'users' && (
+          {view !== 'overview' && view !== 'users' && view !== 'tasks' && (
             <div className="pane-switch" role="tablist" aria-label="Show the list or the map">
               <button
                 type="button"
@@ -1355,11 +1596,11 @@ export default function App() {
           )}
           {view === 'overview' && (
             <div className="stage-kpis">
-              <KpiGrid items={kpis} />
+              <OverviewStatCards {...overviewProps} />
             </div>
           )}
 
-          {view !== 'users' && (
+          {view !== 'users' && view !== 'tasks' && (
           <section className="map-card" aria-label="Map">
             <EntityMap
               entities={mapEntities}
@@ -1408,7 +1649,6 @@ export default function App() {
               // Delivery routes (from -> to)
               routes={routes}
               routesVisible={vehiclesVisible}
-              routeColors={routeColors}
               routeDraft={routeDraft}
               // Playback of a recorded trip
               playback={playback}
@@ -1448,6 +1688,27 @@ export default function App() {
               </div>
             )}
 
+            {/* Playback of a recorded trip: the dialog floats over the map, so
+                the operator can watch the ghost marker walk the track. */}
+            {playback.vehicleId != null && (
+              <PlaybackDialog
+                vehicleName={playbackVehicle?.name ?? 'this unit'}
+                date={playback.date}
+                points={playback.data}
+                index={playback.index}
+                playing={playback.playing}
+                speed={playback.speed}
+                loading={playback.loading}
+                error={playback.error}
+                onDateChange={playback.setDate}
+                onLoad={() => void playback.load()}
+                onToggle={playback.toggle}
+                onSeek={playback.seek}
+                onSpeedChange={playback.setSpeed}
+                onClose={playback.close}
+              />
+            )}
+
             <button
               type="button"
               className="map-expand"
@@ -1462,7 +1723,10 @@ export default function App() {
             {routePick !== null && (
         <div className="route-pick-hint" role="status">
           <IconCrosshair width={16} height={16} />
-          <span>Click the map to set {routePick === 'origin' ? 'the origin (A)' : 'the destination (B)'}</span>
+          <span>
+            Click the map to set{' '}
+            {routePick.stage === 'origin' ? 'the origin (A)' : `stop ${routePick.index + 1}`}
+          </span>
           <button type="button" onClick={() => setRoutePick(null)}>
             Cancel
           </button>
@@ -1477,7 +1741,7 @@ export default function App() {
                 <FleetCard vehicles={vehicles} counts={fleet} onSelect={selectVehicle} onOpen={() => goTo('vehicles')} />
               </div>
               <div className="stage-extra">
-                <EventsCard events={geofenceEvents} onOpen={() => goTo('vehicles')} />
+                <OverviewActivityCard {...overviewProps} onOpenFleet={() => goTo('vehicles')} />
                 <TypeBreakdownCard entities={entities} onOpen={() => goTo('entities')} />
                 <ZonesCard
                   zones={zones}
@@ -1492,7 +1756,22 @@ export default function App() {
           ) : (
             <section className={covered ? 'panel-pane is-covered' : 'panel-pane'} aria-label={page.title}>
               <div className="pane-body" ref={listSlotRef}>
-            {view === 'users' && canEdit ? (
+            {view === 'tasks' ? (
+              <TaskBoard
+                tasks={tasks}
+                loading={tasksLoading}
+                error={tasksError}
+                places={entities}
+                assignees={taskAssignees}
+                canManage={canEdit}
+                canMove={role !== 'viewer'}
+                onRetry={() => void refreshTasks()}
+                onCreate={handleTaskCreate}
+                onUpdate={handleTaskUpdate}
+                onDelete={setTaskToDelete}
+                onStatus={handleTaskStatus}
+              />
+            ) : view === 'users' && canEdit ? (
               <UserPanel
                 users={accounts}
                 loading={accountsLoading}
@@ -1502,6 +1781,20 @@ export default function App() {
                 onCreate={handleAccountCreate}
                 onUpdate={handleAccountUpdate}
                 onDelete={setAccountToDelete}
+              />
+            ) : view === 'activity' && canEdit ? (
+              <ActivityLogPanel
+                logs={auditLogs}
+                total={auditTotal}
+                loading={auditLoading}
+                error={auditError}
+                action={auditAction}
+                query={auditQuery}
+                offset={auditOffset}
+                onActionChange={setAuditActionFilter}
+                onQueryChange={setAuditSearch}
+                onOffsetChange={setAuditOffset}
+                onRetry={() => void refreshAuditLogs()}
               />
             ) : view === 'entities' ? (
               <EntityList
@@ -1575,9 +1868,11 @@ export default function App() {
                 onPickCancel={() => setRoutePick(null)}
                 onLabelChange={handleRouteLabel}
                 onPlanStart={handleRoutePlanStart}
+                onAddStop={handleRouteAddStop}
+                onRemoveStop={handleRouteRemoveStop}
                 routeBusy={routeSaving}
                 onClearDraft={() => {
-                  setRouteDraft({ origin: null, destination: null, originIsDefault: false })
+                  setRouteDraft({ origin: null, stops: [] })
                   setRoutePick(null)
                 }}
                 onRouteSet={handleRouteSet}
@@ -1593,7 +1888,7 @@ export default function App() {
             )}
               </div>
 
-              {!formOpen && (
+              {!formOpen && view !== 'tasks' && (
                 <EntityDetail
                   entity={selected}
                   deleting={deleting}
@@ -1626,17 +1921,8 @@ export default function App() {
 
       {/* ---- Bottom navigation (phone) ------------------------------------- */}
       <nav className="bottom-nav" aria-label="Workspace">
-        {visibleNav.map((n) => {
-          const Icon =
-            n.key === 'overview'
-              ? IconDashboard
-              : n.key === 'entities'
-                ? IconPin
-                : n.key === 'zones'
-                  ? IconPolygon
-                  : n.key === 'users'
-                    ? IconUsers
-                    : IconTruck
+        {[...dockMain, ...(dockExtra.length === 1 ? dockExtra : [])].map((n) => {
+          const Icon = navIcon(n.key)
           const count = navCount(n.key)
           return (
             <button
@@ -1644,17 +1930,83 @@ export default function App() {
               type="button"
               className={view === n.key ? 'active' : ''}
               aria-current={view === n.key ? 'page' : undefined}
-              onClick={() => goTo(n.key)}
+              aria-label={n.label}
+              onClick={() => {
+                setMoreOpen(false)
+                goTo(n.key)
+              }}
             >
               <span className="bn-icon">
                 <Icon width={22} height={22} />
-                {count != null && count > 0 && <em className={n.key === 'vehicles' && streamState === 'live' ? 'live' : ''}>{count}</em>}
+                {count != null && count > 0 && (
+                  <em className={n.key === 'vehicles' && streamState === 'live' ? 'live' : ''}>
+                    {count > 99 ? '99+' : count}
+                  </em>
+                )}
               </span>
-              <span>{n.label}</span>
+              <span className="bn-label">{n.label}</span>
             </button>
           )
         })}
+        {dockExtra.length > 1 && (
+          <button
+            type="button"
+            className={moreOpen || dockExtra.some((n) => n.key === view) ? 'active' : ''}
+            aria-haspopup="dialog"
+            aria-expanded={moreOpen}
+            aria-label="More"
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            <span className="bn-icon">
+              <IconMore width={22} height={22} />
+            </span>
+            <span className="bn-label">More</span>
+          </button>
+        )}
       </nav>
+
+      {moreOpen && (
+        <div className="more-overlay" onClick={() => setMoreOpen(false)}>
+          <div
+            className="more-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="More"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="more-grip" aria-hidden="true" />
+            <h2 className="more-title">More</h2>
+            <ul className="more-list">
+              {dockExtra.map((n) => {
+                const Icon = navIcon(n.key)
+                const count = navCount(n.key)
+                return (
+                  <li key={n.key}>
+                    <button
+                      type="button"
+                      className={`more-item${view === n.key ? ' active' : ''}`}
+                      aria-current={view === n.key ? 'page' : undefined}
+                      onClick={() => {
+                        setMoreOpen(false)
+                        goTo(n.key)
+                      }}
+                    >
+                      <span className="more-ico">
+                        <Icon width={20} height={20} />
+                      </span>
+                      <span className="more-text">
+                        <b>{n.label}</b>
+                        <small>{n.sub}</small>
+                      </span>
+                      {count != null && <span className="more-count">{count}</span>}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {canEdit && (
       <ConfirmDialog
@@ -1692,10 +2044,32 @@ export default function App() {
         />
       )}
 
+      {canEdit && taskToDelete && (
+        <ConfirmDialog
+          open
+          title="Delete this task?"
+          message={`"${taskToDelete.title}" will be removed for good.`}
+          confirmLabel="Delete"
+          busy={taskDeleting}
+          onConfirm={handleTaskDelete}
+          onCancel={() => setTaskToDelete(null)}
+        />
+      )}
+
       {toast && (
-        <div className={`toast ${toast.kind}`} role={toast.kind === 'error' ? 'alert' : 'status'}>
-          {toast.kind === 'error' ? <IconAlert width={18} height={18} /> : <IconCheck width={18} height={18} />}
-          <span>{toast.text}</span>
+        <div
+          key={toast.id}
+          className={`toast ${toast.kind}`}
+          role={toast.kind === 'success' ? 'status' : 'alert'}
+        >
+          <span className="toast-ico" aria-hidden="true">
+            {toast.kind === 'success' ? <IconCheck width={18} height={18} /> : <IconAlert width={18} height={18} />}
+          </span>
+          <div className="toast-body">
+            <em>{TOAST_LABEL[toast.kind]}</em>
+            <span>{toast.text}</span>
+          </div>
+          <i className="toast-bar" aria-hidden="true" />
         </div>
       )}
     </div>

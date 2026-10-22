@@ -5,10 +5,11 @@ const REFRESH_KEY = 'groundwork:refresh'
 
 /** Roles the backend accepts. Mirrors the CHECK constraint on users.role. */
 export const ROLE_ADMIN = 'admin'
+export const ROLE_STAFF = 'staff'
 export const ROLE_VIEWER = 'viewer'
 export const ROLE_DRIVER = 'driver'
 
-export type Role = typeof ROLE_ADMIN | typeof ROLE_VIEWER | typeof ROLE_DRIVER
+export type Role = typeof ROLE_ADMIN | typeof ROLE_STAFF | typeof ROLE_VIEWER | typeof ROLE_DRIVER
 
 /**
  * Coerce a raw role claim into a known role. Anything the backend does not
@@ -17,6 +18,7 @@ export type Role = typeof ROLE_ADMIN | typeof ROLE_VIEWER | typeof ROLE_DRIVER
  */
 export function normalizeRole(raw: string | undefined | null): Role {
   if (raw === ROLE_ADMIN) return ROLE_ADMIN
+  if (raw === ROLE_STAFF) return ROLE_STAFF
   if (raw === ROLE_DRIVER) return ROLE_DRIVER
   return ROLE_VIEWER
 }

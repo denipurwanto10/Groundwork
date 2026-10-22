@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { StreamState } from '../lib/vehicleStream'
 import type {
   GeofenceEvent,
+  RouteDraft,
+  RoutePick,
   RouteStop,
   UserAccount,
   Vehicle,
@@ -14,12 +16,14 @@ import type {
 import {
   formatDistance,
   formatDuration,
+  formatEtaClock,
   formatLastSeen,
   hasPosition,
   normalizeVehicleKind,
   normalizeVehicleStatus,
   routeForVehicle,
   routeProgress,
+  routeEtaAt,
   routeEtaSeconds,
   vehicleKindLabel,
   vehicleStatusColor,
@@ -53,8 +57,14 @@ import {
 } from './Icons'
 import Select from './Select'
 import FormModal from './FormModal'
-import PlaybackPanel from './PlaybackPanel'
 import { VehicleSide } from './VehicleArt'
+import { AnimatedNumber, useFlipList } from './LiveMotion'
+
+/**
+ * How many destinations one route may have. The server has the same limit,
+ * and the trip service of the public OSRM server gets slow beyond it.
+ */
+const MAX_ROUTE_STOPS = 12
 
 const STREAM_UI: Record<StreamState, { label: string; title: string }> = {
   connecting: { label: 'Connecting', title: 'Opening the live position feed' },
@@ -106,18 +116,22 @@ interface Props {
   /** Delivery routes of the whole fleet (active ones are drawn on the map). */
   routes: VehicleRoute[]
   /** Stops picked on the map for the selected vehicle's next route. */
-  draft: { origin: RouteStop | null; destination: RouteStop | null } | null
+  draft: RouteDraft | null
   /** Which stop the map click will fill, or null when not picking. */
-  picking: 'origin' | 'destination' | null
-  onPickStart: (stage: 'origin' | 'destination') => void
+  picking: RoutePick | null
+  onPickStart: (pick: RoutePick) => void
   onPickCancel: () => void
-  onLabelChange: (stage: 'origin' | 'destination', name: string) => void
-  /** The plan starts at the unit's own position; the operator picks the target. */
+  onLabelChange: (pick: RoutePick, name: string) => void
+  /** Add a destination row and arm it for picking on the map. */
+  onAddStop: () => void
+  /** Drop a destination row. */
+  onRemoveStop: (index: number) => void
+  /** The plan starts at the unit's own position; the operator picks the targets. */
   onPlanStart: (vehicleId: number) => void
   /** A plan is on its way to the server. */
   routeBusy: boolean
   onClearDraft: () => void
-  onRouteSet: (vehicleId: number, origin: RouteStop, destination: RouteStop) => Promise<void>
+  onRouteSet: (vehicleId: number, origin: RouteStop, stops: RouteStop[]) => Promise<void>
   onRouteClear: (vehicleId: number) => Promise<void>
   /** Only admins may plan or clear routes; viewer and driver stay read-only. */
   canEdit: boolean
@@ -142,21 +156,7 @@ interface UnitDraft {
   code: string
   kind: VehicleKind
   driverId: number | ''
-  /** Colour of the delivery line of this unit. */
-  routeColor: string
 }
-
-/** Colours offered for the delivery line of a unit. */
-const ROUTE_COLORS = [
-  '#d0171e',
-  '#2563eb',
-  '#0b8a7e',
-  '#7a1a1f',
-  '#d49a3a',
-  '#8664c8',
-  '#2b9aa8',
-  '#c8161d',
-]
 
 /** Re-renders every few seconds so "12s ago" labels keep moving. */
 function useNow(intervalMs = 5000): number {
@@ -192,6 +192,8 @@ export default function VehiclePanel({
   onPickStart,
   onPickCancel,
   onLabelChange,
+  onAddStop,
+  onRemoveStop,
   onPlanStart,
   routeBusy,
   onClearDraft,
@@ -210,6 +212,9 @@ export default function VehiclePanel({
   const stream = STREAM_UI[streamState]
   const selected = vehicles.find((v) => v.id === selectedId) ?? null
   const activeRoute = routeForVehicle(routes, selectedId)
+  // The stops of a multi-stop route, in the visiting order the server worked
+  // out. It is empty for a route with a single destination.
+  const routeStops = activeRoute?.stops ?? []
 
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
@@ -257,12 +262,28 @@ export default function VehiclePanel({
       )
   }, [vehicles, filter, query])
 
+  // Rows slide to their new place when the order changes, and only rows that
+  // are really new play the entrance animation (a moved DOM node would
+  // otherwise replay it and look like a refresh).
+  const listRef = useRef<HTMLUListElement>(null)
+  useFlipList(listRef, filtered.map((v) => v.id).join(','))
+  const seenIds = useRef(new Set<number>())
+  const firstPaint = useRef(true)
+  useEffect(() => {
+    for (const v of filtered) seenIds.current.add(v.id)
+    firstPaint.current = false
+  }, [filtered])
+
   const submitRoute = async () => {
-    if (!selected || !draft?.origin || !draft?.destination) return
+    if (!selected || !draft?.origin) return
+    // Every stop must be picked before the route can be built: a row that is
+    // still waiting for a map click would send a hole in the tour.
+    const stops = draft.stops.filter((s): s is RouteStop => s != null)
+    if (stops.length === 0 || stops.length !== draft.stops.length) return
     setSaving(true)
     setRouteError(null)
     try {
-      await onRouteSet(selected.id, draft.origin, draft.destination)
+      await onRouteSet(selected.id, draft.origin, stops)
       setPlanning(false)
     } catch (err) {
       setRouteError(err instanceof Error ? err.message : 'Could not build the route')
@@ -282,7 +303,7 @@ export default function VehiclePanel({
   }
 
   const openCreate = () => {
-    setUnit({ id: null, name: '', code: '', kind: 'truck', driverId: '', routeColor: DEFAULT_ROUTE_COLOR })
+    setUnit({ id: null, name: '', code: '', kind: 'truck', driverId: '' })
     setUnitError(null)
     setUnitFields({})
   }
@@ -294,7 +315,6 @@ export default function VehiclePanel({
       code: v.code,
       kind: normalizeVehicleKind(v.kind),
       driverId: v.driver_id ?? '',
-      routeColor: v.route_color || DEFAULT_ROUTE_COLOR,
     })
     setUnitError(null)
     setUnitFields({})
@@ -313,7 +333,8 @@ export default function VehiclePanel({
       code: unit.code,
       kind: unit.kind,
       driver_id: unit.driverId === '' ? null : unit.driverId,
-      route_color: unit.routeColor,
+      // One colour for every delivery line: the primary red of the theme.
+      route_color: DEFAULT_ROUTE_COLOR,
     }
     setUnitSaving(true)
     setUnitError(null)
@@ -342,7 +363,8 @@ export default function VehiclePanel({
     ) : null
 
   const selectedStatus = selected ? normalizeVehicleStatus(selected.status) : 'offline'
-  const showForm = !!selected && !activeRoute && (planning || !!draft?.origin || !!draft?.destination)
+  const showForm =
+    !!selected && !activeRoute && (planning || !!draft?.origin || (draft?.stops.length ?? 0) > 0)
   // The plan is on its way to the server: the form waits for the line.
   const busy = saving || routeBusy
 
@@ -457,7 +479,7 @@ export default function VehiclePanel({
                   <IconGauge width={13} height={13} /> Speed
                 </dt>
                 <dd>
-                  {selectedStatus === 'moving' ? Math.round(selected.speed_kmh) : 0}
+                  <AnimatedNumber value={selectedStatus === 'moving' ? selected.speed_kmh : 0} />
                   <small> km/h</small>
                 </dd>
               </div>
@@ -520,48 +542,45 @@ export default function VehiclePanel({
                 title="Play back the recorded trip of this unit"
               >
                 <IconClock width={15} height={15} />
-                Playback
+                Playback history
               </button>
             </div>
-
-            {playback.vehicleId === selected.id && (
-              <PlaybackPanel
-                vehicleName={selected.name}
-                date={playback.date}
-                points={playback.data}
-                index={playback.index}
-                playing={playback.playing}
-                speed={playback.speed}
-                loading={playback.loading}
-                error={playback.error}
-                onDateChange={playback.setDate}
-                onLoad={() => void playback.load()}
-                onToggle={playback.toggle}
-                onSeek={playback.seek}
-                onSpeedChange={playback.setSpeed}
-                onClose={playback.close}
-              />
-            )}
 
             {activeRoute && (
               <div className="lt-route">
                 <div className="lt-route-heading">
-                  <IconRoute width={14} height={14} />
-                  <span>
-                    Following route to <b>{activeRoute.destination.name || 'the destination'}</b>
+                  <span className="lt-route-badge" aria-hidden="true">
+                    <IconRoute width={14} height={14} />
+                  </span>
+                  <span className="lt-route-title">
+                    <small>Following route to</small>
+                    <b>{activeRoute.destination.name || 'the destination'}</b>
+                  </span>
+                  <span className="lt-route-kind">
+                    {activeRoute.source === 'osrm' ? 'Road route' : 'Direct line'}
                   </span>
                 </div>
-                <div className="lt-route-ends">
-                  <span>
+
+                <ol className="lt-route-stops">
+                  <li className="origin">
                     <b className="route-pin origin">A</b>
-                    {activeRoute.origin.name || 'Origin'}
-                  </span>
-                  <span className="lt-route-line" aria-hidden="true" />
-                  <span>
-                    <b className="route-pin dest">B</b>
-                    {activeRoute.destination.name || 'Destination'}
-                  </span>
-                </div>
+                    <span className="lt-stop-name">{activeRoute.origin.name || 'Origin'}</span>
+                  </li>
+                  {routeStops.length > 0 ? (
+                    routeStops.map((stop, index) => (
+                      <li key={index} className={index === routeStops.length - 1 ? 'dest last' : 'dest'}>
+                        <b className="route-pin dest">{index + 1}</b>
+                        <span className="lt-stop-name">{stop.name || `Stop ${index + 1}`}</span>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="dest last">
+                      <b className="route-pin dest">B</b>
+                      <span className="lt-stop-name">{activeRoute.destination.name || 'Destination'}</span>
+                    </li>
+                  )}
+                </ol>
+
                 <div
                   className="lt-bar"
                   role="progressbar"
@@ -572,21 +591,26 @@ export default function VehiclePanel({
                 >
                   <span style={{ width: `${Math.round(routeProgress(activeRoute) * 100)}%` }} />
                 </div>
+
                 <div className="lt-route-stats">
-                  <span>
-                    <b>{Math.round(routeProgress(activeRoute) * 100)}%</b> done
+                  <span className="lt-rs">
+                    <small>Done</small>
+                    <b>{Math.round(routeProgress(activeRoute) * 100)}%</b>
                   </span>
-                  <span>
-                    <b>{formatDistance(activeRoute.remaining_m)}</b> left
+                  <span className="lt-rs">
+                    <small>Left</small>
+                    <b>{formatDistance(activeRoute.remaining_m)}</b>
                   </span>
-                  <span>
-                    ETA <b>{formatDuration(routeEtaSeconds(activeRoute, selected.speed_kmh))}</b>
+                  <span className="lt-rs lt-eta">
+                    <small>ETA</small>
+                    <b>{formatEtaClock(routeEtaAt(activeRoute, selected.speed_kmh, now), now)}</b>
+                    <em>in {formatDuration(routeEtaSeconds(activeRoute, selected.speed_kmh))}</em>
                   </span>
                 </div>
+
                 <div className="lt-route-foot">
                   <span>
-                    {formatDistance(activeRoute.distance_m)} · {formatDuration(activeRoute.duration_s)} ·{' '}
-                    {activeRoute.source === 'osrm' ? 'road route' : 'direct line'}
+                    Total {formatDistance(activeRoute.distance_m)} · {formatDuration(activeRoute.duration_s)} drive
                   </span>
                   {canEdit && (
                     <button type="button" className="text-action" onClick={() => void clearRoute(selected.id)}>
@@ -599,15 +623,53 @@ export default function VehiclePanel({
 
             {showForm && canEdit && (
               <div className="lt-form">
-                <p>Tap the target, then tap a point on the map.</p>
-                {(['origin', 'destination'] as const).map((stage) => {
-                  const stop = draft?.[stage] ?? null
-                  const armed = picking === stage
-                  const title = stage === 'origin' ? 'Origin' : 'Destination'
+                <p>Pick the stops on the map. The server works out the shortest order.</p>
+                <div
+                  className={
+                    picking?.stage === 'origin' ? 'lt-stop picking' : 'lt-stop'
+                  }
+                >
+                  <span className="route-pin origin" aria-hidden="true">
+                    A
+                  </span>
+                  <div className="lt-stop-field">
+                    <input
+                      value={draft?.origin?.name ?? ''}
+                      placeholder={draft?.origin ? 'Origin name (optional)' : 'Origin — pick on the map'}
+                      aria-label="Origin label"
+                      disabled={!draft?.origin}
+                      onChange={(e) => onLabelChange({ stage: 'origin' }, e.target.value)}
+                    />
+                    <span>
+                      {draft?.origin
+                        ? `${draft.origin.lat.toFixed(5)}, ${draft.origin.lng.toFixed(5)}`
+                        : 'not picked yet'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className={picking?.stage === 'origin' ? 'icon-btn active' : 'icon-btn'}
+                    aria-pressed={picking?.stage === 'origin'}
+                    title={picking?.stage === 'origin' ? 'Cancel picking' : 'Pick the origin on the map'}
+                    aria-label={
+                      picking?.stage === 'origin' ? 'Cancel picking' : 'Pick the origin on the map'
+                    }
+                    onClick={() =>
+                      picking?.stage === 'origin'
+                        ? onPickCancel()
+                        : onPickStart({ stage: 'origin' })
+                    }
+                  >
+                    <IconCrosshair width={16} height={16} />
+                  </button>
+                </div>
+                {(draft?.stops ?? []).map((stop, index) => {
+                  const armed = picking?.stage === 'stop' && picking.index === index
+                  const title = `Stop ${index + 1}`
                   return (
-                    <div className={armed ? 'lt-stop picking' : 'lt-stop'} key={stage}>
-                      <span className={`route-pin ${stage === 'origin' ? 'origin' : 'dest'}`} aria-hidden="true">
-                        {stage === 'origin' ? 'A' : 'B'}
+                    <div className={armed ? 'lt-stop picking' : 'lt-stop'} key={index}>
+                      <span className="route-pin dest" aria-hidden="true">
+                        {index + 1}
                       </span>
                       <div className="lt-stop-field">
                         <input
@@ -615,28 +677,56 @@ export default function VehiclePanel({
                           placeholder={stop ? `${title} name (optional)` : `${title} — pick on the map`}
                           aria-label={`${title} label`}
                           disabled={!stop}
-                          onChange={(e) => onLabelChange(stage, e.target.value)}
+                          onChange={(e) => onLabelChange({ stage: 'stop', index }, e.target.value)}
                         />
-                        <span>{stop ? `${stop.lat.toFixed(5)}, ${stop.lng.toFixed(5)}` : 'not picked yet'}</span>
+                        <span>
+                          {stop ? `${stop.lat.toFixed(5)}, ${stop.lng.toFixed(5)}` : 'not picked yet'}
+                        </span>
                       </div>
-                      <button
-                        type="button"
-                        className={armed ? 'icon-btn active' : 'icon-btn'}
-                        aria-pressed={armed}
-                        title={armed ? 'Cancel picking' : `Pick ${title.toLowerCase()} on the map`}
-                        aria-label={armed ? 'Cancel picking' : `Pick ${title.toLowerCase()} on the map`}
-                        onClick={() => (armed ? onPickCancel() : onPickStart(stage))}
-                      >
-                        <IconCrosshair width={16} height={16} />
-                      </button>
+                      <div className="lt-stop-buttons">
+                        <button
+                          type="button"
+                          className={armed ? 'icon-btn active' : 'icon-btn'}
+                          aria-pressed={armed}
+                          title={armed ? 'Cancel picking' : `Pick ${title.toLowerCase()} on the map`}
+                          aria-label={armed ? 'Cancel picking' : `Pick ${title.toLowerCase()} on the map`}
+                          onClick={() =>
+                            armed ? onPickCancel() : onPickStart({ stage: 'stop', index })
+                          }
+                        >
+                          <IconCrosshair width={16} height={16} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title={`Remove ${title.toLowerCase()}`}
+                          aria-label={`Remove ${title.toLowerCase()}`}
+                          onClick={() => onRemoveStop(index)}
+                        >
+                          <IconX width={16} height={16} />
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
                 <div className="lt-actions">
                   <button
                     type="button"
+                    className="btn secondary small"
+                    disabled={busy || (draft?.stops.length ?? 0) >= MAX_ROUTE_STOPS}
+                    onClick={onAddStop}
+                  >
+                    + Add Stop
+                  </button>
+                  <button
+                    type="button"
                     className="btn primary small"
-                    disabled={!draft?.origin || !draft?.destination || busy}
+                    disabled={
+                      !draft?.origin ||
+                      (draft?.stops.length ?? 0) === 0 ||
+                      draft.stops.some((s) => s == null) ||
+                      busy
+                    }
                     onClick={() => void submitRoute()}
                   >
                     {busy ? 'Building route…' : 'Build route'}
@@ -714,14 +804,19 @@ export default function VehiclePanel({
           </div>
         )}
 
-        <ul className="lt-list">
+        <ul className="lt-list" ref={listRef}>
           {filtered.map((v) => {
             const status = normalizeVehicleStatus(v.status)
             const isSel = v.id === selectedId
             const route = routeByVehicle.get(v.id)
             const pct = route ? Math.round(routeProgress(route) * 100) : null
+            const entering = !seenIds.current.has(v.id)
             return (
-              <li key={v.id} className={isSel ? 'lt-row selected' : 'lt-row'}>
+              <li
+                key={v.id}
+                data-flip-id={v.id}
+                className={`lt-row${isSel ? ' selected' : ''}${entering ? ' enter' : ''}`}
+              >
                 <button
                   type="button"
                   className="lt-card"
@@ -743,14 +838,24 @@ export default function VehiclePanel({
                     </span>
                     {route && pct !== null ? (
                       <span className="lt-card-route">
-                        <span className="lt-card-route-name">
+                        <span
+                          className="lt-card-route-name"
+                          title={`Following route to ${route.destination.name || 'the destination'}`}
+                        >
                           <IconRoute width={12} height={12} />
-                          Following route to <b>{route.destination.name || 'the destination'}</b>
+                          <span className="sr-only">Following route to</span>
+                          <b>{route.destination.name || 'the destination'}</b>
                         </span>
-                        <span className="lt-bar slim" aria-hidden="true">
-                          <span style={{ width: `${pct}%` }} />
+                        <span className="lt-card-route-line">
+                          <span className="lt-bar slim" aria-hidden="true">
+                            <span style={{ width: `${pct}%` }} />
+                          </span>
+                          <em>{pct}%</em>
                         </span>
-                        <em>{pct}%</em>
+                        <span className="lt-card-route-meta">
+                          <span>Distance {formatDistance(route.distance_m)}</span>
+                          <span>ETA {formatEtaClock(routeEtaAt(route, v.speed_kmh, now), now)}</span>
+                        </span>
                       </span>
                     ) : (
                       <span className="lt-card-sub dim">{formatLastSeen(v.last_seen_at, now)}</span>
@@ -760,7 +865,7 @@ export default function VehiclePanel({
                     <span className={`lt-chip ${status}`}>{vehicleStatusLabel(status)}</span>
                     {status === 'moving' && v.speed_kmh > 0 && (
                       <span className="lt-speed">
-                        {Math.round(v.speed_kmh)}
+                        <AnimatedNumber value={v.speed_kmh} />
                         <small> km/h</small>
                       </span>
                     )}
@@ -902,33 +1007,6 @@ export default function VehiclePanel({
                 onChange={(v) => setUnit({ ...unit, driverId: v === '' ? '' : Number(v) })}
               />
               {unitFieldError('driver_id')}
-            </div>
-
-            <div className="um-field wide">
-              <label htmlFor="veh-route-color">Route colour</label>
-              <div className="um-colors" role="group" aria-label="Route colour">
-                {ROUTE_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    className={`um-swatch${unit.routeColor === c ? ' on' : ''}`}
-                    style={{ background: c }}
-                    aria-label={`Route colour ${c}`}
-                    aria-pressed={unit.routeColor === c}
-                    title={c}
-                    onClick={() => setUnit({ ...unit, routeColor: c })}
-                  />
-                ))}
-                <input
-                  id="veh-route-color"
-                  type="color"
-                  className="um-color-input"
-                  value={unit.routeColor}
-                  onChange={(e) => setUnit({ ...unit, routeColor: e.target.value })}
-                  aria-label="Custom route colour"
-                />
-              </div>
-              {unitFieldError('route_color')}
             </div>
           </div>
 

@@ -160,7 +160,7 @@
   text-overflow: ellipsis;
 }
 
-.lt-form .lt-stop > .icon-btn {
+.lt-form .lt-stop .icon-btn {
   width: 40px;
   height: 40px;
   min-height: 40px;
@@ -168,6 +168,12 @@
   align-self: start;
   display: grid;
   place-items: center;
+}
+
+/* The pick and the remove button of a stop sit next to each other. */
+.lt-form .lt-stop-buttons {
+  display: flex;
+  gap: 6px;
 }
 
 @media (max-width: 767px) {

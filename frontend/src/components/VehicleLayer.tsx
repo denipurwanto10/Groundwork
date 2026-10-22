@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type CSSProperties } from 'react'
 import { Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import type { Vehicle } from '../lib/types'
@@ -24,29 +24,26 @@ const iconCache = new Map<string, L.DivIcon>()
 
 /**
  * Premium marker: a glossy rounded "pin card" (gradient badge + kind glyph) that
- * sits on a pulsing radar ring, with a heading chevron, a status dot and a
+ * sits on a soft halo, with a heading chevron, a status dot and a
  * floating plate/speed chip. The selected unit grows and shows its name.
  */
 function vehicleIcon(veh: Vehicle, selected: boolean): L.DivIcon {
   const kind = normalizeVehicleKind(veh.kind)
   const status = normalizeVehicleStatus(veh.status)
-  const speed = status === 'moving' ? Math.round(veh.speed_kmh) : 0
-  const key = `${kind}|${status}|${selected ? esc(veh.name) : ''}|${selected ? esc(veh.code) : ''}|${selected ? speed : ''}`
+  const key = `${kind}|${status}|${selected ? esc(veh.name) : ''}|${selected ? esc(veh.code) : ''}`
   const hit = iconCache.get(key)
   if (hit) return hit
 
   const w = selected ? 64 : 50
   const cls = `veh ${kind} ${status}${status === 'moving' ? ' is-moving' : ''}${selected ? ' selected' : ''}`
   const chip = selected
-    ? `<span class="veh-label"><b>${esc(veh.name)}</b><em>${esc(veh.code)}${
-        status === 'moving' && speed > 0 ? ` · ${speed} km/h` : ''
-      }</em></span>`
+    ? `<span class="veh-label"><b>${esc(veh.name)}</b><em>${esc(veh.code)}<span class="veh-speed"></span></em></span>`
     : ''
   const icon = L.divIcon({
     className: 'veh-wrap',
     html:
       `<span class="${cls}" style="--veh:${vehicleStatusColor(status)}">` +
-      `<s class="veh-ground"></s><s class="veh-lock"></s>` +
+      `<s class="veh-ground"></s>` +
       `<span class="veh-body"><s class="veh-beam"></s><s class="veh-trail"></s>${vehicleTopSvg(kind)}</span>${chip}</span>`,
     iconSize: [w, w],
     iconAnchor: [w / 2, w / 2],
@@ -122,13 +119,21 @@ function VehicleMarker({
       // so a renamed unit would keep the old tooltip until the next rebuild.
       el.setAttribute('title', `${v.code} · ${v.name}`)
     }
+    // The speed in the label changes on every frame: write it into the live
+    // element instead of rebuilding the icon, so the marker keeps gliding.
+    const speedEl = el?.querySelector<HTMLElement>('.veh-speed')
+    if (speedEl) {
+      const kmh = status === 'moving' ? Math.round(v.speed_kmh) : 0
+      const text = kmh > 0 ? ` · ${kmh} km/h` : ''
+      if (speedEl.textContent !== text) speedEl.textContent = text
+    }
     // The reported heading wins over the one derived from the movement.
     const shown = typeof v.heading === 'number' && Number.isFinite(v.heading) ? v.heading : heading.current
     if (el && shown !== null) {
       el.style.setProperty('--hd', `${shown.toFixed(1)}deg`)
       el.style.setProperty('--hd-on', '1')
     }
-  }, [v.lat, v.lng, v.heading, selected, status, v])
+  }, [v.lat, v.lng, v.heading, v.speed_kmh, selected, status, v])
 
   return (
     <Marker
@@ -149,7 +154,8 @@ function VehicleMarker({
     >
       <Popup className="veh-popup" closeButton={false} offset={[0, -6]}>
         <span className="vp-head">
-          <span className="vp-badge" style={{ background: vehicleStatusColor(status) }}>
+          <span className="vp-badge" style={{ '--c': vehicleStatusColor(status) } as CSSProperties}>
+            <i aria-hidden="true" />
             {vehicleStatusLabel(v.status)}
           </span>
           <span className="vp-code">{v.code}</span>
@@ -164,9 +170,13 @@ function VehicleMarker({
           <span>
             <small>Heading</small>
             <b>
-              {typeof v.heading === 'number' && Number.isFinite(v.heading)
-                ? `${Math.round(v.heading)}° ${compassPoint(v.heading)}`
-                : '—'}
+              {typeof v.heading === 'number' && Number.isFinite(v.heading) ? (
+                <>
+                  {Math.round(v.heading)}°<i> {compassPoint(v.heading)}</i>
+                </>
+              ) : (
+                '—'
+              )}
             </b>
           </span>
           <span>

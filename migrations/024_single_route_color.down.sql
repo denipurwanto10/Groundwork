@@ -1,0 +1,5 @@
+-- Migration 024 (down): the per-unit route colours cannot come back.
+--
+-- The colours that were overwritten are gone: the rollback of a data change
+-- is not a data change. The column stays as it is — the server writes the
+-- primary red again for every unit it saves.

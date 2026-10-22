@@ -28,10 +28,19 @@ import (
 type VehicleHandler struct {
 	db  *db.Pool
 	hub *ws.Hub
+	// offlineAfter is how long a unit may stay silent before it counts as
+	// offline. Zero turns the check off.
+	offlineAfter time.Duration
 }
 
 func NewVehicleHandler(pool *db.Pool, hub *ws.Hub) *VehicleHandler {
 	return &VehicleHandler{db: pool, hub: hub}
+}
+
+// SetOfflineAfter turns the automatic offline detection on: a unit that has
+// not reported for that long counts as offline. Zero turns it off again.
+func (h *VehicleHandler) SetOfflineAfter(d time.Duration) {
+	h.offlineAfter = d
 }
 
 func (h *VehicleHandler) ctxWithTimeout(c *gin.Context) (context.Context, context.CancelFunc) {
@@ -56,12 +65,15 @@ const vehicleColsWithRoute = `SELECT v.id, v.code, v.name, v.kind, v.status, v.d
        rt.id, rt.origin_name, rt.origin_lat, rt.origin_lng,
        rt.dest_name, rt.dest_lat, rt.dest_lng,
        COALESCE(ST_AsGeoJSON(rt.geom, 6)::json, '{}'::json),
-       rt.distance_m, rt.duration_s, rt.source, rt.status, rt.created_at, rt.progress
+       rt.distance_m, rt.duration_s, rt.source, rt.status, rt.created_at, rt.progress,
+       rt.stops, rt.started_at, rt.ended_at,
+       (v.driver_id IS NOT NULL) AS driver_assigned
   FROM vehicles v
   LEFT JOIN LATERAL (
        SELECT rt.id, rt.origin_name, rt.origin_lat, rt.origin_lng,
               rt.dest_name, rt.dest_lat, rt.dest_lng, rt.geom, rt.distance_m,
-              rt.duration_s, rt.source, rt.status, rt.created_at,
+              rt.duration_s, rt.source, rt.status, rt.created_at, rt.stops,
+              rt.started_at, rt.ended_at,
               ` + routeProgressSQL + ` AS progress
          FROM vehicle_routes rt
         WHERE rt.vehicle_id = v.id AND rt.status = 'active'
@@ -110,13 +122,18 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 		status     *string
 		createdAt  *time.Time
 		progress   *float64
+		stops      []byte
+		startedAt  *time.Time
+		endedAt    *time.Time
+		driverSet  *bool
 	)
 
 	if err := row.Scan(&v.ID, &v.Code, &v.Name, &v.Kind, &v.Status, &v.DriverID,
 		&v.Lat, &v.Lng, &v.SpeedKmh, &v.LastSeenAt, &v.Heading, &v.RouteColor,
 		&routeID, &originName, &originLat, &originLng,
 		&destName, &destLat, &destLng,
-		&geojson, &distanceM, &durationS, &source, &status, &createdAt, &progress); err != nil {
+		&geojson, &distanceM, &durationS, &source, &status, &createdAt, &progress,
+		&stops, &startedAt, &endedAt, &driverSet); err != nil {
 		return vehicle.Vehicle{}, err
 	}
 
@@ -129,12 +146,18 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 		VehicleID:   v.ID,
 		Origin:      vehicle.RouteStop{Name: *originName, Lat: *originLat, Lng: *originLng},
 		Destination: vehicle.RouteStop{Name: *destName, Lat: *destLat, Lng: *destLng},
+		Stops:       decodeStops(stops),
 		Geometry:    json.RawMessage(geojson),
 		DistanceM:   *distanceM,
 		DurationS:   *durationS,
 		Source:      *source,
 		Status:      *status,
 		CreatedAt:   *createdAt,
+		StartedAt:   startedAt,
+		EndedAt:     endedAt,
+	}
+	if driverSet != nil {
+		route.DriverAssigned = *driverSet
 	}
 	if progress != nil {
 		route.Progress = round4(*progress)
@@ -550,6 +573,65 @@ func (h *VehicleHandler) snapshot(ctx context.Context, driverID *int64) ([]byte,
 	}
 
 	return json.Marshal(gin.H{"type": "snapshot", "vehicles": vehicles, "at": time.Now().UTC()})
+}
+
+// staleOfflineSQL puts the units that stopped reporting into the offline
+// state.
+//
+// A unit that never reported keeps the status it was created with: there is
+// nothing to be late about. A unit that reported and then fell silent is
+// marked, because a truck that stopped sending positions is not driving
+// anymore, whatever its last report said.
+const staleOfflineSQL = `UPDATE vehicles
+    SET status = 'offline'
+  WHERE last_seen_at IS NOT NULL
+    AND last_seen_at < now() - make_interval(secs => $1)
+    AND status <> 'offline'
+  RETURNING id`
+
+// MarkStaleOffline puts the units that stopped reporting into the offline
+// state and tells the browsers about them, so the map greys them out at once
+// instead of on the next poll.
+//
+// A unit that comes back brings itself back: every position report writes a
+// fresh status and a fresh timestamp, so nothing else has to restore it.
+//
+// It returns how many units were marked.
+func (h *VehicleHandler) MarkStaleOffline(ctx context.Context) (int, error) {
+	if h.offlineAfter <= 0 {
+		return 0, nil
+	}
+
+	rows, err := h.db.Query(ctx, staleOfflineSQL, h.offlineAfter.Seconds())
+	if err != nil {
+		return 0, fmt.Errorf("mark stale vehicles offline: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return 0, fmt.Errorf("scan stale vehicle: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("read stale vehicles: %w", err)
+	}
+
+	for _, id := range ids {
+		row := h.db.QueryRow(ctx, vehicleColsWithRoute+" WHERE v.id = $1", id)
+		v, err := scanVehicleWithRoute(row)
+		if err != nil {
+			// The unit was deleted in the meantime. It is gone from the map
+			// anyway, so there is nothing to tell the browsers about.
+			continue
+		}
+		h.publish("vehicle_updated", gin.H{"vehicle": v})
+	}
+
+	return len(ids), nil
 }
 
 // streamClient adapts one WebSocket connection to the ws.Sink interface. A

@@ -63,7 +63,7 @@ func (e ValidationError) Error() string { return e.Message }
 // ValidateRole checks a user type against the CHECK constraint on the column.
 func ValidateRole(role string) error {
 	switch role {
-	case RoleAdmin, RoleViewer, RoleDriver:
+	case RoleAdmin, RoleStaff, RoleViewer, RoleDriver:
 		return nil
 	}
 	return ErrInvalidRole

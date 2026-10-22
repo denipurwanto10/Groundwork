@@ -12,8 +12,9 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
-import type { Entity, RegionCollection, RegionFeature, Vehicle, VehicleRoute, RouteStop, ZoneFeature, ZoneGeometry } from '../lib/types'
+import type { Entity, RegionCollection, RegionFeature, RouteDraft, Vehicle, VehicleRoute, ZoneFeature, ZoneGeometry } from '../lib/types'
 import { hasPosition, routeLatLngs, typeColorFor } from '../lib/types'
+import { CUSTOM_TILE_URL, MAP_ATTRIBUTION, TILE_SUBDOMAINS, TILE_URL } from '../lib/mapTiles'
 import ZoneLayer from './ZoneLayer'
 import RegionLayer from './RegionLayer'
 import VehicleLayer from './VehicleLayer'
@@ -36,32 +37,6 @@ function pinIcon(status: 'active' | 'inactive' | 'draft', type: string, selected
 }
 
 const JAKARTA: [number, number] = [-6.2, 106.85]
-
-/**
- * The map tiles. One style only: the Google Maps road map, served straight
- * from Google's tile servers without an API key, so the map looks exactly
- * like the one everybody uses without a billing account.
- *
- * `lyrs=m` is the road map, `lyrs=y` the satellite with labels and `lyrs=p`
- * the terrain view; swap the value for one of those to change the style.
- *
- * VITE_MAP_TILES_URL still wins: with it set, the app uses that tile source
- * (for example the official Maps Static API with a key).
- */
-const TILE_URL =
-  (import.meta.env.VITE_MAP_TILES_URL as string | undefined) ||
-  'https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}'
-
-/** The four tile servers Google serves the map from. */
-const TILE_SUBDOMAINS = ['mt0', 'mt1', 'mt2', 'mt3']
-
-/** The tile source an operator pinned in the environment, if any. */
-const CUSTOM_TILE_URL = (import.meta.env.VITE_MAP_TILES_URL as string | undefined) || ''
-
-/** The credit belongs to the source of the tiles. */
-const MAP_ATTRIBUTION = CUSTOM_TILE_URL
-  ? '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
-  : 'Map data &copy; <a href="https://www.google.com/maps" target="_blank" rel="noreferrer">Google</a>'
 
 function ClickPicker({
   picking,
@@ -179,11 +154,14 @@ function FollowVehicle({
   following,
   onFollowChange,
   inset,
+  playbackActive,
 }: {
   vehicle: Vehicle | undefined
   following: boolean
   onFollowChange: (v: boolean) => void
   inset: MapInset
+  /** True while a recorded trip is played back. */
+  playbackActive: boolean
 }) {
   const map = useMap()
   const insetRef = useRef(inset)
@@ -205,6 +183,9 @@ function FollowVehicle({
       lastId.current = null
       return
     }
+    // While a recorded trip is played back, the camera belongs to the track:
+    // the live position of the unit must not drag the map away from it.
+    if (playbackActive) return
     if (lat === null || lng === null) return
     const target = L.latLng(lat, lng)
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -218,14 +199,15 @@ function FollowVehicle({
     if (following) {
       map.panTo(centreFor(map, target, map.getZoom(), insetRef.current), { animate: !calm, duration: 1.6, easeLinearity: 1 })
     }
-  }, [id, lat, lng, following, map])
+  }, [id, lat, lng, following, map, playbackActive])
 
   // Turning follow back on re-centres straight away, even if the unit is parked.
   useEffect(() => {
     if (!following || lat === null || lng === null) return
+    if (playbackActive) return
     map.panTo(centreFor(map, L.latLng(lat, lng), map.getZoom(), insetRef.current), { animate: true, duration: 0.6 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [following])
+  }, [following, playbackActive])
 
   return null
 }
@@ -349,9 +331,7 @@ interface Props {
   // Delivery routes (from -> to)
   routes: VehicleRoute[]
   routesVisible: boolean
-  routeDraft: { origin: RouteStop | null; destination: RouteStop | null } | null
-  /** The colour of each unit's line, keyed by vehicle id. */
-  routeColors: Map<number, string>
+  routeDraft: RouteDraft | null
   routePick: boolean
   /** Playback of a recorded trip: the track and the ghost marker. */
   playback: PlaybackController
@@ -393,7 +373,6 @@ export default function EntityMap({
   routes,
   routesVisible,
   routeDraft,
-  routeColors,
   routePick,
   playback,
   onRoutePoint,
@@ -473,7 +452,6 @@ export default function EntityMap({
         routes={routes}
         visible={routesVisible}
         draft={routeDraft}
-        colors={routeColors}
         onSelectVehicle={onVehicleSelect}
       />
       {/* Live vehicles on top of every other layer */}
@@ -499,6 +477,7 @@ export default function EntityMap({
         following={following}
         onFollowChange={onFollowChange}
         inset={inset}
+        playbackActive={playback.vehicleId != null}
       />
       <InvalidateOnResize />
       <FitFleet vehicles={vehicles} signal={fitFleetSignal} inset={inset} />

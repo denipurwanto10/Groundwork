@@ -65,7 +65,10 @@ type unit struct {
 	name string
 	lat  float64
 	lng  float64
-	dir  float64
+	// dir is the direction the unit faces: a compass bearing in radians
+	// (0 = north, pi/2 = east), the same convention the API reports in
+	// degrees and the map turns the marker by.
+	dir float64
 	// routeID and routePos track the delivery route the unit is following:
 	// routeID is the plan it belongs to, routePos how far along that line it
 	// has come.
@@ -99,6 +102,21 @@ type apiRoute struct {
 		Type        string       `json:"type"`
 		Coordinates [][2]float64 `json:"coordinates"`
 	} `json:"geometry"`
+	// StartedAt is when the driver started the trip; null while the route
+	// is still a plan.
+	StartedAt *string `json:"started_at"`
+	// DriverAssigned tells whether the unit has a driver to ask.
+	DriverAssigned bool `json:"driver_assigned"`
+}
+
+// drivable reports whether the unit may follow this route yet.
+//
+// A unit without a driver has nobody to ask, so its route is driven right
+// away — that is how the simulator plays the fleet on its own. A unit with a
+// driver waits: the plan becomes a trip when the driver presses "Start
+// trip", and not before.
+func (r *apiRoute) drivable() bool {
+	return !r.DriverAssigned || r.StartedAt != nil
 }
 
 type routeListResponse struct {
@@ -115,6 +133,9 @@ type pathPlan struct {
 	pts   [][2]float64
 	cum   []float64
 	total float64
+	// drivable tells whether the unit may follow the line yet. The plan of
+	// a unit with a driver waits for the driver's start signal.
+	drivable bool
 }
 
 func main() {
@@ -163,13 +184,15 @@ func main() {
 
 	log.Printf("simulating %d vehicle(s) against %s every %s", len(fleet), *api, *interval)
 
+	tick := 0
 	for {
 		select {
 		case <-stop:
 			log.Println("simulator stopped")
 			return
 		case <-ticker.C:
-			fleet, err = report(client, *api, fleet, rng, *interval, token, float64(*pace))
+			tick++
+			fleet, err = report(client, *api, fleet, rng, *interval, token, float64(*pace), tick)
 			if err != nil {
 				log.Printf("report: %v", err)
 			}
@@ -227,7 +250,7 @@ func newUnit(v apiVehicle, index int) *unit {
 // failing every tick, so the check that rejects its position is not wasted.
 // A temporary failure (the backend is restarting, the network blipped) keeps
 // the whole fleet: the units are still there, and the next tick tries again.
-func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, interval time.Duration, token string, pace float64) ([]*unit, error) {
+func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, interval time.Duration, token string, pace float64, tick int) ([]*unit, error) {
 	plans, err := fetchRoutes(client, api, token)
 	if err != nil {
 		// A route feed that is down must not stop the position feed.
@@ -240,7 +263,17 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 		speed := 0.0
 		tag := ""
 		status := "moving"
-		if plan := plans[u.id]; plan != nil {
+		plan := plans[u.id]
+		waiting := plan != nil && !plan.drivable
+		if waiting {
+			// The plan waits for the driver's start signal. The unit holds
+			// its position at the origin until the trip begins, so the
+			// delivery starts where it was planned.
+			status = "idle"
+			u.routeID = 0
+		}
+		switch {
+		case plan != nil && !waiting:
 			speed = u.follow(plan, interval, pace)
 			tag = fmt.Sprintf(" rute#%d", plan.id)
 			if u.arrived {
@@ -255,7 +288,11 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 				u.arrived = false
 				u.routeID = 0
 			}
-		} else {
+		case waiting:
+			// The unit stands still until the driver starts the trip.
+			speed = 0
+			tag = " rute menunggu"
+		default:
 			// No route (any more): the unit wanders again. If it had just
 			// finished a delivery, the route is closed in the database, so the
 			// next tick the map shows no line for this unit.
@@ -274,7 +311,7 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 		body := map[string]any{
 			"lat":       u.lat,
 			"lng":       u.lng,
-			"speed_kmh": math.Round(speed*10) / 10,
+			"speed_kmh": math.Round(clampSpeed(speed)*10) / 10,
 			"status":    status,
 			// The direction the unit faces: a compass bearing in degrees,
 			// which is what the map turns the marker by.
@@ -303,6 +340,25 @@ func report(client *http.Client, api string, fleet []*unit, rng *rand.Rand, inte
 	}
 
 	return kept, nil
+}
+
+// clampSpeed keeps the reported speed inside the range the API accepts.
+//
+// A unit that covers many metres per tick reports a speed of that many
+// metres per second. A brisk pace easily passes the 300 km/h the API allows,
+// and every position report would be refused, so the unit would stand still
+// on the map while it actually drives on. The speed is only a readout, so
+// capping it keeps the positions coming in.
+func clampSpeed(kmh float64) float64 {
+	const maxSpeedKmh = 300.0
+	if kmh < 0 {
+		return 0
+	}
+	if kmh > maxSpeedKmh {
+		return maxSpeedKmh
+	}
+
+	return kmh
 }
 
 // clearRoute removes the active route of a vehicle. The server closes a
@@ -374,9 +430,10 @@ func newPathPlan(r apiRoute) *pathPlan {
 	}
 
 	plan := &pathPlan{
-		id:  r.ID,
-		pts: make([][2]float64, 0, len(r.Geometry.Coordinates)),
-		cum: make([]float64, 0, len(r.Geometry.Coordinates)),
+		id:       r.ID,
+		pts:      make([][2]float64, 0, len(r.Geometry.Coordinates)),
+		cum:      make([]float64, 0, len(r.Geometry.Coordinates)),
+		drivable: r.drivable(),
 	}
 	for _, pair := range r.Geometry.Coordinates {
 		plan.pts = append(plan.pts, [2]float64{pair[1], pair[0]}) // GeoJSON is lng,lat
@@ -490,8 +547,9 @@ func pointAt(plan *pathPlan, distance float64) (float64, float64) {
 	return last[0], last[1]
 }
 
-// heading is the compass direction the unit is facing, in radians, used by the
-// free-roam step when the route ends.
+// heading is the compass direction the unit is facing, in radians: 0 = north,
+// pi/2 = east. It is the direction of the line a few metres ahead, so the
+// marker turns with the road it drives instead of pointing sideways.
 func heading(plan *pathPlan, distance float64) float64 {
 	lat, lng := pointAt(plan, distance)
 	aheadLat, aheadLng := pointAt(plan, math.Min(distance+10, plan.total))
@@ -501,7 +559,9 @@ func heading(plan *pathPlan, distance float64) float64 {
 		return 0
 	}
 
-	return math.Atan2(dLat, dLng)
+	// A compass bearing runs clockwise from north, so the east-west part is
+	// the first argument.
+	return math.Atan2(dLng, dLat)
 }
 
 // haversineMeters is the great-circle distance between two coordinates.
@@ -547,15 +607,19 @@ func (u *unit) step(rng *rand.Rand, interval time.Duration) float64 {
 	speed := 25 + rng.Float64()*55       // km/h
 
 	km := speed * interval.Hours()
-	u.lat += km / 111.0 * math.Sin(u.dir)
-	u.lng += km / (111.0 * math.Cos(u.lat*math.Pi/180)) * math.Cos(u.dir)
+	// A compass bearing: cos walks north, sin walks east.
+	u.lat += km / 111.0 * math.Cos(u.dir)
+	u.lng += km / (111.0 * math.Cos(u.lat*math.Pi/180)) * math.Sin(u.dir)
 
 	if u.lat < minLat || u.lat > maxLat {
-		u.dir = -u.dir
+		// The northern or the southern edge: the unit turns back the other
+		// way, so the north-south part of the bearing flips.
+		u.dir = math.Pi - u.dir
 		u.lat = math.Max(minLat, math.Min(maxLat, u.lat))
 	}
 	if u.lng < minLng || u.lng > maxLng {
-		u.dir = math.Pi - u.dir
+		// The eastern or the western edge: the east-west part flips.
+		u.dir = -u.dir
 		u.lng = math.Max(minLng, math.Min(maxLng, u.lng))
 	}
 

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from './api'
+import { DRIVER_PATH, HOME_PATH, replace } from './route'
 import {
   clearRefreshToken,
   clearToken,
@@ -13,6 +14,7 @@ import {
   setToken,
   ROLE_ADMIN,
   ROLE_DRIVER,
+  ROLE_STAFF,
   ROLE_VIEWER,
   type Role,
 } from './session'
@@ -37,6 +39,8 @@ interface AuthContextValue {
   isViewer(): boolean
   /** True for the 'driver' role (read-only in this stage). */
   isDriver(): boolean
+  /** True for the 'staff' role: works the task board, nothing else. */
+  isStaff(): boolean
   /** Shorthand for isAdmin(), for components that only gate write actions. */
   canWrite(): boolean
   login(identifier: string, password: string): Promise<void>
@@ -66,6 +70,16 @@ function restoreSession(): AuthUser | null {
     return null
   }
   return decoded
+}
+
+/**
+ * The screen a role belongs to.
+ *
+ * A driver never sees the dashboard: the app has a screen of its own for the
+ * road, so signing in takes the driver straight there.
+ */
+function homeForRole(role: Role): string {
+  return role === ROLE_DRIVER ? DRIVER_PATH : HOME_PATH
 }
 
 /** Provides auth state to the app. Wraps the root component. */
@@ -101,7 +115,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(res.token)
     if (res.refresh_token) setRefreshToken(res.refresh_token)
     setNeedsSetup(false)
-    setUser({ ...res.user, role: normalizeRole(res.user.role) })
+    const role = normalizeRole(res.user.role)
+    setUser({ ...res.user, role })
+    // The driver lands on the driver screen, not on the map with the panels.
+    replace(homeForRole(role))
   }, [])
 
   const setup = useCallback(async (input: { username: string; email?: string; password: string }) => {
@@ -109,13 +126,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(res.token)
     if (res.refresh_token) setRefreshToken(res.refresh_token)
     setNeedsSetup(false)
-    setUser({ ...res.user, role: normalizeRole(res.user.role) })
+    const role = normalizeRole(res.user.role)
+    setUser({ ...res.user, role })
+    replace(homeForRole(role))
   }, [])
 
   const logout = useCallback(() => {
     clearToken()
     clearRefreshToken()
     setUser(null)
+    // Signing out goes back to the sign-in screen, not to the dashboard.
+    replace(HOME_PATH)
   }, [])
 
   const value = useMemo<AuthContextValue>(() => {
@@ -126,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdmin: () => role === ROLE_ADMIN,
       isViewer: () => role === ROLE_VIEWER,
       isDriver: () => role === ROLE_DRIVER,
+      isStaff: () => role === ROLE_STAFF,
       canWrite: () => role === ROLE_ADMIN,
       needsSetup,
       login,

@@ -8,6 +8,7 @@ import { IconAlert, IconEdit, IconPlus, IconRefresh, IconSearch, IconTrash, Icon
 /** User types an admin can hand out. Mirrors the CHECK on users.role. */
 const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin', hint: 'Full access: vehicles, zones and accounts.' },
+  { value: 'staff', label: 'Staff', hint: 'Works the task board: picks up and closes work orders.' },
   { value: 'viewer', label: 'Viewer', hint: 'Read-only access to the live map.' },
   { value: 'driver', label: 'Driver', hint: 'Only sees the vehicles assigned to them.' },
 ] as const
@@ -23,11 +24,12 @@ const GENDER_OPTIONS = [
 const FILTERS: { key: 'all' | RoleValue; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'admin', label: 'Admin' },
+  { key: 'staff', label: 'Staff' },
   { key: 'viewer', label: 'Viewer' },
   { key: 'driver', label: 'Driver' },
 ]
 
-const ROLE_RANK: Record<string, number> = { admin: 0, viewer: 1, driver: 2 }
+const ROLE_RANK: Record<string, number> = { admin: 0, staff: 1, viewer: 2, driver: 3 }
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]+$/
 
 interface Draft {
@@ -119,7 +121,7 @@ export default function UserPanel({
   const [showPw, setShowPw] = useState(false)
 
   const counts = useMemo(() => {
-    const base: Record<'all' | RoleValue, number> = { all: users.length, admin: 0, viewer: 0, driver: 0 }
+    const base: Record<'all' | RoleValue, number> = { all: users.length, admin: 0, staff: 0, viewer: 0, driver: 0 }
     users.forEach((u) => {
       const role = u.role as RoleValue
       if (role in base) base[role] += 1
@@ -298,7 +300,7 @@ export default function UserPanel({
         {filtered.length > 0 && (
           <ul className="um-grid">
             {filtered.map((u) => {
-              const role = u.role === 'admin' || u.role === 'driver' ? u.role : 'viewer'
+              const role = (ROLE_OPTIONS.find((o) => o.value === u.role)?.value ?? 'viewer') as RoleValue
               const isMe = u.id === currentUserId
               return (
                 <li key={u.id} className={`um-card${isMe ? ' me' : ''}`}>

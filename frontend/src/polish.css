@@ -1,0 +1,945 @@
+/* ==========================================================================
+   Polish — loaded LAST (after driver.css). Red · flat · premium · responsive.
+
+   Fixes
+   1. Toast: the text used var(--bg) on a white card (invisible). Now a flat
+      card with readable ink, a tinted status icon and a thin status stripe.
+   2. Top bar: status chips, bell, theme and sign-out share one 36px control
+      size; on phones the chips collapse to round dots so the title keeps room.
+   3. Bell: no more pink "alert" fill — the active state is a red icon.
+   4. Activity log: badge column + content column, semantic badge colours
+      (red stays the brand/danger colour, update is neutral), a toolbar that
+      reacts to the width of its own panel, and a stable scroll gutter.
+   5. Colour system: status tones, badges and focus all draw from the tokens
+      defined in theme-red.css, light and dark.
+
+   Remove `import './polish.css'` in App.tsx to revert.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   0. Extra tokens (derived from the red theme)
+   -------------------------------------------------------------------------- */
+:root,
+:root:not([data-theme='dark']) .dash {
+  --ctl: 36px;                       /* top-bar control size */
+  --ink-soft: rgb(22 23 26 / 6%);    /* neutral tint for badges */
+  --update: #4a5160;
+  --update-soft: rgb(74 81 96 / 11%);
+  --toast-ok: var(--ok);
+  --toast-err: var(--danger);
+}
+
+:root[data-theme='dark'],
+:root[data-theme='dark'] .dash {
+  --ink-soft: rgb(255 255 255 / 7%);
+  --update: #b4b9c4;
+  --update-soft: rgb(180 185 196 / 13%);
+}
+
+/* --------------------------------------------------------------------------
+   1. Toast — inverted ink card, status disc, title + message, close button
+      and a countdown line. Flat: no shadow, no gradient.
+   -------------------------------------------------------------------------- */
+:root,
+:root:not([data-theme='dark']) .dash {
+  --toast-bg: #ffffff;
+  --toast-fg: #16171a;
+  --toast-sub: #6a6d76;
+  --toast-line: rgb(208 23 30 / 32%);
+  --toast-ok-c: #d0171e;
+  --toast-err-c: #d0171e;
+}
+:root[data-theme='dark'],
+:root[data-theme='dark'] .dash {
+  --toast-bg: #181a1d;
+  --toast-fg: #ededef;
+  --toast-sub: #8e919a;
+  --toast-line: rgb(240 87 94 / 38%);
+  --toast-ok-c: #ff6b72;
+  --toast-err-c: #ff6b72;
+}
+
+.toast,
+.dash .toast {
+  position: fixed;
+  z-index: 3000;
+  top: calc(var(--topbar-h, 64px) + var(--safe-t, 0px) + 14px);
+  right: var(--d-pad, 20px);
+  bottom: auto;
+  left: auto;
+  transform: none;
+  isolation: isolate;
+  overflow: hidden;
+
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  width: min(420px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: none;
+  padding: 16px 20px 16px 16px;
+
+  color: var(--toast-fg) !important;
+  background: var(--toast-bg) !important;
+  background-image: none !important;
+  border: 1px solid var(--toast-line) !important;
+  border-radius: 20px !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  opacity: 1;
+  animation: pl-toast-in 0.32s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+.toast::before { content: none; }
+
+.toast.success { --toast-c: var(--toast-ok-c); }
+.toast.error   { --toast-c: var(--toast-err-c); }
+/* A warning is not a failure: it gets the danger colour but its own label. */
+.toast.alert   { --toast-c: var(--toast-err-c); }
+
+.toast-ico {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--toast-c);
+  background: color-mix(in srgb, var(--toast-c) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toast-c) 40%, transparent);
+}
+.toast-ico svg { width: 18px; height: 18px; }
+
+.toast-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.toast-body em {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--toast-c);
+}
+.toast-body span {
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 1.4;
+  color: var(--toast-fg);
+  overflow-wrap: anywhere;
+}
+
+/* countdown: shrinks over the 4s the toast stays */
+.toast-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--toast-c);
+  opacity: 0.9;
+  transform-origin: left center;
+  animation: pl-toast-bar 4s linear forwards;
+}
+
+@keyframes pl-toast-in {
+  from { opacity: 0; transform: translateY(-10px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pl-toast-bar { to { transform: scaleX(0); } }
+
+@media (max-width: 767px) {
+  .toast,
+  .dash .toast {
+    top: calc(var(--topbar-h, 56px) + var(--safe-t, 0px) + 8px);
+    left: 12px;
+    right: 12px;
+    width: auto;
+    padding: 13px 12px 13px 13px;
+    column-gap: 10px;
+  }
+  .toast-ico { width: 36px; height: 36px; }
+}
+
+/* --------------------------------------------------------------------------
+   2. Top bar: one control size, tidy rhythm
+   -------------------------------------------------------------------------- */
+.dash .topbar {
+  gap: clamp(8px, 1.2vw, 16px);
+}
+
+.dash .topbar-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.dash .topbar-mobile-tools {
+  align-items: center;
+  gap: 8px;
+}
+
+.dash .topbar .chip,
+.dash .topbar .icon-btn {
+  height: var(--ctl);
+  min-height: var(--ctl);
+  box-sizing: border-box;
+}
+
+.dash .topbar .icon-btn {
+  width: var(--ctl);
+  min-width: var(--ctl);
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+.dash .topbar .icon-btn svg { width: 18px; height: 18px; }
+
+/* chips: neutral pill, semantic dot */
+.dash .chip {
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0.005em;
+  color: var(--text-2);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  box-shadow: none;
+}
+
+.dash .chip i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: none;
+}
+
+.dash .chip.up i,
+.dash .chip.stream.live i { background: var(--ok); }
+.dash .chip.down i { background: var(--danger); }
+.dash .chip.checking i,
+.dash .chip.stream.connecting i,
+.dash .chip.stream.reconnecting i { background: var(--idle); }
+
+.dash .chip.stream.live {
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-color: color-mix(in srgb, var(--ok) 28%, transparent);
+}
+.dash .chip.stream.connecting,
+.dash .chip.stream.reconnecting {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--idle) 30%, transparent);
+}
+.dash .chip.api.up { color: var(--text-2); }
+.dash .chip.api.down {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+}
+
+.dash .chip.stream.live i { animation: pl-live 2.2s ease-in-out infinite; }
+@keyframes pl-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* tablet: the API label goes, the dot stays */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .dash .chip.api {
+    width: var(--ctl);
+    padding: 0;
+    justify-content: center;
+  }
+  .dash .chip.api .chip-text { display: none; }
+}
+
+@media (max-width: 767px) {
+  .dash .topbar { padding-left: 12px; padding-right: 12px; gap: 10px; }
+  .dash .topbar-tools { gap: 6px; }
+  .dash .topbar-mobile-tools { gap: 6px; }
+  .dash .topbar-title { flex: 1 1 auto; }
+  .dash .topbar-title h2 {
+    font-size: 16px;
+    line-height: 1.2;
+  }
+
+  /* phones: no status chips — the title and the tools get the whole bar */
+  .dash .topbar .chip { display: none !important; }
+}
+
+/* very narrow phones: the brand mark gives way before the controls do */
+@media (max-width: 400px) {
+  .dash .topbar .topbar-mark { display: none !important; }
+  .dash .topbar-tools,
+  .dash .topbar-mobile-tools { gap: 5px; }
+  .dash { --ctl: 34px; }
+}
+
+/* touch: the bar keeps its 36px controls, the rest of the UI keeps 44px */
+@media (pointer: coarse) {
+  .dash .topbar .chip,
+  .dash .topbar .icon-btn {
+    height: var(--ctl);
+    min-height: var(--ctl);
+  }
+  .dash .topbar .icon-btn { min-width: var(--ctl); }
+}
+
+/* --------------------------------------------------------------------------
+   3. Notification bell
+   -------------------------------------------------------------------------- */
+.dash .icon-btn.nb {
+  position: relative;
+  color: var(--text-2);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+}
+.dash .icon-btn.nb:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* granted: red bell on a neutral button (a pink fill reads like an alert) */
+.dash .icon-btn.nb.on {
+  color: var(--accent);
+  background: var(--panel-solid);
+  border-color: var(--accent-line);
+}
+.dash .icon-btn.nb.on:hover:not(:disabled) { background: var(--accent-soft); }
+
+/* not asked yet: solid red dot, ringed in the surface colour */
+.nb-dot {
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel-solid) !important;
+}
+
+.dash .icon-btn.nb[data-state='denied'] {
+  opacity: 1;
+  color: var(--muted);
+  background: var(--panel-2);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   4. Activity log
+   -------------------------------------------------------------------------- */
+.al {
+  container-type: inline-size;
+  container-name: al;
+  box-sizing: border-box;
+  width: 100%;
+  gap: 12px;
+  padding: 12px;
+}
+@media (min-width: 768px) { .al { padding: 14px; } }
+
+.al-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 10px;
+}
+.al-search { max-width: none; min-width: 0; margin: 0 !important; width: 100%; }
+.al-actions { margin-left: 0; gap: 8px; min-width: 0; display: flex; }
+.al-filter { width: 190px; min-width: 0; }
+
+/* narrow panel: search on its own row, filter + reload share the next one */
+@container al (max-width: 560px) {
+  .al-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .al-actions { width: 100%; }
+  .al-actions .al-filter { flex: 1 1 0; width: auto; min-width: 0; }
+}
+
+.al-toolbar .search,
+.al-actions .icon-btn,
+.al-actions .sel-trigger { height: 44px; min-height: 44px; }
+.al-actions .icon-btn { width: 44px; flex: none; }
+.al-actions .sel-trigger { box-sizing: border-box; }
+.al-toolbar { margin: 0; padding: 0; }
+
+.al-body {
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: auto;
+  scrollbar-width: thin;
+}
+
+/* a row: badge column | content column */
+.al-entry {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  grid-template-areas:
+    'badge details'
+    '.     meta';
+  column-gap: 10px;
+  row-gap: 3px;
+  align-items: start;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.al-entry-head { display: contents; }
+.al-badge  { grid-area: badge; justify-self: stretch; box-sizing: border-box; }
+.al-details {
+  grid-area: details;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+}
+.al-entry-meta {
+  grid-area: meta;
+  flex-wrap: wrap;
+  row-gap: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.al-actor { max-width: 100%; }
+
+@container al (max-width: 340px) {
+  .al-entry {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'badge' 'details' 'meta';
+  }
+  .al-badge { justify-self: start; min-width: 72px; }
+}
+
+/* badges: one tone per meaning, red is kept for destructive / brand */
+.al-badge {
+  min-width: 0;
+  padding: 3px 6px;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  color: var(--update);
+  background: var(--update-soft);
+  border: 1px solid transparent;
+}
+.al-badge.create { color: var(--ok);     background: var(--ok-soft); }
+.al-badge.update { color: var(--update); background: var(--update-soft); }
+.al-badge.delete { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+.al-badge.import { color: var(--accent); background: var(--accent-soft); }
+.al-badge.set,
+.al-badge.clear  { color: var(--warn);   background: var(--warn-soft); }
+
+.al-foot { gap: 10px; flex-wrap: wrap; }
+
+/* --------------------------------------------------------------------------
+   5. Colour system: one red, neutrals, semantic statuses
+   -------------------------------------------------------------------------- */
+/* any accent-tinted surface follows the same soft red */
+.dash .btn.danger,
+.btn.danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+}
+.dash .btn.danger:hover:not(:disabled),
+.btn.danger:hover:not(:disabled) {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* active nav + tabs: red text/indicator on a neutral surface */
+.dash .rail-item.active,
+.dash .rail-item[aria-current='page'] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* selection of a list item */
+.dash .entity-item.selected,
+.dash .lt-card.selected {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+/* form controls */
+.dash input:not([type='checkbox']):not([type='radio']),
+.dash select,
+.dash textarea,
+.dash .search {
+  background: var(--field);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--text);
+}
+.dash input::placeholder,
+.dash textarea::placeholder { color: var(--muted); opacity: 0.85; }
+
+/* leaflet popups / controls keep to the same neutral surface */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip { color: var(--text); }
+.leaflet-bar a,
+.leaflet-bar a:hover { color: var(--text); background: var(--panel-solid); }
+.leaflet-bar a:hover { background: var(--panel-2); }
+
+/* the whole UI respects reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none !important; }
+  .dash .chip.stream.live i { animation: none; }
+}
+
+/* the icon always takes the red of the toast (older rules tinted it green) */
+.toast .toast-ico svg,
+.toast.success .toast-ico svg,
+:root:not([data-theme='dark']) .toast.success .toast-ico svg {
+  color: var(--toast-c) !important;
+}
+
+/* --------------------------------------------------------------------------
+   6. Navigation rail — flat, aligned, one rhythm
+   -------------------------------------------------------------------------- */
+/* brand mark: flat red tile in both themes */
+.dash .brand-mark,
+:root[data-theme='dark'] .dash .brand-mark {
+  color: #fff;
+  background: var(--btn);
+  background-image: none;
+  box-shadow: none;
+}
+
+.dash .rail-item { transform: none !important; box-shadow: none !important; }
+.dash .rail-item svg { width: 20px; height: 20px; }
+.dash .rail-item.active { font-weight: 650; }
+.dash .rail-item.active svg { color: var(--accent); }
+
+/* counters: one width, one height, neutral (red when the row is active) */
+.dash .rail-count,
+.dash .rail-count.live {
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-2);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.dash .rail-item.active .rail-count {
+  color: #fff;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+/* log out: outlined, red label — a pink fill reads like an alert */
+.dash .rail-logout {
+  color: var(--danger);
+  background: transparent;
+  border: 1px solid var(--danger-line);
+}
+.dash .rail-logout:hover {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* expanded rail only (slim and tablet keep their icon-only layout) */
+@media (min-width: 1100px) {
+  .dash:not(.rail-slim) .rail { padding: 20px 14px 16px; }
+  .dash:not(.rail-slim) .rail-head { margin-bottom: 20px; padding: 0 4px; gap: 12px; }
+  .dash:not(.rail-slim) .rail-brand h1 { font-size: 16.5px; line-height: 1.2; }
+  .dash:not(.rail-slim) .rail-brand span { margin-top: 2px; font-size: 11.5px; }
+
+  .dash:not(.rail-slim) .rail-nav { gap: 2px; }
+  .dash:not(.rail-slim) .rail-section { padding: 0 14px 8px; font-size: 10.5px; }
+  .dash:not(.rail-slim) .rail-item {
+    height: 44px;
+    padding: 0 12px 0 14px;
+    gap: 12px;
+    font-size: 14px;
+    font-weight: 550;
+  }
+  .dash:not(.rail-slim) .rail-item.active::before {
+    left: 0;
+    top: 11px;
+    bottom: 11px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+  }
+
+  .dash:not(.rail-slim) .rail-foot { gap: 10px; padding-top: 14px; }
+  .dash:not(.rail-slim) .rail-tools { gap: 8px; }
+  .dash:not(.rail-slim) .rail-tool,
+  .dash:not(.rail-slim) .rail-logout { height: 42px; border-radius: var(--r-md); }
+  .dash:not(.rail-slim) .rail-tool { border-color: var(--line-strong); background: var(--panel-solid); }
+  .dash:not(.rail-slim) .rail .user-card { box-shadow: none; background: var(--panel-2); border-color: transparent; }
+}
+
+/* slim rail + tablet: the indicator sits on the rail edge */
+.dash.rail-slim .rail-item.active::before { left: -12px; }
+@media (max-width: 1099px) {
+  .dash .rail-item.active::before { left: -12px; }
+}
+
+/* --------------------------------------------------------------------------
+   7. Slim rail + tablet: icon column with small corner counters
+   -------------------------------------------------------------------------- */
+.dash.rail-slim .rail-count,
+.dash.rail-slim .rail-count.live {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10.5px;
+  line-height: 1;
+  border: 2px solid var(--panel-solid);
+  box-sizing: content-box;
+  min-width: 14px;
+  height: 14px;
+}
+.dash.rail-slim .rail-item.active .rail-count { border-color: var(--panel-solid); }
+.dash.rail-slim .rail .user-card { background: transparent; padding: 0; }
+.dash.rail-slim .rail .user-card .avatar { box-shadow: none; }
+.dash.rail-slim .rail-tool,
+.dash.rail-slim .rail-logout { border-radius: var(--r-md); }
+
+@media (max-width: 1099px) {
+  .dash .rail-count,
+  .dash .rail-count.live {
+    position: absolute;
+    top: 2px;
+    right: 0;
+    padding: 0 5px;
+    font-size: 10.5px;
+    line-height: 1;
+    border: 2px solid var(--panel-solid);
+    box-sizing: content-box;
+    min-width: 14px;
+    height: 14px;
+  }
+  .dash .rail .user-card { background: transparent; padding: 0; }
+  .dash .rail .user-card .avatar { box-shadow: none; }
+  .dash .rail-tool,
+  .dash .rail-logout { border-radius: var(--r-md); }
+}
+
+/* --------------------------------------------------------------------------
+   8. Phone dock — floating flat bar, icons only, the active tab opens up
+      into a red pill with its label. Six tabs fit without squeezing text.
+   -------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .dash { --nav-h: 84px; }
+
+  .dash nav.bottom-nav {
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--safe-b, 0px) + 10px);
+    height: 64px;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2px;
+    background: var(--panel-solid);
+    border: 1px solid var(--line-strong);
+    border-radius: 22px;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .dash nav.bottom-nav button {
+    position: relative;
+    flex: 1 1 0;
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    height: 46px;
+    padding: 0;
+    border-radius: 16px;
+    color: var(--muted);
+    background: transparent;
+    font-size: 13px;
+    font-weight: 650;
+    transition: background-color 0.2s ease, color 0.2s ease, padding 0.2s ease;
+  }
+  .dash nav.bottom-nav button:active { background: var(--panel-2); }
+
+  /* labels only on the active tab */
+  .dash nav.bottom-nav button > span:last-child {
+    display: none;
+    max-width: none;
+  }
+  .dash nav.bottom-nav button.active > span:last-child { display: inline; }
+
+  .dash nav.bottom-nav button.active {
+    color: #fff;
+    background: var(--btn);
+    flex: 0 0 auto;
+    padding: 0 16px 0 14px;
+    font-weight: 650;
+  }
+  .dash nav.bottom-nav button.active::before { content: none; }
+
+  .dash nav.bottom-nav .bn-icon,
+  .dash nav.bottom-nav button.active .bn-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 0;
+    background: transparent;
+  }
+  .dash nav.bottom-nav .bn-icon svg { width: 22px; height: 22px; }
+
+  /* counters: one small red dot-badge, hidden on the active pill */
+  .dash nav.bottom-nav .bn-icon em,
+  .dash nav.bottom-nav .bn-icon em.live {
+    top: -6px;
+    left: auto;
+    right: -9px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 13px;
+    color: #fff;
+    background: var(--accent);
+    border: 2px solid var(--panel-solid);
+    box-sizing: border-box;
+  }
+  .dash nav.bottom-nav button.active .bn-icon em { display: none; }
+}
+
+@media (max-width: 767px) and (max-height: 500px) and (orientation: landscape) {
+  .dash { --nav-h: 66px; }
+  .dash nav.bottom-nav { height: 52px; bottom: calc(var(--safe-b, 0px) + 6px); padding: 4px 8px; }
+  .dash nav.bottom-nav button { height: 40px; }
+}
+
+@media (max-width: 340px) {
+  .dash nav.bottom-nav { left: 8px; right: 8px; padding: 6px; }
+  .dash nav.bottom-nav button.active { padding: 0 12px 0 10px; }
+}
+
+
+/* --------------------------------------------------------------------------
+   Route card (VehiclePanel "Following route to …")
+   Heading with badge · timeline of stops · progress · stat tiles · footer.
+   Uses only tokens from theme-red.css, so light and dark both work.
+   -------------------------------------------------------------------------- */
+.lt-route {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.lt-route-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lt-route-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--r-md);
+}
+
+.lt-route-title {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+.lt-route-title small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.lt-route-title b {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-route-kind {
+  flex: none;
+  padding: 3px 9px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+/* Timeline: pins joined by a dotted connector */
+.lt-route-stops {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lt-route-stops li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 5px 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.lt-route-stops li:not(.last)::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: calc(50% + 11px);
+  height: calc(100% - 12px);
+  border-left: 2px dotted var(--line-strong);
+}
+.lt-route-stops .route-pin {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 50%;
+}
+.lt-route-stops li.last .route-pin.dest {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.lt-stop-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Progress */
+.lt-route .lt-bar {
+  height: 6px;
+  background: var(--panel-2);
+  border: 0;
+}
+.lt-route .lt-bar > span {
+  min-width: 6px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+/* Stat tiles */
+.lt-route-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.25fr;
+  gap: 8px;
+}
+.lt-rs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 11px;
+  background: var(--panel-2);
+  border-radius: var(--r-md);
+}
+.lt-rs small {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.lt-rs b {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.lt-rs.lt-eta {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.lt-rs.lt-eta b {
+  color: var(--accent);
+}
+.lt-rs.lt-eta em {
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* Footer */
+.lt-route-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 11px;
+  font-size: 11.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.lt-route-foot .text-action {
+  flex: none;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.lt-route-foot .text-action:hover {
+  background: var(--accent-soft);
+}
+
+@media (max-width: 360px) {
+  .lt-route-stats { grid-template-columns: 1fr 1fr; }
+  .lt-rs.lt-eta { grid-column: 1 / -1; }
+}

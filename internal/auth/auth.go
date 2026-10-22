@@ -24,10 +24,12 @@ const (
 	MaxPasswordLength = 72
 )
 
-// Roles understood by the users_role_check constraint. Only admin may write;
-// viewer and driver are read-only until the vehicle features land.
+// Roles understood by the users_role_check constraint. Only admin may write
+// the workspace itself; staff works the task board; viewer reads; driver
+// drives.
 const (
 	RoleAdmin  = "admin"
+	RoleStaff  = "staff"
 	RoleViewer = "viewer"
 	RoleDriver = "driver"
 )

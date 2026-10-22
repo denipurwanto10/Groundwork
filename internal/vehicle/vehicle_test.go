@@ -38,6 +38,21 @@ func TestCreateInputNormalize(t *testing.T) {
 	}
 }
 
+// The route colour is one colour for the whole workspace: whatever a client
+// sends is dropped in favour of the primary red of the theme.
+func TestCreateInputNormalizeRouteColor(t *testing.T) {
+	for _, sent := range []string{"", "#2563eb", "not-a-colour"} {
+		in := CreateInput{Code: "TRK-01", Name: "Truk 1", Kind: KindTruck, RouteColor: sent}
+		in.Normalize()
+		if in.RouteColor != DefaultRouteColor {
+			t.Fatalf("expected route colour %q, got %q", DefaultRouteColor, in.RouteColor)
+		}
+		if errs := in.Validate(); len(errs) != 0 {
+			t.Fatalf("expected no errors, got %v", errs)
+		}
+	}
+}
+
 func TestPositionInputValidate(t *testing.T) {
 	lat, lng := -6.2, 106.8
 	ok := PositionInput{Lat: &lat, Lng: &lng, Status: StatusMoving}

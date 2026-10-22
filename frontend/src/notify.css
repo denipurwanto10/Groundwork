@@ -1,0 +1,208 @@
+/* ==========================================================================
+   Notifications — the bell in the top bar and its panel.
+   The bell is the notification centre of the app: the news of the fleet (a
+   unit that departs, a unit that arrives) lands in its list and stays there
+   until the operator reads it.
+   ========================================================================== */
+
+/* The dot on the bell hangs in the corner, so the button needs a position. */
+.icon-btn.nb {
+  position: relative;
+}
+
+/* The wrap holds the button and the panel that drops down from it. */
+.nb-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Not asked yet: a dot says there is something left to turn on. */
+.nb-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel);
+  animation: nbPulse 2.4s ease-in-out infinite;
+}
+
+/* Granted: the bell wears the accent colour, like the other active tools. */
+.icon-btn.nb.on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Blocked by the browser: the bell still opens the panel with the alerts,
+   so only the desktop notifications are missing. The panel says so. */
+.icon-btn.nb[data-state='denied'] .nb-dot {
+  display: none;
+}
+
+@keyframes nbPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.65; }
+}
+
+/* ----- the panel ----- */
+
+.nb-panel {
+  position: absolute;
+  z-index: 2200;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(380px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  max-height: min(560px, calc(100vh - 120px));
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 18px 44px -22px rgb(14 18 23 / 60%);
+  overflow: hidden;
+  animation: nbPanelIn 0.18s ease-out both;
+}
+
+@keyframes nbPanelIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.nb-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 13px 16px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nb-empty {
+  margin: 0;
+  padding: 26px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.nb-list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+
+.nb-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border-left: 2px solid transparent;
+}
+
+.nb-item + .nb-item {
+  margin-top: 2px;
+}
+
+/* An alert nobody read yet stands out; a read one steps back. */
+.nb-item.new {
+  background: var(--panel-2);
+}
+
+.nb-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--accent);
+}
+
+.nb-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.nb-body strong {
+  font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nb-text {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nb-time {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.nb-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.nb-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nb-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nb-link:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.nb-link.danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.nb-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-dot { animation: none; }
+  .nb-panel { animation: none; }
+}

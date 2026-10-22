@@ -15,6 +15,15 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Auth     AuthConfig
+	Fleet    FleetConfig
+}
+
+// FleetConfig holds the settings of the tracked fleet.
+type FleetConfig struct {
+	// OfflineAfter is how long a unit may stay silent before it counts as
+	// offline. Zero turns the check off, so a unit keeps whatever status its
+	// last report gave it.
+	OfflineAfter time.Duration
 }
 
 type ServerConfig struct {
@@ -105,6 +114,9 @@ func Load() (*Config, error) {
 			Secret:     getEnv("JWT_SECRET", ""),
 			TTL:        getDurationEnv("JWT_TTL", 24*time.Hour),
 			RefreshTTL: getDurationEnv("JWT_REFRESH_TTL", 30*24*time.Hour),
+		},
+		Fleet: FleetConfig{
+			OfflineAfter: getDurationEnv("SERVER_OFFLINE_AFTER", 60*time.Second),
 		},
 	}
 

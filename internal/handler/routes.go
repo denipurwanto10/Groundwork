@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"entity-management/internal/auth"
 	"entity-management/internal/db"
 	"entity-management/internal/routing"
 	"entity-management/internal/vehicle"
@@ -39,15 +41,57 @@ const arrivalRadiusM = 150.0
 // routeStop is one end of a route.
 type routeStop = vehicle.RouteStop
 
+// maxRouteStops is how many destinations one route may have. The trip
+// service of the public OSRM server gets slow with many stops, and the
+// request line stays short enough for every proxy in between.
+const maxRouteStops = 12
+
 // setRouteInput is the body of POST /api/vehicles/:id/route.
+//
+// The destinations of a multi-stop route are sent as an array. A body with a
+// single "destination" still works: it is the one-stop route it always was.
 type setRouteInput struct {
-	Origin      routeStop `json:"origin"`
-	Destination routeStop `json:"destination"`
+	Origin       routeStop   `json:"origin"`
+	Destination  *routeStop  `json:"destination"`
+	Destinations []routeStop `json:"destinations"`
+}
+
+// stops returns the destinations of the route, in the order they were handed
+// over. The order they are served in is worked out by the server.
+func (in setRouteInput) stops() []routeStop {
+	if len(in.Destinations) > 0 {
+		return in.Destinations
+	}
+	if in.Destination != nil {
+		return []routeStop{*in.Destination}
+	}
+	return nil
+}
+
+// multi reports whether the route was asked for as a list of destinations.
+func (in setRouteInput) multi() bool {
+	return len(in.Destinations) > 0
+}
+
+// stopField names the field of one destination in the validation answer. A
+// route that was asked for with a single "destination" keeps the old name, so
+// the error lands on the field the client knows.
+func (in setRouteInput) stopField(i int) string {
+	if !in.multi() {
+		return "destination"
+	}
+
+	return fmt.Sprintf("destinations[%d]", i)
 }
 
 func (in *setRouteInput) normalize() {
 	in.Origin.Name = strings.TrimSpace(in.Origin.Name)
-	in.Destination.Name = strings.TrimSpace(in.Destination.Name)
+	if in.Destination != nil {
+		in.Destination.Name = strings.TrimSpace(in.Destination.Name)
+	}
+	for i := range in.Destinations {
+		in.Destinations[i].Name = strings.TrimSpace(in.Destinations[i].Name)
+	}
 }
 
 func (in setRouteInput) validate() map[string]string {
@@ -65,16 +109,45 @@ func (in setRouteInput) validate() map[string]string {
 		}
 	}
 	check("origin", in.Origin)
-	check("destination", in.Destination)
 
-	if len(fields) == 0 {
-		gap := routing.DistanceMeters(
-			routing.Point{Lat: in.Origin.Lat, Lng: in.Origin.Lng},
-			routing.Point{Lat: in.Destination.Lat, Lng: in.Destination.Lng},
-		)
-		if gap < 10 {
-			fields["destination"] = "destination must differ from origin"
+	stops := in.stops()
+	if len(stops) == 0 {
+		fields["destinations"] = "at least one destination is required"
+		return fields
+	}
+	if len(stops) > maxRouteStops {
+		fields["destinations"] = fmt.Sprintf("a route may have at most %d destinations", maxRouteStops)
+		return fields
+	}
+
+	for i, stop := range stops {
+		check(in.stopField(i), stop)
+	}
+
+	if len(fields) > 0 {
+		return fields
+	}
+
+	// Every stop must be a place of its own. The routing engine snaps the
+	// coordinates to the closest road it knows, so two stops on the same
+	// corner would be served as one and the line would go nowhere.
+	origin := routing.Point{Lat: in.Origin.Lat, Lng: in.Origin.Lng}
+	seen := make([]routing.Point, 0, len(stops))
+	for i, stop := range stops {
+		p := routing.Point{Lat: stop.Lat, Lng: stop.Lng}
+		if routing.DistanceMeters(origin, p) < 10 {
+			fields[in.stopField(i)] = "a destination must differ from the origin"
+			seen = append(seen, p)
+			continue
 		}
+		for j, other := range seen {
+			if routing.DistanceMeters(other, p) < 10 {
+				fields[in.stopField(i)] = fmt.Sprintf(
+					"this destination is the same place as destination %d", j+1)
+				break
+			}
+		}
+		seen = append(seen, p)
 	}
 
 	return fields
@@ -119,7 +192,9 @@ const routeProgressSQL = `CASE
 const routeCols = `SELECT rt.id, rt.vehicle_id, rt.origin_name, rt.dest_name,
        rt.origin_lat, rt.origin_lng, rt.dest_lat, rt.dest_lng,
        ST_AsGeoJSON(rt.geom, 6)::json, rt.distance_m, rt.duration_s,
-       rt.source, rt.status, rt.created_at, rt.ended_at,
+       rt.source, rt.status, rt.created_at, rt.ended_at, rt.started_at,
+       (v.driver_id IS NOT NULL) AS driver_assigned,
+       rt.stops,
        ` + routeProgressSQL + `
   FROM vehicle_routes rt
   JOIN vehicles v ON v.id = rt.vehicle_id`
@@ -133,20 +208,39 @@ func scanRoute(row rowScanner) (routeView, error) {
 	var (
 		v       routeView
 		geojson []byte
+		stops   []byte
 		run     float64
 	)
 	if err := row.Scan(&v.ID, &v.VehicleID, &v.Origin.Name, &v.Destination.Name,
 		&v.Origin.Lat, &v.Origin.Lng, &v.Destination.Lat, &v.Destination.Lng,
 		&geojson, &v.DistanceM, &v.DurationS, &v.Source, &v.Status,
-		&v.CreatedAt, &v.EndedAt, &run); err != nil {
+		&v.CreatedAt, &v.EndedAt, &v.StartedAt, &v.DriverAssigned, &stops, &run); err != nil {
 		return routeView{}, err
 	}
 
 	v.Geometry = json.RawMessage(geojson)
+	v.Stops = decodeStops(stops)
 	v.Progress = round4(run)
 	v.RemainingM = round2(v.DistanceM * (1 - v.Progress))
 
 	return v, nil
+}
+
+// decodeStops reads the stops of a multi-stop route out of the JSON array the
+// database keeps. A route with a single destination has none: its origin and
+// destination columns already say everything.
+func decodeStops(raw []byte) []vehicle.RouteStop {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var stops []vehicle.RouteStop
+	if err := json.Unmarshal(raw, &stops); err != nil {
+		log.Printf("routes: decode stops failed: %v", err)
+		return nil
+	}
+
+	return stops
 }
 
 func round4(v float64) float64 {
@@ -290,15 +384,19 @@ func (h *RouteHandler) Set(c *gin.Context) {
 	}
 
 	from := routing.Point{Lat: in.Origin.Lat, Lng: in.Origin.Lng}
-	to := routing.Point{Lat: in.Destination.Lat, Lng: in.Destination.Lng}
+	stops := in.stops()
+	stopPoints := make([]routing.Point, 0, len(stops))
+	for _, stop := range stops {
+		stopPoints = append(stopPoints, routing.Point{Lat: stop.Lat, Lng: stop.Lng})
+	}
 
 	// The engine has its own deadline: a slow third party must not hold the
 	// request open, the straight-line fallback is always available.
 	planCtx, cancelPlan := context.WithTimeout(c.Request.Context(), 8*time.Second)
-	plan, planErr := h.router.Plan(planCtx, from, to)
+	plan, planErr := h.router.PlanMulti(planCtx, from, stopPoints)
 	cancelPlan()
 	if planErr != nil {
-		log.Printf("routes: engine fallback to straight line: %v", planErr)
+		log.Printf("routes: engine fallback to straight lines: %v", planErr)
 	}
 
 	// A line that PostGIS refuses to store would fail the whole request with
@@ -308,12 +406,36 @@ func (h *RouteHandler) Set(c *gin.Context) {
 	// straight connection between the two stops.
 	points := routing.Dedupe(plan.Points)
 	if len(points) < 2 {
-		log.Printf("routes: degenerate geometry, using the straight line")
-		fallback := routing.DirectRoute(from, to)
+		log.Printf("routes: degenerate geometry, using the straight lines")
+		fallback := routing.DirectMultiRoute(from, stopPoints)
 		points = fallback.Points
 		plan.DistanceM = fallback.DistanceM
 		plan.DurationS = fallback.DurationS
 		plan.Source = routing.SourceDirect
+		plan.Order = fallback.Order
+	}
+
+	// The stops in the order the unit serves them. The engine worked that
+	// order out; the last stop is where the delivery ends.
+	ordered := orderStops(stops, plan.Order)
+	if len(ordered) == 0 {
+		ordered = stops
+	}
+	last := ordered[len(ordered)-1]
+
+	// The stops of a multi-stop route are kept in the visiting order. A route
+	// with a single destination keeps none: its origin and destination
+	// columns already say everything, and the map draws it the way it always
+	// did.
+	stopsJSON := []byte("[]")
+	if len(ordered) > 1 {
+		encoded, err := json.Marshal(ordered)
+		if err != nil {
+			log.Printf("routes: encode stops failed: %v", err)
+			c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+			return
+		}
+		stopsJSON = encoded
 	}
 
 	line, err := lineStringGeoJSON(points)
@@ -348,13 +470,13 @@ func (h *RouteHandler) Set(c *gin.Context) {
 	err = tx.QueryRow(ctx, `
         INSERT INTO vehicle_routes
                (vehicle_id, origin_name, dest_name, origin_lat, origin_lng,
-                dest_lat, dest_lng, geom, distance_m, duration_s, source)
+                dest_lat, dest_lng, geom, distance_m, duration_s, source, stops)
         VALUES ($1, $2, $3, $4, $5, $6, $7,
-                ST_SetSRID(ST_GeomFromGeoJSON($8), 4326), $9, $10, $11)
+                ST_SetSRID(ST_GeomFromGeoJSON($8), 4326), $9, $10, $11, $12::jsonb)
         RETURNING id`,
-		id, in.Origin.Name, in.Destination.Name,
-		in.Origin.Lat, in.Origin.Lng, in.Destination.Lat, in.Destination.Lng,
-		string(line), plan.DistanceM, plan.DurationS, plan.Source).Scan(&newID)
+		id, in.Origin.Name, last.Name,
+		in.Origin.Lat, in.Origin.Lng, last.Lat, last.Lng,
+		string(line), plan.DistanceM, plan.DurationS, plan.Source, string(stopsJSON)).Scan(&newID)
 	if err != nil {
 		log.Printf("routes: insert failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
@@ -411,6 +533,98 @@ func (h *RouteHandler) Clear(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// Start marks the active route of a vehicle as started: the driver accepted
+// the delivery, so the unit begins to drive it.
+//
+// Only the driver of the unit may start its route; an admin may start any
+// route (a dispatcher can send a unit on its way). A unit without an active
+// route answers 409 — there is nothing to start.
+func (h *RouteHandler) Start(c *gin.Context) {
+	id, ok := vehicleIDParam(c)
+	if !ok {
+		return
+	}
+	if !h.mayStart(c, id) {
+		return
+	}
+
+	ctx, cancel := h.ctxWithTimeout(c)
+	defer cancel()
+
+	var routeID int64
+	err := h.db.QueryRow(ctx, `SELECT id FROM vehicle_routes
+		WHERE vehicle_id = $1 AND status = 'active'
+		ORDER BY id DESC LIMIT 1`, id).Scan(&routeID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		c.JSON(http.StatusConflict, errorBody("no_active_route", "this vehicle has no active route"))
+		return
+	case err != nil:
+		log.Printf("routes: start lookup failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	// The first press wins: the trip began when the driver started it, not
+	// when the button was pressed again.
+	if _, err := h.db.Exec(ctx, `UPDATE vehicle_routes
+		SET started_at = COALESCE(started_at, now())
+		WHERE id = $1`, routeID); err != nil {
+		log.Printf("routes: start failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	// The unit is on its way: the fleet list and the map show it moving
+	// right away, even before the first position comes in.
+	if _, err := h.db.Exec(ctx, `UPDATE vehicles SET status = 'moving' WHERE id = $1`, id); err != nil {
+		log.Printf("routes: start vehicle update failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	started, err := scanRoute(h.db.QueryRow(ctx, routeCols+" WHERE rt.id = $1", routeID))
+	if err != nil {
+		log.Printf("routes: start read-back failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	publishFrame(h.hub, "route", gin.H{"route": started})
+
+	c.JSON(http.StatusOK, gin.H{"data": started})
+}
+
+// mayStart reports whether the caller may start the route of this vehicle.
+// The driver of the unit may, and an admin may start any route; anybody else
+// gets a 403. It writes the error response itself.
+func (h *RouteHandler) mayStart(c *gin.Context, id int64) bool {
+	if auth.UserRole(c) == auth.RoleAdmin {
+		return true
+	}
+
+	scope := driverScope(c)
+	if scope == nil {
+		c.JSON(http.StatusForbidden, errorBody("forbidden", "only the driver of this vehicle can start its route"))
+		return false
+	}
+
+	ctx, cancel := h.ctxWithTimeout(c)
+	defer cancel()
+
+	allowed, err := vehicleBelongsToDriver(ctx, h.db, id, *scope)
+	if err != nil {
+		log.Printf("routes: driver scope for vehicle %d failed: %v", id, err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return false
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, errorBody("forbidden", "this vehicle is not assigned to you"))
+		return false
+	}
+	return true
+}
+
 // completeRouteIfArrived closes the active route once a reported position is
 // inside the arrival radius of its destination. Called from UpdatePosition, so
 // a route ends where the vehicle actually stops, not on a timer.
@@ -419,22 +633,32 @@ func (h *RouteHandler) Clear(c *gin.Context) {
 // the requested destination to the closest road it knows, which can be a few
 // hundred metres away from the point the operator picked; the unit drives to
 // the end of that line, so the line is where the delivery really ends.
+//
+// Arriving at the destination only counts once the unit is nearly done with
+// the line. A multi-stop route can have a destination close to the origin —
+// the tour may even lead back there — and without that guard the route would
+// close on the very first position report.
 func (h *VehicleHandler) completeRouteIfArrived(ctx context.Context, vehicleID int64, lat, lng float64) {
 	var routeID int64
 	err := h.db.QueryRow(ctx, `
         UPDATE vehicle_routes rt
            SET status = 'completed', ended_at = now()
          WHERE rt.vehicle_id = $1 AND rt.status = 'active'
-           AND LEAST(
-                ST_Distance(
-                    ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
-                    ST_SetSRID(ST_MakePoint(rt.dest_lng, rt.dest_lat), 4326)::geography
-                ),
+           AND (
                 ST_Distance(
                     ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
                     ST_Endpoint(rt.geom)::geography
+                ) <= $4
+                OR (
+                    ST_Distance(
+                        ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+                        ST_SetSRID(ST_MakePoint(rt.dest_lng, rt.dest_lat), 4326)::geography
+                    ) <= $4
+                    AND ST_LineLocatePoint(
+                        rt.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326)
+                    ) >= 0.95
                 )
-           ) <= $4
+           )
         RETURNING rt.id`, vehicleID, lat, lng, arrivalRadiusM).Scan(&routeID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -506,4 +730,25 @@ func lineStringGeoJSON(points []routing.Point) ([]byte, error) {
 	}
 
 	return json.Marshal(map[string]any{"type": "LineString", "coordinates": coords})
+}
+
+// orderStops puts the stops in the visiting order the engine worked out.
+//
+// An order that does not cover every stop is ignored and the stops are kept
+// in the order they were handed over: a plan that does not line up with the
+// stops is not worth storing.
+func orderStops(stops []routeStop, order []int) []routeStop {
+	if len(order) != len(stops) {
+		return stops
+	}
+
+	out := make([]routeStop, 0, len(stops))
+	for _, idx := range order {
+		if idx < 0 || idx >= len(stops) {
+			return stops
+		}
+		out = append(out, stops[idx])
+	}
+
+	return out
 }

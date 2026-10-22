@@ -19,9 +19,14 @@ import type {
   UserAccount,
   UserInput,
   GeofenceEvent,
+  AuditLogList,
   LoginResult,
   AuthStatus,
   HistoryPoint,
+  Overview,
+  Task,
+  TaskInput,
+  TaskStatus,
 } from './types'
 import { clearRefreshToken, clearToken, getRefreshToken, getToken, notifySessionInvalid, setRefreshToken, setToken } from './session'
 
@@ -202,6 +207,21 @@ function toUserPayload(input: Partial<UserInput>) {
   if (input.gender !== undefined) body.gender = input.gender
   if (input.role !== undefined) body.role = input.role
   return body
+}
+
+/**
+ * Task payload. The empty strings become null: a work order without an
+ * assignee and without a place is a work order that nobody owns yet.
+ */
+function toTaskPayload(input: TaskInput) {
+  return {
+    title: input.title.trim(),
+    description: input.description.trim(),
+    status: input.status,
+    assigned_user_id: input.assigned_user_id ?? null,
+    place_id: input.place_id ?? null,
+    due_date: input.due_date || '',
+  }
 }
 
 export const api = {
@@ -446,6 +466,83 @@ export const api = {
     return request<GeofenceEvent[]>(`/api/geofence-events${qs ? `?${qs}` : ''}`)
   },
 
+  // ---- Work orders (the jobs the fleet is sent out for) ----
+
+  /**
+   * The task board. A driver only receives the tasks that are assigned to
+   * them: the server narrows the list down to their own work.
+   */
+  listTasks(): Promise<Task[]> {
+    return request<Task[]>('/api/tasks')
+  },
+
+  /** Admin-only: a new work order for the board. */
+  createTask(input: TaskInput): Promise<Task> {
+    return request<Task>('/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify(toTaskPayload(input)),
+    })
+  },
+
+  /** Admin-only: change every field of a work order. */
+  updateTask(id: number, input: TaskInput): Promise<Task> {
+    return request<Task>(`/api/tasks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(toTaskPayload(input)),
+    })
+  },
+
+  /** Admin-only: remove a work order. */
+  deleteTask(id: number): Promise<void> {
+    return request<void>(`/api/tasks/${id}`, { method: 'DELETE' })
+  },
+
+  /**
+   * Move a work order along: pending -> in progress -> completed.
+   *
+   * A driver may do this on their own tasks, a staff member on any task.
+   */
+  updateTaskStatus(id: number, status: TaskStatus): Promise<Task> {
+    return request<Task>(`/api/tasks/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    })
+  },
+
+  // ---- Audit log (who changed what) ----
+
+  /**
+   * The trail of successful writes, newest first. Admin-only: the trail
+   * names the accounts of the workspace.
+   */
+  listAuditLogs(params?: {
+    limit?: number
+    offset?: number
+    action?: string
+    entity_type?: string
+    /** Free text: a user or a fragment of the message. */
+    q?: string
+  }): Promise<AuditLogList> {
+    const sp = new URLSearchParams()
+    if (params?.limit != null) sp.set('limit', String(params.limit))
+    if (params?.offset != null) sp.set('offset', String(params.offset))
+    if (params?.action) sp.set('action', params.action)
+    if (params?.entity_type) sp.set('entity_type', params.entity_type)
+    if (params?.q) sp.set('q', params.q)
+    const qs = sp.toString()
+    return request<AuditLogList>(`/api/audit-logs${qs ? `?${qs}` : ''}`)
+  },
+
+  // ---- Overview (the aggregate of the day) ----
+
+  /**
+   * Everything the Overview tab shows: the distance the fleet drove today,
+   * the fleet counted by status and the zone crossings of the day.
+   */
+  getOverview(): Promise<Overview> {
+    return request<Overview>('/api/overview')
+  },
+
   // ---- Delivery routes (migration 007) ----
 
   /** Every active route: the paths the map draws. */
@@ -458,12 +555,26 @@ export const api = {
     return request<RouteList>(`/api/vehicles/${id}/routes`)
   },
 
-  /** Plan + store a route. Replaces any active route of the same vehicle. */
-  setVehicleRoute(id: number, input: { origin: RouteStop; destination: RouteStop }): Promise<VehicleRoute> {
+  /**
+   * Plan + store a route. Replaces any active route of the same vehicle.
+   *
+   * The destinations are sent as a list. The server works out the order they
+   * are visited in and answers with the route, the stops in that order and
+   * the line through all of them.
+   */
+  setVehicleRoute(id: number, input: { origin: RouteStop; destinations: RouteStop[] }): Promise<VehicleRoute> {
     return request<VehicleRoute>(`/api/vehicles/${id}/route`, {
       method: 'POST',
       body: JSON.stringify(input),
     })
+  },
+
+  /**
+   * Start the active route of a vehicle: the driver accepted the delivery and
+   * the unit begins to drive it. Only the driver of the unit may do this.
+   */
+  startVehicleRoute(id: number): Promise<VehicleRoute> {
+    return request<VehicleRoute>(`/api/vehicles/${id}/route/start`, { method: 'POST' })
   },
 
   clearVehicleRoute(id: number): Promise<void> {

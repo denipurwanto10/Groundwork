@@ -1,0 +1,318 @@
+/* ==========================================================================
+   Motion — one system for every page, loaded last.
+
+   • Page change: each view sets --pg / --fd to a different keyframe name, so
+     switching view restarts the entrance. The motion follows the tab order:
+     on phones the page slides in from the side it lies on, on wide screens it
+     rises. (Names, not a re-mount: the map is never rebuilt.)
+   • Entrances are staggered with --i and capped, so long lists stay quick.
+   • Dialogs and sheets spring in; buttons answer a press; colours cross-fade
+     when the theme flips.
+   • prefers-reduced-motion switches all of it off (last block).
+   ========================================================================== */
+
+:root {
+  --mo-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --mo-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --mo-dur: 0.46s;
+  --mo-y: 14px;
+  --mo-x: 0px;
+}
+
+@media (max-width: 1099px) {
+  :root { --mo-dur: 0.4s; --mo-y: 10px; }
+  .dash[data-dir='fwd']  { --mo-x: 26px; }
+  .dash[data-dir='back'] { --mo-x: -26px; }
+}
+
+/* ---- Keyframes: one copy per view so a view change restarts the animation -- */
+
+.dash[data-view='overview'] { --pg: mo-pg-1; --fd: mo-fd-1; }
+.dash[data-view='entities'] { --pg: mo-pg-2; --fd: mo-fd-2; }
+.dash[data-view='zones'] { --pg: mo-pg-3; --fd: mo-fd-3; }
+.dash[data-view='vehicles'] { --pg: mo-pg-4; --fd: mo-fd-4; }
+.dash[data-view='tasks'] { --pg: mo-pg-5; --fd: mo-fd-5; }
+.dash[data-view='users'] { --pg: mo-pg-6; --fd: mo-fd-6; }
+.dash[data-view='activity'] { --pg: mo-pg-7; --fd: mo-fd-7; }
+
+@keyframes mo-pg-1 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
+@keyframes mo-fd-1 { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-pg-2 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
+@keyframes mo-fd-2 { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-pg-3 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
+@keyframes mo-fd-3 { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-pg-4 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
+@keyframes mo-fd-4 { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-pg-5 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
+@keyframes mo-fd-5 { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-pg-6 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
+@keyframes mo-fd-6 { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-pg-7 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
+@keyframes mo-fd-7 { from { opacity: 0; } to { opacity: 1; } }
+
+@keyframes mo-rise   { from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.99); } to { opacity: 1; transform: none; } }
+@keyframes mo-fade   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-pop    { from { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes mo-sheet  { from { opacity: 0; transform: translate3d(0, 44px, 0) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes mo-slide-r{ from { opacity: 0; transform: translate3d(28px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes mo-icon   { 0% { transform: scale(0.7); } 55% { transform: scale(1.14); } 100% { transform: scale(1); } }
+@keyframes mo-badge  { 0% { transform: scale(0); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
+@keyframes mo-dock   { from { opacity: 0; transform: translate3d(-50%, 36px, 0); } to { opacity: 1; transform: translate3d(-50%, 0, 0); } }
+@keyframes mo-grow   { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* ---- Page change ---------------------------------------------------------- */
+.dash .topbar-title {
+  --mo-y: -8px;
+  animation: var(--pg) 0.38s var(--mo-ease) backwards;
+}
+
+.dash .pane-switch,
+.dash .tb-toolbar {
+  animation: var(--pg) var(--mo-dur) var(--mo-ease) backwards;
+}
+
+/* the map only fades: moving it would fight Leaflet's size maths */
+.dash .map-card {
+  animation: var(--fd) 0.5s ease backwards;
+}
+
+.dash .panel-pane {
+  animation: var(--pg) var(--mo-dur) var(--mo-ease) 0.04s backwards;
+}
+
+.dash .stage-kpis > *,
+.dash .stage-side > *,
+.dash .stage-extra > * {
+  animation: var(--pg) var(--mo-dur) var(--mo-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+.dash .stage-kpis > :nth-child(1), .dash .stage-side > :nth-child(1) { --i: 0; }
+.dash .stage-kpis > :nth-child(2), .dash .stage-side > :nth-child(2) { --i: 1; }
+.dash .stage-kpis > :nth-child(3) { --i: 2; }
+.dash .stage-kpis > :nth-child(4) { --i: 3; }
+.dash .stage-extra > :nth-child(1) { --i: 2; }
+.dash .stage-extra > :nth-child(2) { --i: 3; }
+.dash .stage-extra > :nth-child(3) { --i: 4; }
+.dash .stage-extra > :nth-child(n+4) { --i: 5; }
+
+/* the KPI grid is a single child: its cards arrive one after another */
+.dash .stage-kpis .ov-grid > * {
+  animation: var(--pg) var(--mo-dur) var(--mo-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+.dash .stage-kpis .ov-grid > :nth-child(1) { --i: 0; }
+.dash .stage-kpis .ov-grid > :nth-child(2) { --i: 1; }
+.dash .stage-kpis .ov-grid > :nth-child(3) { --i: 2; }
+.dash .stage-kpis .ov-grid > :nth-child(4) { --i: 3; }
+.dash .stage-kpis > .ov-grid { animation: none; }
+
+/* ---- Rows that arrive: zones, fleet, users, activity, tasks ---------------- */
+.dash :is(.zone-list > li, .lt-row.enter, .um-card, .al-entry, .tb-list-item, .d-card li) {
+  animation: mo-rise 0.42s var(--mo-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 38ms);
+}
+.dash :is(.zone-list, .lt-list, .um-grid, .al-list, .tb-list, .d-card ul) > :nth-child(1) { --i: 0; }
+.dash :is(.zone-list, .lt-list, .um-grid, .al-list, .tb-list, .d-card ul) > :nth-child(2) { --i: 1; }
+.dash :is(.zone-list, .lt-list, .um-grid, .al-list, .tb-list, .d-card ul) > :nth-child(3) { --i: 2; }
+.dash :is(.zone-list, .lt-list, .um-grid, .al-list, .tb-list, .d-card ul) > :nth-child(4) { --i: 3; }
+.dash :is(.zone-list, .lt-list, .um-grid, .al-list, .tb-list, .d-card ul) > :nth-child(5) { --i: 4; }
+.dash :is(.zone-list, .lt-list, .um-grid, .al-list, .tb-list, .d-card ul) > :nth-child(6) { --i: 5; }
+.dash :is(.zone-list, .lt-list, .um-grid, .al-list, .tb-list, .d-card ul) > :nth-child(n+7) { --i: 6; }
+
+/* ---- Task board ------------------------------------------------------------ */
+.tb-col {
+  animation: var(--pg, mo-rise) var(--mo-dur) var(--mo-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+.tb-col:nth-child(1) { --i: 0; }
+.tb-col:nth-child(2) { --i: 1; }
+.tb-col:nth-child(3) { --i: 2; }
+
+.tb-card {
+  animation: mo-rise 0.44s var(--mo-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 55ms + 120ms);
+}
+.tb-cards > :nth-child(1) { --i: 0; }
+.tb-cards > :nth-child(2) { --i: 1; }
+.tb-cards > :nth-child(3) { --i: 2; }
+.tb-cards > :nth-child(4) { --i: 3; }
+.tb-cards > :nth-child(n+5) { --i: 4; }
+
+/* a card that is being moved fades back in place instead of jumping */
+.tb-card.busy { transition: opacity 0.2s ease; }
+
+@media (max-width: 900px) {
+  /* switching status tabs slides the new column in */
+  .tb-col.current {
+    animation: mo-slide-r 0.36s var(--mo-ease) backwards;
+    animation-delay: 0ms;
+  }
+  .tb-col.current .tb-card { animation-delay: calc(var(--i, 0) * 50ms + 40ms); }
+}
+
+.tb-tab.active i { animation: mo-badge 0.4s var(--mo-spring) backwards; }
+.tb-tab { transition: background-color 0.25s var(--mo-ease), color 0.25s var(--mo-ease), box-shadow 0.25s var(--mo-ease), transform 0.15s ease; }
+.tb-tab:active { transform: scale(0.96); }
+
+/* ---- Dock + More sheet ------------------------------------------------------ */
+@media (max-width: 1099px) {
+  .dash nav.bottom-nav {
+    animation: mo-dock 0.6s var(--mo-ease) 0.1s backwards;
+  }
+
+  /* the tab you land on pops, and so does its badge */
+  .dash nav.bottom-nav button.active .bn-icon { animation: mo-icon 0.5s var(--mo-spring) backwards; }
+  .dash nav.bottom-nav .bn-icon em { animation: mo-badge 0.45s var(--mo-spring) 0.2s backwards; }
+  .dash nav.bottom-nav button > span.bn-label { transition: color 0.25s ease, transform 0.25s var(--mo-ease); }
+  .dash nav.bottom-nav button.active > span.bn-label { transform: translateY(1px); }
+}
+
+.more-overlay { animation: mo-fade 0.22s ease backwards; }
+.more-sheet   { animation: mo-sheet 0.42s var(--mo-spring) backwards; transform-origin: 50% 100%; }
+
+.more-list > li {
+  animation: mo-rise 0.4s var(--mo-ease) backwards;
+  animation-delay: calc(0.08s + var(--i, 0) * 55ms);
+}
+.more-list > :nth-child(1) { --i: 0; }
+.more-list > :nth-child(2) { --i: 1; }
+.more-list > :nth-child(3) { --i: 2; }
+.more-item { transition: background-color 0.2s ease, transform 0.15s ease; }
+
+/* ---- Sidebar (wide screens) ------------------------------------------------- */
+.dash .rail-item {
+  transition: background-color 0.22s var(--mo-ease), color 0.22s var(--mo-ease), transform 0.22s var(--mo-ease);
+}
+.dash .rail-item:not(.active):hover { transform: translateX(3px); }
+.dash .rail-item:active { transform: scale(0.97); }
+.dash .rail-item.active svg { animation: mo-icon 0.5s var(--mo-spring) backwards; }
+.dash .rail-item .rail-count { animation: mo-badge 0.45s var(--mo-spring) 0.15s backwards; }
+
+/* ---- Dialogs, sheets, panels -------------------------------------------------- */
+.um-overlay, .tb-overlay, .overlay.dialog-overlay { animation: mo-fade 0.22s ease backwards; }
+
+.um-modal, .tb-modal, .overlay.dialog-overlay > * {
+  animation: mo-pop 0.44s var(--mo-spring) backwards;
+}
+
+@media (max-width: 900px) {
+  .um-modal, .tb-modal {
+    animation: mo-sheet 0.46s var(--mo-spring) backwards;
+    transform-origin: 50% 100%;
+  }
+}
+
+/* form fields rise one after the other */
+.tb-modal-body > *, .um-modal-body > * {
+  animation: mo-rise 0.4s var(--mo-ease) backwards;
+  animation-delay: calc(0.12s + var(--i, 0) * 45ms);
+}
+.tb-modal-body > :nth-child(1), .um-modal-body > :nth-child(1) { --i: 0; }
+.tb-modal-body > :nth-child(2), .um-modal-body > :nth-child(2) { --i: 1; }
+.tb-modal-body > :nth-child(3), .um-modal-body > :nth-child(3) { --i: 2; }
+.tb-modal-body > :nth-child(4), .um-modal-body > :nth-child(4) { --i: 3; }
+.tb-modal-body > :nth-child(n+5), .um-modal-body > :nth-child(n+5) { --i: 4; }
+
+.dash .toast { animation: mo-pop 0.5s var(--mo-spring) backwards; }
+.dash .toast .toast-bar { transform-origin: left center; }
+
+/* ---- Press feedback & hover lift ------------------------------------------------ */
+.btn, .icon-btn, .tb-modal-close, .um-modal-close, .dash button.kpi {
+  transition:
+    transform 0.18s var(--mo-ease),
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.25s var(--mo-ease);
+}
+
+.btn:not(:disabled):active,
+.icon-btn:not(:disabled):active,
+.tb-modal-close:active,
+.um-modal-close:active,
+.dash button.kpi:active { transform: scale(0.96); }
+
+@media (hover: hover) {
+  .btn.primary:not(:disabled):hover { transform: translateY(-1px); }
+  .icon-btn:not(:disabled):hover { transform: translateY(-1px); }
+  .dash .kpi:hover { transform: translateY(-2px); }
+  .tb-modal-close:hover, .um-modal-close:hover { transform: rotate(90deg); }
+}
+
+.dash .kpi, .dash .d-card { transition: transform 0.25s var(--mo-ease), box-shadow 0.25s var(--mo-ease), border-color 0.2s ease; }
+
+/* the reload icon turns while a request runs */
+.tb-actions .icon-btn:disabled svg { animation: mo-spin 0.9s linear infinite; }
+@keyframes mo-spin { to { transform: rotate(360deg); } }
+
+/* ---- Sign-in and driver screens --------------------------------------------------- */
+.auth-card { animation: mo-pop 0.7s var(--mo-ease) backwards; }
+.auth-card .field, .auth-card .auth-title, .auth-card .auth-lede, .auth-card button[type='submit'] {
+  animation: mo-rise 0.5s var(--mo-ease) backwards;
+  animation-delay: calc(0.12s + var(--i, 0) * 60ms);
+}
+.auth-card .auth-title { --i: 0; }
+.auth-card .auth-lede { --i: 1; }
+.auth-card .field:nth-of-type(1) { --i: 2; }
+.auth-card .field:nth-of-type(2) { --i: 3; }
+.auth-card .field:nth-of-type(3) { --i: 4; }
+.auth-card button[type='submit'] { --i: 5; }
+
+.drv-top { animation: mo-fade 0.5s ease backwards; }
+.drv-sheet { animation: mo-sheet 0.6s var(--mo-ease) 0.1s backwards; transform-origin: 50% 100%; }
+.drv-card, .drv-block { animation: mo-rise 0.5s var(--mo-ease) backwards; }
+.drv-sheet .drv-block:nth-of-type(2) { animation-delay: 0.08s; }
+
+/* ---- Theme flip: colours cross-fade ------------------------------------------------- */
+.theme-switching *:not(.leaflet-container, .leaflet-container *),
+.theme-switching *:not(.leaflet-container, .leaflet-container *)::before,
+.theme-switching *:not(.leaflet-container, .leaflet-container *)::after {
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease,
+    fill 0.35s ease,
+    stroke 0.35s ease,
+    box-shadow 0.35s ease !important;
+}
+
+/* ---- Reduced motion: everything stands still ------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .dash *, .dash *::before, .dash *::after,
+  .tb *, .tb-overlay, .tb-overlay *,
+  .um-overlay, .um-overlay *,
+  .more-overlay, .more-overlay *,
+  .auth-card, .auth-card *,
+  .drv, .drv * {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- Live fleet list: update in place, never flash ------------------------ */
+.lt-row {
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  will-change: transform;
+}
+.lt-chip,
+.lt-avatar {
+  transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease;
+}
+.lt-speed,
+.lt-card-sub {
+  font-variant-numeric: tabular-nums;
+}
+.lt-card-end {
+  min-width: 64px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lt-row,
+  .lt-chip,
+  .lt-avatar {
+    transition: none;
+  }
+}

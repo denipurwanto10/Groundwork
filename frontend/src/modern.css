@@ -842,14 +842,39 @@
   opacity: 0.85;
 }
 
+/* The route of a unit in the fleet list: the destination, the progress bar
+   and the two numbers the operator looks for. Three lines, so nothing has to
+   be truncated in a narrow panel. */
 .lt-card-route {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 3px;
   margin-top: 3px;
 }
 
-/* "Following route to <target>" — the line the unit drives right now. */
+.lt-card-route-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* "Distance 60 km" and "ETA 14:32" — the plan of the delivery, in numbers. */
+.lt-card-route-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Following route to <target>" — the line the unit drives right now. The
+   destination is the part worth the room, so the words around it are only
+   read by a screen reader. */
 .lt-card-route-name {
   display: flex;
   align-items: center;
@@ -863,7 +888,12 @@
   white-space: nowrap;
 }
 
+.lt-card-route-name svg {
+  flex: none;
+}
+
 .lt-card-route-name b {
+  min-width: 0;
   overflow: hidden;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -1102,6 +1132,25 @@
   border-left: 2px dotted var(--line-strong);
 }
 
+/* The stops of a multi-stop route: the visiting order, one per line. */
+.lt-route-stops {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.lt-route-stops li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
 .lt-route-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1116,6 +1165,16 @@
   font-weight: 650;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+
+/* "ETA 14:32" with the driving time left underneath it. */
+.lt-route-stats .lt-eta em {
+  display: block;
+  margin-top: 1px;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .lt-route-foot {
@@ -1456,6 +1515,20 @@
 }
 
 .route-stop.dest::after {
+  display: none;
+}
+
+/* A numbered stop of a multi-stop route: a filled dot with its number. */
+.route-stop.stop {
+  color: var(--map-on-ink);
+  background: var(--accent);
+  border-color: var(--map-ring);
+  box-shadow:
+    0 0 0 1.5px var(--map-ink),
+    0 6px 14px rgba(0, 0, 0, 0.3);
+}
+
+.route-stop.stop::after {
   display: none;
 }
 

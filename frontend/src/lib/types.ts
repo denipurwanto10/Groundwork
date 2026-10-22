@@ -342,7 +342,7 @@ export const VEHICLE_STATUS_COLORS: Record<VehicleStatus, string> = {
   offline: '#7d8693',
 }
 
-/** The colour a unit's delivery line gets when nobody picked one. */
+/** The colour of every delivery line: the primary red of the theme. */
 export const DEFAULT_ROUTE_COLOR = '#d0171e'
 
 /** One tracked unit, latest known position included (null until it reports). */
@@ -363,7 +363,7 @@ export interface Vehicle {
    * between the last two positions.
    */
   heading: number | null
-  /** Colour of this unit's delivery line. */
+  /** Colour of this unit's delivery line: always the primary red. */
   route_color: string
   last_seen_at: string | null
   /** The delivery route the unit is following, if any. */
@@ -376,7 +376,7 @@ export interface VehicleInput {
   name: string
   kind: VehicleKind
   driver_id: number | null
-  /** Colour of the delivery line of this unit. */
+  /** Colour of the delivery line: one colour for every unit. */
   route_color: string
 }
 
@@ -462,6 +462,206 @@ export interface GeofenceEvent {
   zone_name: string
   event_type: GeofenceEventType
   created_at: string
+}
+
+/* ------------------------------------------------------------------ *
+ * Work orders (migration 021): the job a unit is sent out for.
+ * ------------------------------------------------------------------ */
+
+/** The three steps a work order walks through. */
+export const TASK_STATUSES = ['pending', 'in_progress', 'completed'] as const
+export type TaskStatus = (typeof TASK_STATUSES)[number]
+
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Done',
+}
+
+/** One work order, as the board shows it. */
+export interface Task {
+  id: number
+  title: string
+  description: string
+  status: TaskStatus
+  /** The account that has to do the work; null means nobody is assigned. */
+  assigned_user_id: number | null
+  /** The place the work is about; null means no destination was picked. */
+  place_id: number | null
+  /** The day the work has to be done by (YYYY-MM-DD), or null. */
+  due_date: string | null
+  created_at: string
+  /** The name of the assigned account; empty when the account is gone. */
+  assigned_name: string
+  /** The name of the place; empty when the place is gone. */
+  place_name: string
+}
+
+/** What the task form sends when a task is created or edited. */
+export interface TaskInput {
+  title: string
+  description: string
+  status: TaskStatus
+  assigned_user_id: number | null
+  place_id: number | null
+  /** The deadline as YYYY-MM-DD; empty means no deadline. */
+  due_date: string
+}
+
+export type TaskFieldErrors = Partial<
+  Record<'title' | 'description' | 'status' | 'assigned_user_id' | 'place_id' | 'due_date', string>
+>
+
+/** Mirrors backend validation (internal/task) for instant feedback. */
+export function validateTaskInput(input: TaskInput): TaskFieldErrors {
+  const errors: TaskFieldErrors = {}
+
+  const title = input.title.trim()
+  if (!title) {
+    errors.title = 'Title is required.'
+  } else if (title.length > 160) {
+    errors.title = 'Title must be at most 160 characters.'
+  }
+
+  if (input.description.trim().length > 2000) {
+    errors.description = 'Description must be at most 2000 characters.'
+  }
+
+  if (!TASK_STATUSES.includes(input.status)) {
+    errors.status = 'Status must be pending, in_progress or completed.'
+  }
+
+  if (input.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(input.due_date)) {
+    errors.due_date = 'Deadline must be a date like 2026-10-25.'
+  }
+
+  return errors
+}
+
+/** Values come from the wire, so coerce anything unexpected to a known one. */
+export function normalizeTaskStatus(status: string): TaskStatus {
+  return (TASK_STATUSES as readonly string[]).includes(status) ? (status as TaskStatus) : 'pending'
+}
+
+export function taskStatusLabel(status: string): string {
+  return TASK_STATUS_LABELS[normalizeTaskStatus(status)]
+}
+
+/**
+ * "Overdue" / "Due today" / "Due in 3 days" — how the deadline reads on a
+ * card. A task without a deadline has none.
+ */
+export function formatTaskDue(due: string | null, now = Date.now()): string {
+  if (!due) return 'No deadline'
+  const target = Date.parse(`${due}T00:00:00`)
+  if (Number.isNaN(target)) return due
+  const today = new Date(now)
+  today.setHours(0, 0, 0, 0)
+  const days = Math.round((target - today.getTime()) / 86_400_000)
+  if (days < 0) return `Overdue by ${Math.abs(days)}d`
+  if (days === 0) return 'Due today'
+  if (days === 1) return 'Due tomorrow'
+  return `Due in ${days}d`
+}
+
+/** True when the deadline of a task is today or in the past. */
+export function isTaskOverdue(due: string | null, now = Date.now()): boolean {
+  if (!due) return false
+  const target = Date.parse(`${due}T23:59:59`)
+  if (Number.isNaN(target)) return false
+  return target < now
+}
+
+/* ------------------------------------------------------------------ *
+ * Audit log (GET /api/audit-logs): who changed what, and when.
+ * ------------------------------------------------------------------ */
+
+/** What happened to an object. Mirrors the actions the backend writes. */
+export type AuditAction = 'create' | 'update' | 'delete' | 'import' | 'set' | 'clear'
+
+/** The kind of object an action was about. */
+export type AuditEntityType = 'entity' | 'zone' | 'vehicle' | 'user' | 'route'
+
+/** One recorded action of the trail. */
+export interface AuditLog {
+  id: number
+  /** The account that made the request; null once the account is deleted. */
+  user_id: number | null
+  /** The identity of that account (its address, or its handle). */
+  user_email: string
+  action: AuditAction
+  entity_type: AuditEntityType
+  /** The object itself, when the request named one. */
+  entity_id: number | null
+  /** The sentence the operator reads: 'created zone "Gudang Utama"'. */
+  details: string
+  created_at: string
+}
+
+/** One page of the trail, plus the total number of entries behind it. */
+export interface AuditLogList {
+  logs: AuditLog[]
+  /** How many rows this page holds. */
+  count: number
+  /** How many rows the trail holds in total. */
+  total: number
+}
+
+/* ------------------------------------------------------------------ *
+ * Overview (GET /api/overview): the aggregate of the current day.
+ * ------------------------------------------------------------------ */
+
+/** The fleet counted by its current status. */
+export interface OverviewVehicles {
+  total: number
+  moving: number
+  idle: number
+  offline: number
+}
+
+/** One work area and how often it was crossed today. */
+export interface OverviewZone {
+  zone_id: number
+  zone_name: string
+  /** Crossings into the zone. */
+  enter: number
+  /** Crossings out of the zone. */
+  exit: number
+  total: number
+}
+
+/** The zone crossings of today, counted and broken down per work area. */
+export interface OverviewEvents {
+  total: number
+  /** Crossings into a zone. */
+  enter: number
+  /** Crossings out of a zone. */
+  exit: number
+  zones: OverviewZone[]
+}
+
+/** The aggregate of the day behind the Overview tab. */
+export interface Overview {
+  /** The day the numbers belong to (YYYY-MM-DD, server time zone). */
+  date: string
+  /** How far the whole fleet drove today, in kilometres. */
+  distance_km: number
+  vehicles: OverviewVehicles
+  events: OverviewEvents
+  /** The latest zone crossings, newest first. */
+  recent: GeofenceEvent[]
+}
+
+/** "2026-10-22" -> "22 Oct 2026": the day the overview numbers belong to. */
+export function formatOverviewDate(date: string): string {
+  if (!date) return ''
+  const t = Date.parse(`${date}T00:00:00`)
+  if (Number.isNaN(t)) return date
+  return new Date(t).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
 }
 
 /** A unit without a reported position must not get a marker. */
@@ -557,6 +757,26 @@ export interface RouteStop {
   name: string
 }
 
+/**
+ * The stops of a route that is being planned.
+ *
+ * The origin is where the trip starts; the stops are the destinations, in the
+ * order the operator picked them. A stop that is not picked yet is null: the
+ * form shows the row and waits for the map click.
+ */
+export interface RouteDraft {
+  origin: RouteStop | null
+  stops: (RouteStop | null)[]
+}
+
+/**
+ * Which stop of the draft the next map click fills.
+ *
+ * The origin is picked on its own; a stop is picked by its index in the
+ * draft, so the operator can go back and move the third stop.
+ */
+export type RoutePick = { stage: 'origin' } | { stage: 'stop'; index: number }
+
 /** GeoJSON LineString straight from PostGIS. Coordinates are [lng, lat]. */
 export interface RouteGeometry {
   type: 'LineString'
@@ -571,6 +791,12 @@ export interface VehicleRoute {
   vehicle_id: number
   origin: RouteStop
   destination: RouteStop
+  /**
+   * The destinations of a multi-stop route, in the visiting order the server
+   * worked out. The last one is the destination above. It is empty for a
+   * route with a single destination.
+   */
+  stops?: RouteStop[]
   geometry: RouteGeometry
   distance_m: number
   duration_s: number
@@ -581,6 +807,17 @@ export interface VehicleRoute {
   remaining_m: number
   created_at: string
   ended_at: string | null
+  /**
+   * When the driver started the trip. A route without it is a plan waiting
+   * for the driver.
+   */
+  started_at: string | null
+  /**
+   * True when the unit has a driver. The route of a unit without one is
+   * driven right away; the route of a unit with a driver waits for the
+   * driver's start.
+   */
+  driver_assigned: boolean
 }
 
 export interface RouteList {
@@ -631,6 +868,38 @@ export function routeEtaSeconds(route: VehicleRoute, speedKmh: number): number {
   const left = Math.max(0, route.remaining_m)
   if (speedKmh > 1) return left / (speedKmh / 3.6)
   return route.duration_s * (1 - routeProgress(route))
+}
+
+/**
+ * The moment the unit is expected to reach the destination: the current clock
+ * plus the time still to drive. It is the same estimate as routeEtaSeconds,
+ * only as a wall-clock timestamp, so the two never disagree.
+ */
+export function routeEtaAt(route: VehicleRoute, speedKmh: number, now: number): number {
+  return now + routeEtaSeconds(route, speedKmh) * 1000
+}
+
+/**
+ * "14:32" — the wall clock the unit is expected to arrive. A trip that ends
+ * after midnight carries the day offset, so "23:50 plus 3 h" does not read as
+ * this morning.
+ */
+export function formatEtaClock(timestamp: number, now: number): string {
+  if (!Number.isFinite(timestamp)) return '—'
+  const at = new Date(timestamp)
+  const clock = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+
+  // Calendar days, not 24-hour blocks: a trip that ends tomorrow at 01:00
+  // crosses one local midnight, not a day and a bit.
+  const from = new Date(now)
+  from.setHours(0, 0, 0, 0)
+  const to = new Date(at)
+  to.setHours(0, 0, 0, 0)
+  const days = Math.round((to.getTime() - from.getTime()) / 86_400_000)
+  if (days > 0) return `${clock} +${days}d`
+  if (days < 0) return `${clock} ${days}d`
+
+  return clock
 }
 
 /** "640 m" / "12.4 km" — one decimal only once kilometres are reached. */

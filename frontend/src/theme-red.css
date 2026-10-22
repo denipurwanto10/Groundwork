@@ -283,6 +283,14 @@ textarea:focus {
 }
 .leaflet-popup-tip { background: var(--panel-solid); border: 1px solid var(--line-strong); }
 
+/* A dialog is a fixed overlay, and Chrome composites it in a layer of its
+   own only when it is told to. Without the hint, the transformed layers of
+   the map and the panels are painted over the dialog card, and the panel
+   behind shows through it. The dialog keeps its own layer this way. */
+.um-overlay {
+  transform: translateZ(0);
+}
+
 /* --------------------------------------------------------------------------
    4. Controls: buttons, inputs, nav
    -------------------------------------------------------------------------- */
@@ -472,6 +480,8 @@ textarea,
 .route-stop { border: 3px solid var(--route); background: var(--panel-solid); color: var(--route); }
 .route-stop.dest { background: var(--route); color: #fff; }
 .route-stop.dest::after { border-top-color: var(--route); }
+/* A numbered stop is a filled dot, so it must not read as a hollow waypoint. */
+.route-stop.stop { background: var(--route); color: #fff; }
 
 /* Map tiles. The Google road map already has the right palette, so it is
    left alone in the light theme. The dark theme turns the map into its
@@ -685,63 +695,50 @@ textarea,
 }
 
 /* ---- Route colour of a unit -------------------------------------------------
-   The delivery line of a unit follows the unit, not the theme: the fleet form
-   picks the colour, the map draws the line in it and the fleet card shows a
-   dot of it. */
+   There is one colour: the primary red of the theme. Every delivery line is
+   drawn in it, so the fleet form does not offer a choice — the unit itself
+   does not carry a colour of its own. */
 
-
-.um-colors {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.um-swatch {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  box-shadow: 0 0 0 1px var(--line);
-  cursor: pointer;
-  padding: 0;
-}
-
-.um-swatch.on {
-  border-color: var(--panel-solid, #fff);
-  box-shadow: 0 0 0 2px var(--text);
-}
-
-.um-color-input {
-  width: 34px;
-  height: 30px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--field, var(--panel-2));
-  cursor: pointer;
-}
 
 /* ---- Playback of a recorded trip --------------------------------------------
-   The panel lives inside the vehicle card, so the map stays visible while the
-   track is running. The ghost marker is the vehicle art at half opacity: it
-   shows where the unit was without pretending to be there now. */
+   The dialog floats over the map, not over the page: the operator has to
+   watch the ghost marker walk the track, so the map stays visible. The ghost
+   marker is the vehicle art at half opacity: it shows where the unit was
+   without pretending to be there now. */
 
-.pb {
+.pb-deck {
+  position: absolute;
+  /* Above the map panes and the controls of Leaflet, below nothing else. */
+  z-index: 1100;
+  right: 14px;
+  /* Clear of the attribution line in the corner. */
+  bottom: 38px;
+  width: min(380px, calc(100% - 28px));
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 10px;
   padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--panel-2);
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px -22px rgb(8 12 28 / 60%);
+  animation: um-pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* On a phone the map fills the screen, so the dialog lies along the bottom. */
+@media (max-width: 767px) {
+  .pb-deck {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+  }
 }
 
 .pb-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 
@@ -752,6 +749,16 @@ textarea,
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text);
+}
+
+.pb-subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pb-load {
@@ -871,3 +878,116 @@ textarea,
   white-space: nowrap;
   border: 0;
 }
+
+/* Date picker of the playback dialog ---------------------------------- */
+.pb-date .dp { position: relative; }
+
+.dp-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.dp-field svg { color: var(--muted); flex: none; }
+.dp-field:hover { border-color: var(--line-strong); }
+.dp-field:focus-visible,
+.dp-field[aria-expanded='true'] { border-color: var(--accent); outline: none; }
+
+.dp-pop {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 264px;
+  max-width: calc(100vw - 32px);
+  padding: 12px;
+  color: var(--text);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px -18px rgb(8 12 28 / 55%);
+}
+
+.dp-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.dp-month { font-size: 13px; font-weight: 600; }
+.dp-arrow {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.dp-arrow:hover:not(:disabled) { background: var(--panel-2); }
+.dp-arrow:disabled { opacity: 0.35; cursor: default; }
+.dp-flip { display: grid; transform: scaleX(-1); }
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  justify-items: center;
+}
+.dp-week { margin-bottom: 2px; }
+.dp-week span {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--muted);
+}
+
+.dp-day {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.dp-day:hover:not(:disabled):not(.sel) { background: var(--panel-2); }
+.dp-day.today:not(.sel) { box-shadow: inset 0 0 0 1px var(--accent-line); color: var(--accent); }
+.dp-day.sel { color: var(--on-btn); font-weight: 600; background: var(--btn); }
+.dp-day:disabled { color: var(--muted); opacity: 0.4; cursor: default; }
+.dp-day:focus-visible,
+.dp-link:focus-visible,
+.dp-arrow:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.dp-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.dp-link {
+  padding: 4px 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dp-link:hover { background: var(--accent-soft); }

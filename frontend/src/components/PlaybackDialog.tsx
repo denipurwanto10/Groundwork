@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import type { HistoryPoint } from '../lib/types'
 import { PLAYBACK_SPEEDS } from '../lib/types'
+import DatePicker from './DatePicker'
 import { IconAlert, IconClock, IconPlay, IconPause, IconRefresh, IconX } from './Icons'
 
 interface Props {
@@ -34,12 +35,13 @@ function formatTime(iso: string): string {
 }
 
 /**
- * The playback panel: pick a day, load the track, then walk along it.
+ * The playback dialog: pick a day, load the track, then walk along it.
  *
- * It sits inside the vehicle card, so the map stays visible while the track
- * is running.
+ * It sits inside the map card, not in a portal on top of the page. The
+ * operator has to watch the ghost marker walk the track, so the map stays
+ * visible while the dialog floats in the corner of it.
  */
-export default function PlaybackPanel({
+export default function PlaybackDialog({
   vehicleName,
   date,
   points,
@@ -57,37 +59,33 @@ export default function PlaybackPanel({
 }: Props) {
   const current = points[index]
   const last = points.length - 1
-  const panelRef = useRef<HTMLDivElement | null>(null)
 
-  // The panel opens under the button that was pressed, which can be out of
-  // sight in the scrolling fleet list: bring it into view once.
+  // Escape closes the dialog, the way every other dialog in the app does.
   useEffect(() => {
-    panelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [])
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   return (
-    <div className="pb" ref={panelRef}>
+    <div className="pb-deck" role="dialog" aria-modal="true" aria-labelledby="playback-title">
       <div className="pb-head">
-        <span className="pb-title">
+        <span className="pb-title" id="playback-title">
           <IconClock width={14} height={14} />
-          Playback · {vehicleName}
+          Playback history
         </span>
+        <span className="pb-subject">{vehicleName}</span>
         <button type="button" className="icon-btn ghost" onClick={onClose} aria-label="Close playback" title="Close">
           <IconX width={15} height={15} />
         </button>
       </div>
 
       <div className="pb-load">
-        <label className="pb-date">
-          <span className="sr-only">Day</span>
-          <input
-            type="date"
-            value={date}
-            max={date}
-            onChange={(e) => onDateChange(e.target.value)}
-            aria-label="Day of the history"
-          />
-        </label>
+        <div className="pb-date">
+          <DatePicker value={date} onChange={onDateChange} ariaLabel="Day of the history" />
+        </div>
         <button type="button" className="btn secondary small" onClick={onLoad} disabled={loading}>
           <IconRefresh width={14} height={14} />
           {loading ? 'Loading…' : 'Load history'}
@@ -101,7 +99,7 @@ export default function PlaybackPanel({
         </p>
       )}
 
-      {points.length > 0 && (
+      {points.length > 0 ? (
         <>
           <div className="pb-controls">
             <button
@@ -131,9 +129,7 @@ export default function PlaybackPanel({
 
             <span className="pb-readout">
               <b>{current ? formatTime(current.timestamp) : '--:--:--'}</b>
-              <em>
-                {current ? Math.round(current.speed) : 0} km/h
-              </em>
+              <em>{current ? Math.round(current.speed) : 0} km/h</em>
             </span>
           </div>
 
@@ -159,10 +155,9 @@ export default function PlaybackPanel({
             </span>
           </div>
         </>
-      )}
-
-      {points.length === 0 && !error && !loading && (
-        <p className="pb-hint">Pick a day and load the history of this unit.</p>
+      ) : (
+        !error &&
+        !loading && <p className="pb-hint">Pick a day and load the history of this unit.</p>
       )}
     </div>
   )

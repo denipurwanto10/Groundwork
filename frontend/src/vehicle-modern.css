@@ -103,9 +103,31 @@
 }
 
 .veh.selected .veh-ground {
-  inset: -2px;
-  background: radial-gradient(circle, color-mix(in srgb, var(--vb) 42%, transparent) 0%, color-mix(in srgb, var(--vb) 16%, transparent) 62%, transparent 70%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--vb) 55%, transparent);
+  inset: 2px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--vb) 26%, transparent) 0%, color-mix(in srgb, var(--vb) 9%, transparent) 64%, transparent 72%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vb) 28%, transparent);
+}
+
+/* A single slow ripple leaves the selected unit, like a quiet sonar ping */
+.veh.selected .veh-ground::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--vb) 55%, transparent);
+  opacity: 0;
+  animation: veh-ripple 3.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+
+@keyframes veh-ripple {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
 }
 
 /* Headlight beam: a soft light cone ahead of a moving unit */
@@ -184,37 +206,6 @@
     linear-gradient(to bottom, var(--vb), transparent) 8px 0 / 2px 100% no-repeat;
 }
 
-/* Selected: target-lock corner brackets that breathe around the unit */
-.veh-lock {
-  position: absolute;
-  inset: -4px;
-  display: none;
-  pointer-events: none;
-  --k: var(--vb);
-  background:
-    linear-gradient(var(--k), var(--k)) 0 0 / 14px 3px no-repeat,
-    linear-gradient(var(--k), var(--k)) 0 0 / 3px 14px no-repeat,
-    linear-gradient(var(--k), var(--k)) 100% 0 / 14px 3px no-repeat,
-    linear-gradient(var(--k), var(--k)) 100% 0 / 3px 14px no-repeat,
-    linear-gradient(var(--k), var(--k)) 0 100% / 14px 3px no-repeat,
-    linear-gradient(var(--k), var(--k)) 0 100% / 3px 14px no-repeat,
-    linear-gradient(var(--k), var(--k)) 100% 100% / 14px 3px no-repeat,
-    linear-gradient(var(--k), var(--k)) 100% 100% / 3px 14px no-repeat;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--vb) 70%, transparent));
-  animation: veh-lock 1.8s ease-in-out infinite;
-}
-
-.veh.selected .veh-lock {
-  display: block;
-}
-
-@keyframes veh-lock {
-  50% {
-    transform: scale(0.88);
-    opacity: 0.75;
-  }
-}
-
 .veh.offline .veh-body svg {
   filter: grayscale(0.9) opacity(0.7) drop-shadow(0 3px 3px rgb(8 12 20 / 25%));
 }
@@ -275,7 +266,7 @@
 @media (prefers-reduced-motion: reduce) {
   .veh-beam,
   .veh-trail,
-  .veh-lock {
+  .veh-ground::after {
     animation: none !important;
   }
 }
@@ -284,22 +275,22 @@
    2. Map popup
    -------------------------------------------------------------------------- */
 .veh-popup .leaflet-popup-content-wrapper {
-  min-width: 210px;
   padding: 0;
-  border-radius: 18px;
+  border-radius: 20px;
   background: var(--panel-solid, #fff);
   border: 1px solid var(--line);
-  box-shadow: 0 18px 40px -12px rgb(8 12 20 / 45%);
+  box-shadow: 0 20px 44px -14px rgb(8 12 20 / 40%), 0 2px 6px rgb(8 12 20 / 8%);
   overflow: hidden;
 }
 
 .veh-popup .leaflet-popup-content {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   margin: 0;
-  padding: 14px 16px;
-  width: auto !important;
+  padding: 16px;
+  /* One steady width, so the three facts never wrap into a ragged grid. */
+  width: min(264px, calc(100vw - 80px)) !important;
+  max-width: none;
 }
 
 .veh-popup .leaflet-popup-tip {
@@ -312,77 +303,151 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  margin-bottom: 12px;
 }
 
+/* Status: a soft tinted pill with a dot, instead of a loud solid block. */
 .vp-badge {
-  padding: 2px 9px;
-  font-size: 10.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #fff;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: var(--c, var(--muted));
+  background: color-mix(in srgb, var(--c, #7d8693) 13%, transparent);
   border-radius: 999px;
 }
 
+.vp-badge i {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+}
+
 .vp-code {
-  padding: 2px 8px;
+  padding: 4px 9px;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--text);
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  color: var(--text-2, var(--text));
   background: var(--panel-2);
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
 .veh-popup .popup-title {
-  margin-top: 4px;
-  font-size: 16px;
+  margin: 0;
+  font-size: 17px;
   font-weight: 750;
+  line-height: 1.25;
   letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
 }
 
 .veh-popup .popup-meta {
+  margin-top: 2px;
   font-size: 12.5px;
   color: var(--muted);
 }
 
+/* The three facts live in one segmented strip, split by hairlines. */
 .vp-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 8px 0 4px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 14px 0 0;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
 }
 
 .vp-grid > span {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px 11px;
+}
+
+.vp-grid > span + span {
+  border-left: 1px solid var(--line);
 }
 
 .vp-grid small {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .vp-grid b {
-  font-size: 15px;
+  overflow: hidden;
+  font-size: 14.5px;
   font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
   color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
 .vp-grid b i {
-  font-size: 11px;
+  font-size: 10.5px;
   font-style: normal;
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: 0;
   color: var(--muted);
+}
+
+/* Coordinates sit in a quiet footer with a pin. */
+.veh-popup .popup-coords {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.veh-popup .popup-coords::before {
+  content: '';
+  flex: none;
+  width: 13px;
+  height: 13px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z'/%3E%3Ccircle cx='12' cy='10' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z'/%3E%3Ccircle cx='12' cy='10' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* Very narrow screens: the strip stacks into rows so nothing is cut off. */
+@media (max-width: 319px) {
+  .vp-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vp-grid > span {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .vp-grid > span + span {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
 }
 
 /* --------------------------------------------------------------------------

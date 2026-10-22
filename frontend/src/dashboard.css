@@ -833,6 +833,191 @@ button.kpi:hover {
 }
 
 /* --------------------------------------------------------------------------
+   Overview — the summary cards of the day
+   -------------------------------------------------------------------------- */
+.ov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  gap: var(--d-gap);
+}
+
+/* The card keeps the KPI chrome but stands the icon up on the left: the
+   icon, the number and the label read as one column of facts. */
+.dash .kpi.ov-card {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    'icon label'
+    'icon value'
+    'icon sub';
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 2px;
+  padding: 20px;
+}
+
+.dash .ov-card .kpi-icon {
+  grid-area: icon;
+  align-self: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+}
+
+.dash .ov-card .kpi-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.dash .ov-card .kpi-label {
+  grid-area: label;
+  align-self: end;
+}
+
+.dash .ov-card .kpi-value {
+  grid-area: value;
+  align-self: center;
+  margin-top: 2px;
+  font-size: clamp(28px, 2.4vw, 38px);
+}
+
+.dash .ov-card .kpi-sub {
+  grid-area: sub;
+  align-self: start;
+  padding-top: 3px;
+  border-top: 0;
+}
+
+/* While the first answer is on its way the cards keep their place. */
+.dash .kpi.ov-skeleton {
+  min-height: 96px;
+  background: var(--panel-solid);
+  background-image: linear-gradient(90deg, transparent, var(--panel-2), transparent);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: ov-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes ov-sweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -20% 0;
+  }
+}
+
+/* The card answers with an error instead of the numbers. */
+.ov-error {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  font-size: 13px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--d-radius);
+}
+
+.ov-error svg {
+  flex: none;
+}
+
+.ov-error .d-link {
+  margin-left: auto;
+  color: var(--danger);
+}
+
+/* --------------------------------------------------------------------------
+   Overview — the activity panel
+   -------------------------------------------------------------------------- */
+.ov-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ov-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.ov-summary-row b {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-summary-date {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ov-zones {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.ov-zones li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ov-zones li:last-child {
+  border-bottom: 0;
+}
+
+.ov-zones .d-row-main,
+.ov-zones .d-row-end {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.ov-zones .d-row-main {
+  flex: 1;
+}
+
+.ov-zones .d-row-end {
+  align-items: flex-end;
+  text-align: right;
+  flex: none;
+}
+
+.ov-zones b {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-zones small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ov-activity .d-list li:last-child {
+  border-top: 0;
+}
+
+/* --------------------------------------------------------------------------
    Summary cards
    -------------------------------------------------------------------------- */
 .d-card {
@@ -855,9 +1040,27 @@ button.kpi:hover {
 }
 
 .d-card-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.01em;
+}
+
+/* A number next to the title: how many rows the card holds. */
+.d-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .d-link {

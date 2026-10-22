@@ -8,7 +8,6 @@ package vehicle
 import (
 	"encoding/json"
 	"math"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -97,19 +96,32 @@ type RouteStop struct {
 // drives. The geometry is PostGIS' GeoJSON (coordinates are lng, lat) and is
 // passed through untouched.
 type Route struct {
-	ID          int64           `json:"id"`
-	VehicleID   int64           `json:"vehicle_id"`
-	Origin      RouteStop       `json:"origin"`
-	Destination RouteStop       `json:"destination"`
-	Geometry    json.RawMessage `json:"geometry"`
-	DistanceM   float64         `json:"distance_m"`
-	DurationS   float64         `json:"duration_s"`
-	Source      string          `json:"source"`
-	Status      string          `json:"status"`
-	Progress    float64         `json:"progress"`
-	RemainingM  float64         `json:"remaining_m"`
-	CreatedAt   time.Time       `json:"created_at"`
-	EndedAt     *time.Time      `json:"ended_at"`
+	ID        int64     `json:"id"`
+	VehicleID int64     `json:"vehicle_id"`
+	Origin    RouteStop `json:"origin"`
+	// Destination is the last stop of the route: the place the unit ends up.
+	Destination RouteStop `json:"destination"`
+	// Stops are the destinations of a multi-stop route, in the visiting order
+	// the server worked out. The first one is served first and the last one
+	// is the destination above. It is empty for a route with a single
+	// destination.
+	Stops      []RouteStop     `json:"stops"`
+	Geometry   json.RawMessage `json:"geometry"`
+	DistanceM  float64         `json:"distance_m"`
+	DurationS  float64         `json:"duration_s"`
+	Source     string          `json:"source"`
+	Status     string          `json:"status"`
+	Progress   float64         `json:"progress"`
+	RemainingM float64         `json:"remaining_m"`
+	CreatedAt  time.Time       `json:"created_at"`
+	EndedAt    *time.Time      `json:"ended_at"`
+	// StartedAt is when the driver started the trip. A route without it is
+	// a plan waiting for the driver.
+	StartedAt *time.Time `json:"started_at"`
+	// DriverAssigned tells whether the unit has a driver. The route of a
+	// unit without a driver is driven right away — there is nobody to ask
+	// — while the route of a unit with a driver waits for the start.
+	DriverAssigned bool `json:"driver_assigned"`
 }
 
 // CreateInput is the body of POST /api/vehicles.
@@ -118,18 +130,17 @@ type CreateInput struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
 	DriverID *int64 `json:"driver_id"`
-	// Colour of the delivery line. Empty means "use the default".
+	// Colour of the delivery line. There is one colour for the whole
+	// workspace, so the server decides it: the field is accepted for the sake
+	// of older clients and then overwritten.
 	RouteColor string `json:"route_color"`
 }
 
-// DefaultRouteColor is the colour a unit gets when nobody picked one.
+// DefaultRouteColor is the colour of every delivery line: the primary red of
+// the theme.
 const DefaultRouteColor = "#d0171e"
 
-// colorPattern matches a #rrggbb colour, the same shape the zone colour and
-// the database CHECK constraint use.
-var colorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-
-// Normalize trims the text fields and applies the default kind and route
+// Normalize trims the text fields and applies the default kind and the route
 // colour.
 func (in *CreateInput) Normalize() {
 	in.Code = strings.TrimSpace(in.Code)
@@ -138,10 +149,8 @@ func (in *CreateInput) Normalize() {
 	if in.Kind == "" {
 		in.Kind = KindTruck
 	}
-	in.RouteColor = strings.ToLower(strings.TrimSpace(in.RouteColor))
-	if in.RouteColor == "" {
-		in.RouteColor = DefaultRouteColor
-	}
+	// One colour for every unit: whatever the client sent is dropped.
+	in.RouteColor = DefaultRouteColor
 }
 
 // Validate reports every rejected field at once.
@@ -159,9 +168,6 @@ func (in *CreateInput) Validate() FieldErrors {
 	}
 	if !kinds[in.Kind] {
 		errs["kind"] = "kind must be one of truck, van, motorcycle, pickup"
-	}
-	if in.RouteColor != "" && !colorPattern.MatchString(in.RouteColor) {
-		errs["route_color"] = "route_color must be a hex colour like #d0171e"
 	}
 	return errs
 }

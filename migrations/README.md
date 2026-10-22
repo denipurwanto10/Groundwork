@@ -15,7 +15,7 @@ Plain SQL files, applied in filename order. No migration framework
 | `006_vehicles.up.sql` | tabel `vehicles` + `vehicle_positions` |
 | `007_vehicle_routes.up.sql` | tabel `vehicle_routes` (rute pengiriman) |
 | `008_users.up.sql` | tabel `users` (JWT auth) |
-| `009_add_user_roles.up.sql` | peran `admin` / `viewer` / `driver` |
+| `009_add_user_roles.up.sql` | peran `admin` / `viewer` / `driver` (+ `staff` di 022) |
 | `010_vehicle_driver.up.sql` | kolom `vehicles.driver_id` |
 | `011_create_geofence_events.up.sql` | tabel `geofence_events` (lintasan batas zona) |
 | `012_user_accounts.up.sql` | kolom akun: username, nama, gender |
@@ -23,6 +23,14 @@ Plain SQL files, applied in filename order. No migration framework
 | `014_vehicle_heading_and_route_color.up.sql` | `vehicles.last_heading`, `vehicles.route_color`, `vehicle_positions.heading` |
 | `015_seed_entities.up.sql` | 8 landmark se-Indonesia (data review) |
 | `016_seed_regions.up.sql` | garis batas negara + 34 provinsi (versi disederhanakan) |
+| `017_create_audit_logs.up.sql` | tabel `audit_logs` (jejak aktivitas: siapa mengubah apa, kapan) |
+| `018_route_started_at.up.sql` | `vehicle_routes.started_at` (rute menunggu driver menekan "Mulai Perjalanan") |
+| `019_route_stops.up.sql` | `vehicle_routes.stops` (JSONB: titik-tujuan rute multi-stop dalam urutan kunjungan) |
+| `020_create_telematics_events.up.sql` | tabel `telematics_events` (peringatan kecepatan — dibuang lagi di 023) |
+| `021_create_tasks.up.sql` | tabel `tasks` (work order: judul, status, penerima tugas, tempat, tenggat) |
+| `022_add_staff_role.up.sql` | peran `staff` (mengerjakan tugas di lapangan) |
+| `023_drop_telematics_events.up.sql` | buang `telematics_events` (fitur peringatan kecepatan dihapus) |
+| `024_single_route_color.up.sql` | semua `vehicles.route_color` diseragamkan ke merah primer tema (satu warna rute untuk semua unit) |
 
 Tiap file punya pasangan `*.down.sql` untuk rollback (urutan terbalik).
 

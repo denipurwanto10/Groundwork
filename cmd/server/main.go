@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"entity-management/internal/audit"
 	"entity-management/internal/auth"
 	"entity-management/internal/config"
 	"entity-management/internal/db"
@@ -63,6 +64,13 @@ func main() {
 		// Protected routes (require valid JWT)
 		protected := api.Group("", authMiddleware.Require())
 		{
+			// The trail of who changed what. It runs after the auth
+			// middleware, so it knows which account made the request, and
+			// it records every successful write on its own: no handler has
+			// to remember to log.
+			auditRecorder := audit.NewRecorder(pool)
+			protected.Use(auditRecorder.Middleware())
+
 			// Reads are open to every signed-in role; writes are admin-only.
 			adminOnly := authMiddleware.RequireRole(auth.RoleAdmin)
 
@@ -111,6 +119,16 @@ func main() {
 			protected.GET("/vehicles/:id/history", vehicleHandler.History)
 			protected.GET("/vehicles/stream", vehicleHandler.Stream)
 
+			// A unit that stops reporting must not look alive forever. The
+			// sweep puts the silent ones into the offline state; a unit that
+			// reports again lifts itself back up, because every position
+			// report writes a fresh status.
+			if cfg.Fleet.OfflineAfter > 0 {
+				vehicleHandler.SetOfflineAfter(cfg.Fleet.OfflineAfter)
+				go sweepOfflineVehicles(vehicleHandler)
+				log.Printf("units that stay silent for %s count as offline", cfg.Fleet.OfflineAfter)
+			}
+
 			// Crossing history of the zone boundaries. Every signed-in role may
 			// read it; a driver only sees the crossings of their own unit.
 			geofenceHandler := handler.NewGeofenceHandler(pool)
@@ -121,7 +139,32 @@ func main() {
 			protected.GET("/vehicles/:id/routes", routeHandler.History)
 			protected.GET("/vehicles/:id/route", routeHandler.Active)
 			protected.POST("/vehicles/:id/route", routeHandler.Set)
+			protected.POST("/vehicles/:id/route/start", routeHandler.Start)
 			protected.DELETE("/vehicles/:id/route", routeHandler.Clear)
+
+			// The aggregate of the day, for the Overview tab. A driver only
+			// sees their own unit, the same rule the fleet list follows.
+			overviewHandler := handler.NewOverviewHandler(pool)
+			protected.GET("/overview", overviewHandler.Get)
+
+			// Work orders: the jobs the fleet is sent out for. Everybody may
+			// read the board (a driver only sees their own tasks); writing a
+			// task is admin-only, while moving one along is the work of the
+			// field: a driver or a staff member does that.
+			taskHandler := handler.NewTaskHandler(pool)
+			protected.GET("/tasks", taskHandler.List)
+			protected.GET("/tasks/:id", taskHandler.Get)
+			protected.POST("/tasks", adminOnly, taskHandler.Create)
+			protected.PUT("/tasks/:id", adminOnly, taskHandler.Update)
+			protected.DELETE("/tasks/:id", adminOnly, taskHandler.Delete)
+			protected.PUT("/tasks/:id/status",
+				authMiddleware.RequireRole(auth.RoleAdmin, auth.RoleStaff, auth.RoleDriver),
+				taskHandler.UpdateStatus)
+
+			// The trail of successful writes. Admin-only: it names the
+			// accounts of the workspace.
+			auditHandler := handler.NewAuditHandler(auditRecorder)
+			protected.GET("/audit-logs", adminOnly, auditHandler.List)
 		}
 	}
 
@@ -162,4 +205,27 @@ func main() {
 	}
 
 	log.Println("server exited")
+}
+
+// sweepOfflineVehicles marks the units that stopped reporting as offline,
+// again and again, until the server stops.
+//
+// Every ten seconds is often enough: a unit goes offline at most that much
+// later than it fell silent, and the check itself is one cheap UPDATE.
+func sweepOfflineVehicles(h *handler.VehicleHandler) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		n, err := h.MarkStaleOffline(ctx)
+		cancel()
+		if err != nil {
+			log.Printf("offline sweep failed: %v", err)
+			continue
+		}
+		if n > 0 {
+			log.Printf("offline sweep: %d unit(s) stopped reporting", n)
+		}
+	}
 }

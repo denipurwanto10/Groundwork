@@ -156,6 +156,33 @@ export const IconX = (p: P) => (
   </svg>
 )
 
+/** A bell: the desktop notification for a zone crossing. */
+export const IconBell = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6Z" />
+    <path d="M10.5 20a1.8 1.8 0 0 0 3 0" />
+  </svg>
+)
+
+/** A crossed-out bell: the browser blocks notifications for this site. */
+export const IconBellOff = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M18 9a6 6 0 0 0-9.3-5" />
+    <path d="M5.8 6.8A6 6 0 0 0 6 9c0 5-2 6-2 6h13" />
+    <path d="M10.5 20a1.8 1.8 0 0 0 3 0" />
+    <path d="M3 3l18 18" />
+  </svg>
+)
+
+/** A clock with an arrow: the trail of what happened, and when. */
+export const IconHistory = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M3.5 9A9 9 0 1 1 3 12" />
+    <path d="M3 4v5h5" />
+    <path d="M12 7.5V12l3 2" />
+  </svg>
+)
+
 export const IconChevronRight = (p: P) => (
   <svg {...base(p)}>
     <path d="m9 18 6-6-6-6" />
@@ -350,5 +377,23 @@ export const IconShield = (p: P) => (
   <svg {...base(p)}>
     <path d="M12 3 5 6v5.5c0 4.4 3 7.6 7 9.5 4-1.9 7-5.1 7-9.5V6l-7-3Z" />
     <path d="m9 12 2.2 2.2L15.5 10" />
+  </svg>
+)
+
+/** A clipboard with a list on it: the work orders of the fleet. */
+export const IconClipboard = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M9 4H7.5A1.5 1.5 0 0 0 6 5.5v13A1.5 1.5 0 0 0 7.5 20h9a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 16.5 4H15" />
+    <rect x="9" y="2.5" width="6" height="3.2" rx="1.1" />
+    <path d="M9 11.5h6M9 15h4" />
+  </svg>
+)
+
+export const IconMore = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1.8" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8" />
+    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8" />
   </svg>
 )

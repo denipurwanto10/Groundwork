@@ -1,0 +1,548 @@
+/* ==========================================================================
+   Task board — the work orders of the field
+   Three columns (Pending / In Progress / Done), one card per job. The board
+   takes the whole width of the stage: the map is not shown on this page, so
+   the panel gets the room the map would have taken.
+   ========================================================================== */
+
+/* The board is a page of its own: one column, the panel across the stage. */
+.stage[data-view='tasks'],
+.stage[data-view='tasks'][data-tall='true'] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'panel';
+}
+
+.stage[data-view='tasks'] .panel-pane {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.tb {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  height: 100%;
+}
+
+/* ---- Toolbar: search, reload, new task --------------------------------- */
+
+.tb-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tb-search {
+  flex: 1;
+  min-width: 0;
+  max-width: 460px;
+}
+
+.tb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ---- The board: three columns ------------------------------------------ */
+
+.tb-board {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  padding-bottom: 4px;
+}
+
+.tb-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg, 18px);
+  background: var(--panel-2);
+}
+
+.tb-col-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tb-col-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.tb-col-title i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+
+.tb-col.in_progress .tb-col-title i {
+  background: var(--accent);
+}
+
+.tb-col.completed .tb-col-title i {
+  background: var(--ok);
+}
+
+.tb-col-count {
+  margin-left: auto;
+  min-width: 24px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tb-col-hint {
+  margin: -4px 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tb-col-empty {
+  margin: 6px 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---- A card: one job --------------------------------------------------- */
+
+.tb-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tb-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 14px);
+  background: var(--panel-solid);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+  transition: border-color 0.15s var(--ease), transform 0.15s var(--ease);
+}
+
+.tb-card:hover {
+  border-color: var(--line-strong);
+}
+
+.tb-card.busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.tb-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.tb-card-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.tb-card-tools {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+
+.tb-card:hover .tb-card-tools,
+.tb-card:focus-within .tb-card-tools {
+  opacity: 1;
+}
+
+.tb-card-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tb-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tb-chip.due.over {
+  color: var(--danger);
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+}
+
+.tb-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.tb-card-actions .btn {
+  flex: 1;
+}
+
+/* ---- Empty states ------------------------------------------------------ */
+
+.tb-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg, 18px);
+  color: var(--muted);
+  font-size: 13.5px;
+  text-align: center;
+}
+
+.tb-skeleton {
+  height: 92px;
+  border-radius: var(--r-md, 14px);
+  background: linear-gradient(100deg, var(--panel-2) 30%, var(--field) 50%, var(--panel-2) 70%);
+  background-size: 300% 100%;
+  animation: tb-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes tb-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -20% 0;
+  }
+}
+
+/* ---- The form ----------------------------------------------------------- */
+
+.tb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  animation: tb-fade 0.16s var(--ease);
+}
+
+@keyframes tb-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.tb-modal {
+  width: min(560px, 100%);
+  max-height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-xl, 26px);
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+
+.tb-modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 18px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tb-modal-title h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.tb-modal-title p {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.tb-modal-close {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.tb-modal-close:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.tb-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tb-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tb-field label,
+.tb-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tb-field input,
+.tb-field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--r-md, 14px);
+  border: 1px solid var(--line);
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+}
+
+.tb-field input:focus,
+.tb-field textarea:focus {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 1px;
+}
+
+.tb-field input[aria-invalid='true'] {
+  border-color: var(--danger-line);
+}
+
+.tb-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.tb-error {
+  font-size: 11.5px;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.tb-due {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tb-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tb-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md, 14px);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.tb-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+/* ---- The list a driver gets on the driver screen ------------------------ */
+
+.tb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tb-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md, 14px);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.tb-list-item.completed {
+  opacity: 0.7;
+}
+
+.tb-list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tb-list-main b {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.tb-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.tb-list-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tb-list-meta .over {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.tb-done {
+  flex: none;
+  white-space: nowrap;
+}
+
+.tb-done-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ok);
+}
+
+/* ---- Phone: the columns stack ------------------------------------------ */
+
+@media (max-width: 900px) {
+  .tb-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tb-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tb-card-tools {
+    opacity: 1;
+  }
+}
