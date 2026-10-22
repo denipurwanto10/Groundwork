@@ -93,6 +93,7 @@ import './modern-ui.css'
 import './motion.css'
 import './reports.css'
 import './responsive-final.css'
+import './perf.css'
 
 type Toast = { kind: 'success' | 'error' | 'alert'; text: string; id: number } | null
 type ApiState = 'checking' | 'online' | 'offline'
@@ -389,7 +390,7 @@ export default function App() {
   // minute.
   useEffect(() => {
     void refreshOverview()
-    const id = window.setInterval(() => void refreshOverview(), 30000)
+    const id = window.setInterval(() => { if (!document.hidden) void refreshOverview() }, 30000)
     return () => window.clearInterval(id)
   }, [refreshOverview])
 
@@ -474,7 +475,7 @@ export default function App() {
           })
       }
       load()
-      const id = window.setInterval(load, 15000)
+      const id = window.setInterval(() => { if (!document.hidden) load() }, 15000)
       return () => {
         alive = false
         window.clearInterval(id)
@@ -743,11 +744,31 @@ export default function App() {
     // Live positions. openVehicleStream reconnects on its own; a snapshot
     // replaces the list (it is authoritative), a position upserts one unit,
     // and a route frame keeps the paths in step without a reload.
-    useEffect(
-      () =>
-        openVehicleStream({
+    useEffect(() => {
+      // Position frames arrive many times a second. Each one used to re-render
+      // the whole app, so they are collected and applied once per animation
+      // frame instead (the newest position of a unit wins).
+      const pending = new Map<number, Vehicle>()
+      let raf: number | null = null
+      const flush = () => {
+        raf = null
+        if (pending.size === 0) return
+        const batch = Array.from(pending.values())
+        pending.clear()
+        setVehicles((prev) => {
+          const next = prev.slice()
+          for (const incoming of batch) {
+            const at = next.findIndex((v) => v.id === incoming.id)
+            if (at === -1) next.push(incoming)
+            else next[at] = incoming
+          }
+          return next
+        })
+      }
+      const close = openVehicleStream({
           onFrame: (frame) => {
             if (frame.type === 'snapshot') {
+              pending.clear()
               setVehicles(frame.vehicles)
               setVehiclesError(null)
               setVehiclesLoading(false)
@@ -800,6 +821,7 @@ export default function App() {
               return
             }
             if (frame.type === 'vehicle_deleted') {
+              pending.delete(frame.id)
               setVehicles((prev) => prev.filter((v) => v.id !== frame.id))
               return
             }
@@ -828,19 +850,17 @@ export default function App() {
               void refreshOverview()
               return
             }
-            const incoming = frame.vehicle
-            setVehicles((prev) => {
-              const at = prev.findIndex((v) => v.id === incoming.id)
-              if (at === -1) return [...prev, incoming]
-              const next = prev.slice()
-              next[at] = incoming
-              return next
-            })
+            pending.set(frame.vehicle.id, frame.vehicle)
+            if (raf === null) raf = requestAnimationFrame(flush)
           },
           onState: setStreamState,
-        }),
-      [applyZoneCounts, refreshOverview],
-    )
+        })
+      return () => {
+        close()
+        if (raf !== null) cancelAnimationFrame(raf)
+        pending.clear()
+      }
+    }, [applyZoneCounts, refreshOverview])
 
     // Drop the selection when a unit leaves the fleet.
     useEffect(() => {

@@ -1,0 +1,166 @@
+/* ==========================================================================
+   Performance + motion layer — loaded LAST (after responsive-final.css).
+   Goals: fast on phones and low-end laptops, flat surfaces, smooth motion.
+   • No backdrop blur / filter blur: solid fills paint far cheaper.
+   • Only transform + opacity are animated; nothing repaints layout.
+   • Endless per-marker animations are off: dozens of units pulsing at once
+     were the main cost on the map.
+   Remove the `import './perf.css'` line in App.tsx to revert.
+   ========================================================================== */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 140ms;
+  --t-base: 220ms;
+  --t-slow: 320ms;
+}
+
+/* ---- 1. No blur, anywhere. Overlays get a plain dim scrim instead. -------- */
+.glass,
+.fit-all-btn,
+.region-controls,
+.leaflet-bar,
+.leaflet-control-attribution,
+.dash .bottom-nav,
+.dash nav.bottom-nav,
+.um-overlay,
+.tb-overlay,
+.more-overlay,
+.dialog-overlay,
+.overlay.dialog-overlay,
+.dash .leaflet-bar a:hover {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.um-overlay,
+.tb-overlay,
+.more-overlay,
+.dialog-overlay,
+.overlay.dialog-overlay {
+  background: rgb(10 12 18 / 46%);
+}
+
+.dash .bottom-nav,
+.dash nav.bottom-nav,
+.glass,
+.fit-all-btn,
+.region-controls {
+  background: var(--panel-solid);
+}
+
+/* Soft glows are paid for on every frame: swap them for crisp shapes. */
+.veh-beam,
+.zl-dot,
+.pin.draft::after {
+  filter: none !important;
+}
+
+/* ---- 2. Map: calm markers. A moving unit is shown by its glide, not by
+        a dozen looping effects. ------------------------------------------- */
+.veh.is-moving::after,
+.veh.selected .veh-ground::after,
+.veh.is-moving .veh-trail {
+  animation: none !important;
+}
+.veh.is-moving .veh-beam {
+  animation: none !important;
+  opacity: 0.8;
+}
+.veh.is-moving::after { opacity: 0.35; }
+.zone-polygon.selected { animation: none !important; }
+.pin { animation: none !important; }
+
+/* Pulses that animated box-shadow become a cheap opacity fade. */
+.chip.stream.live i,
+.dash .chip.stream.live i { animation: pf-fade 2.2s ease-in-out infinite !important; box-shadow: none !important; }
+@keyframes pf-fade { 50% { opacity: 0.4; } }
+
+/* ---- 3. Flat surfaces: hairline borders, no heavy shadows. --------------- */
+.dash .card,
+.dash .panel,
+.dash .stat-card,
+.dash .list-card,
+.um-card,
+.user-card,
+.tb-card,
+.veh-card {
+  box-shadow: none;
+}
+
+/* ---- 4. Smooth, GPU-friendly interaction. -------------------------------- */
+button,
+a,
+.btn,
+.icon-btn,
+.chip,
+.nav-item,
+.um-field input,
+.dp-field,
+.dp-day {
+  transition:
+    background-color var(--t-fast) var(--ease-out),
+    border-color var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out),
+    opacity var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out);
+}
+
+.btn:active,
+.icon-btn:active,
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Dialogs and the date calendar rise in softly. */
+.dp-pop {
+  animation: pf-pop var(--t-base) var(--ease-out) both;
+  box-shadow: 0 8px 24px -12px rgb(8 12 28 / 28%);
+}
+@keyframes pf-pop {
+  from { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- 5. Long lists: the browser skips rows that are off screen. ---------- */
+.user-card,
+.tb-card,
+.al-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 84px;
+}
+
+/* ---- 6. Theme flip: cross-fade only the surfaces, not every element. ----- */
+.theme-switching *:not(.leaflet-container, .leaflet-container *),
+.theme-switching *:not(.leaflet-container, .leaflet-container *)::before,
+.theme-switching *:not(.leaflet-container, .leaflet-container *)::after {
+  transition-duration: 160ms !important;
+}
+
+/* ---- 7. Responsive polish. ---------------------------------------------- */
+html { -webkit-text-size-adjust: 100%; }
+img, svg, video { max-width: 100%; }
+.leaflet-container { touch-action: pan-x pan-y; }
+
+@media (max-width: 767px) {
+  .dp-pop { max-width: calc(100vw - 16px); }
+  /* 16px stops iOS from zooming into a focused field. */
+  .um-field input,
+  .um-field select,
+  .tb-field input,
+  .tb-field select,
+  .tb-field textarea { font-size: 16px; }
+}
+
+/* ---- 8. Respect the user's setting: no motion at all. ------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

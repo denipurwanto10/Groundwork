@@ -67,6 +67,7 @@ import {
 } from './Icons'
 import Select from './Select'
 import FormModal from './FormModal'
+import DatePicker from './DatePicker'
 import { VehicleSide } from './VehicleArt'
 import { AnimatedNumber, useFlipList } from './LiveMotion'
 
@@ -1351,13 +1352,12 @@ export default function VehiclePanel({
         >
           <div className="um-fgrid">
             <div className="um-field">
-              <label htmlFor="veh-service-date">Tanggal servis</label>
-              <input
-                id="veh-service-date"
-                type="date"
+              <span className="um-label">Tanggal servis</span>
+              <DatePicker
                 value={serviceDate}
                 max={todayInputValue()}
-                onChange={(e) => setServiceDate(e.target.value)}
+                onChange={setServiceDate}
+                ariaLabel="Tanggal servis"
               />
             </div>
 
