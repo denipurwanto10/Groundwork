@@ -483,6 +483,11 @@ textarea,
 /* A numbered stop is a filled dot, so it must not read as a hollow waypoint. */
 .route-stop.stop { background: var(--route); color: #fff; }
 
+/* A stop that is served already fades: the stops that are still ahead are
+   the ones the operator looks for. */
+.route-stop.completed,
+.route-stop.skipped { opacity: 0.45; }
+
 /* Map tiles. The Google road map already has the right palette, so it is
    left alone in the light theme. The dark theme turns the map into its
    negative, so the map does not glow in a dark interface. */

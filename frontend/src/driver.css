@@ -984,3 +984,160 @@
     max-height: 68dvh;
   }
 }
+
+/* ==========================================================================
+   The stops of the route
+   The trip is a list of steps: every stop has a status of its own, and the
+   one the unit is serving is the one the driver finishes.
+   ========================================================================== */
+
+.drv-stops {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drv-stop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel-solid, var(--panel));
+  border: 1px solid var(--line);
+}
+
+/* The stop the unit is serving right now is the one the driver looks at. */
+.drv-stop.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* A stop that is done or passed by does not have to shout for attention. */
+.drv-stop.completed,
+.drv-stop.skipped {
+  opacity: 0.72;
+}
+
+.drv-stop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drv-stop-num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--on-btn);
+  background: var(--accent);
+}
+
+.drv-stop-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The status of the stop: on the way, arrived, done, passed by. */
+.drv-stop-chip {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+
+.drv-stop-chip.arrived {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.drv-stop-chip.completed {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+/* The note is the proof of the visit. */
+.drv-stop-note {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.drv-stop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.drv-stop-input {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.drv-stop-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* The button that matters: as big as a thumb, like "Start trip". */
+.drv-stop-done {
+  flex: 1 1 auto;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--on-btn);
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.drv-stop-skip {
+  flex: none;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-2);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.drv-stop-done:disabled,
+.drv-stop-skip:disabled,
+.drv-stop-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

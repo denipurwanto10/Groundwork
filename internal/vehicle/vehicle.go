@@ -108,27 +108,77 @@ type VehicleZone struct {
 	DwellS   float64   `json:"dwell_s"`
 }
 
-// RouteStop is one end of a delivery route.
-type RouteStop struct {
+// The status of one stop of a route.
+//
+// The stops of a route are a workflow: the server marks the stop as arrived
+// when the unit is close enough to it, and the driver finishes it (or passes
+// it by).
+const (
+	// StopPending means the unit has not reached the stop yet.
+	StopPending = "pending"
+	// StopArrived means the server saw the unit at the stop. The stop is
+	// not done yet: the driver still has to confirm it.
+	StopArrived = "arrived"
+	// StopCompleted means the driver confirmed the stop, with a note as the
+	// proof of the visit.
+	StopCompleted = "completed"
+	// StopSkipped means the stop was passed by without being served.
+	StopSkipped = "skipped"
+)
+
+// RoutePlace is one place of a route: the origin, the destination, or a stop
+// that is being planned. It carries no status — a place only says where it
+// is.
+type RoutePlace struct {
 	Lat  float64 `json:"lat"`
 	Lng  float64 `json:"lng"`
 	Name string  `json:"name"`
+}
+
+// RouteStop is one step of a delivery route: the place and its own status.
+//
+// The status travels with the stop, so the client never has to guess which
+// stops are already served. ArrivedAt is the moment the server detected the
+// unit at the stop, CompletedAt the moment somebody finished it, and
+// CompletionNote what was written as the proof of the visit.
+type RouteStop struct {
+	// The place of the stop.
+	Lat  float64 `json:"lat"`
+	Lng  float64 `json:"lng"`
+	Name string  `json:"name"`
+	// ID identifies the stop, Seq its place in the visiting order (the first
+	// stop is 0).
+	ID  int64 `json:"id"`
+	Seq int   `json:"seq"`
+	// Status is one of pending, arrived, completed and skipped.
+	Status string `json:"status"`
+	// ArrivedAt is when the server detected the unit at the stop.
+	ArrivedAt *time.Time `json:"arrived_at"`
+	// CompletedAt is when the stop was finished: confirmed by the driver,
+	// skipped by the driver, or closed with the route itself.
+	CompletedAt *time.Time `json:"completed_at"`
+	// CompletionNote is what the driver wrote as the proof of the stop.
+	CompletionNote string `json:"completion_note"`
 }
 
 // Route is a planned delivery path: the line the map draws and the unit
 // drives. The geometry is PostGIS' GeoJSON (coordinates are lng, lat) and is
 // passed through untouched.
 type Route struct {
-	ID        int64     `json:"id"`
-	VehicleID int64     `json:"vehicle_id"`
-	Origin    RouteStop `json:"origin"`
+	ID        int64      `json:"id"`
+	VehicleID int64      `json:"vehicle_id"`
+	Origin    RoutePlace `json:"origin"`
 	// Destination is the last stop of the route: the place the unit ends up.
-	Destination RouteStop `json:"destination"`
-	// Stops are the destinations of a multi-stop route, in the visiting order
-	// the server worked out. The first one is served first and the last one
-	// is the destination above. It is empty for a route with a single
-	// destination.
-	Stops      []RouteStop     `json:"stops"`
+	Destination RoutePlace `json:"destination"`
+	// Stops are the steps of the route, in the visiting order the server
+	// worked out. The first one is served first and the last one is the
+	// destination above. Every route has at least one stop: a route with a
+	// single destination has that destination as its only stop.
+	Stops []RouteStop `json:"stops"`
+	// StopsTotal is how many stops the route has, StopsDone how many of
+	// them are finished (confirmed or passed by).
+	StopsTotal int             `json:"stops_total"`
+	StopsDone  int             `json:"stops_done"`
 	Geometry   json.RawMessage `json:"geometry"`
 	DistanceM  float64         `json:"distance_m"`
 	DurationS  float64         `json:"duration_s"`

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -41,8 +42,10 @@ func NewRouteHandler(pool *db.Pool, hub *ws.Hub, pushService *push.Service) *Rou
 // already been driven.
 const arrivalRadiusM = 150.0
 
-// routeStop is one end of a route.
-type routeStop = vehicle.RouteStop
+// routeStop is one end of a route: a place, without a status. The status of
+// a stop is data of its own (see vehicle.RouteStop), and the body of a route
+// plan only carries places.
+type routeStop = vehicle.RoutePlace
 
 // maxRouteStops is how many destinations one route may have. The trip
 // service of the public OSRM server gets slow with many stops, and the
@@ -197,7 +200,6 @@ const routeCols = `SELECT rt.id, rt.vehicle_id, rt.origin_name, rt.dest_name,
        ST_AsGeoJSON(rt.geom, 6)::json, rt.distance_m, rt.duration_s,
        rt.source, rt.status, rt.created_at, rt.ended_at, rt.started_at,
        (v.driver_id IS NOT NULL) AS driver_assigned,
-       rt.stops,
        ` + routeProgressSQL + `
   FROM vehicle_routes rt
   JOIN vehicles v ON v.id = rt.vehicle_id`
@@ -207,43 +209,142 @@ const routeCols = `SELECT rt.id, rt.vehicle_id, rt.origin_name, rt.dest_name,
 type routeView = vehicle.Route
 
 // scanRoute reads one route row.
+//
+// The stops of a route are not part of the row: they live in their own table
+// (migration 028) and are read separately, because a route carries one stop
+// per step of the trip and a status with every one of them.
 func scanRoute(row rowScanner) (routeView, error) {
 	var (
 		v       routeView
 		geojson []byte
-		stops   []byte
 		run     float64
 	)
 	if err := row.Scan(&v.ID, &v.VehicleID, &v.Origin.Name, &v.Destination.Name,
 		&v.Origin.Lat, &v.Origin.Lng, &v.Destination.Lat, &v.Destination.Lng,
 		&geojson, &v.DistanceM, &v.DurationS, &v.Source, &v.Status,
-		&v.CreatedAt, &v.EndedAt, &v.StartedAt, &v.DriverAssigned, &stops, &run); err != nil {
+		&v.CreatedAt, &v.EndedAt, &v.StartedAt, &v.DriverAssigned, &run); err != nil {
 		return routeView{}, err
 	}
 
 	v.Geometry = json.RawMessage(geojson)
-	v.Stops = decodeStops(stops)
 	v.Progress = round4(run)
 	v.RemainingM = round2(v.DistanceM * (1 - v.Progress))
 
 	return v, nil
 }
 
-// decodeStops reads the stops of a multi-stop route out of the JSON array the
-// database keeps. A route with a single destination has none: its origin and
-// destination columns already say everything.
-func decodeStops(raw []byte) []vehicle.RouteStop {
-	if len(raw) == 0 {
+// routeStopsSQL reads the stops of the given routes in the visiting order.
+const routeStopsSQL = `SELECT route_id, id, seq, name, lat, lng, status,
+       arrived_at, completed_at, completion_note
+  FROM route_stops
+ WHERE route_id = ANY($1)
+ ORDER BY route_id, seq`
+
+// scanStop reads one stop of a route.
+func scanStop(row rowScanner) (vehicle.RouteStop, error) {
+	var s vehicle.RouteStop
+	if err := row.Scan(&s.ID, &s.Seq, &s.Name, &s.Lat, &s.Lng, &s.Status,
+		&s.ArrivedAt, &s.CompletedAt, &s.CompletionNote); err != nil {
+		return vehicle.RouteStop{}, err
+	}
+
+	return s, nil
+}
+
+// loadStops fills the stops of the given routes, in one query.
+//
+// The stops of a route are the steps of the trip: every one of them has a
+// status of its own, and the client reads that status from here.
+func loadStops(ctx context.Context, pool *db.Pool, routes []*vehicle.Route) error {
+	if len(routes) == 0 {
 		return nil
 	}
 
-	var stops []vehicle.RouteStop
-	if err := json.Unmarshal(raw, &stops); err != nil {
-		log.Printf("routes: decode stops failed: %v", err)
-		return nil
+	ids := make([]int64, 0, len(routes))
+	byID := make(map[int64]*vehicle.Route, len(routes))
+	for _, route := range routes {
+		ids = append(ids, route.ID)
+		byID[route.ID] = route
 	}
 
-	return stops
+	rows, err := pool.Query(ctx, routeStopsSQL, ids)
+	if err != nil {
+		return fmt.Errorf("read the stops of the routes: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var routeID int64
+		var s vehicle.RouteStop
+		if err := rows.Scan(&routeID, &s.ID, &s.Seq, &s.Name, &s.Lat, &s.Lng,
+			&s.Status, &s.ArrivedAt, &s.CompletedAt, &s.CompletionNote); err != nil {
+			return fmt.Errorf("scan a stop: %w", err)
+		}
+		route := byID[routeID]
+		if route == nil {
+			continue
+		}
+		route.Stops = append(route.Stops, s)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read the stops of the routes: %w", err)
+	}
+
+	for _, route := range routes {
+		countStops(route)
+	}
+
+	return nil
+}
+
+// countStops counts the stops of a route and how many of them are done.
+//
+// A stop that was skipped counts as done: the trip moved on, and the route
+// is one step further.
+func countStops(route *vehicle.Route) {
+	route.StopsTotal = len(route.Stops)
+	route.StopsDone = 0
+	for _, stop := range route.Stops {
+		if stop.Status == vehicle.StopCompleted || stop.Status == vehicle.StopSkipped {
+			route.StopsDone++
+		}
+	}
+}
+
+// currentStop is the stop a unit is serving right now: the first one that is
+// not finished yet.
+//
+// The stops are served one after the other, so the next stop is never
+// reached before the one before it is done. A unit that drives past a later
+// stop at the beginning of the trip does not count it — the order of the
+// stops is the order of the visits.
+func currentStop(stops []vehicle.RouteStop) *vehicle.RouteStop {
+	var current *vehicle.RouteStop
+	for i := range stops {
+		stop := &stops[i]
+		if stop.Status != vehicle.StopPending && stop.Status != vehicle.StopArrived {
+			continue
+		}
+		if current == nil || stop.Seq < current.Seq {
+			current = stop
+		}
+	}
+
+	return current
+}
+
+// maxStopNote is how long the note of a stop may be. It is the proof of the
+// visit, not a report: half a page is plenty.
+const maxStopNote = 500
+
+// validateStopNote checks the note somebody left on a stop.
+func validateStopNote(note string) map[string]string {
+	fields := map[string]string{}
+	if len(note) > maxStopNote {
+		fields["note"] = fmt.Sprintf("note must be at most %d characters", maxStopNote)
+	}
+
+	return fields
 }
 
 func round4(v float64) float64 {
@@ -427,9 +528,10 @@ func (h *RouteHandler) Set(c *gin.Context) {
 	last := ordered[len(ordered)-1]
 
 	// The stops of a multi-stop route are kept in the visiting order. A route
-	// with a single destination keeps none: its origin and destination
-	// columns already say everything, and the map draws it the way it always
-	// did.
+	// with a single destination keeps none in this column: its origin and
+	// destination columns already say everything, and the map draws it the
+	// way it always did. The column stays for compatibility only — the
+	// status of a stop lives in the route_stops table.
 	stopsJSON := []byte("[]")
 	if len(ordered) > 1 {
 		encoded, err := json.Marshal(ordered)
@@ -486,13 +588,27 @@ func (h *RouteHandler) Set(c *gin.Context) {
 		return
 	}
 
+	// Every stop of the route becomes a step of the trip, in the order the
+	// unit serves them. A route with a single destination has one stop: the
+	// destination itself.
+	for seq, stop := range ordered {
+		if _, err := tx.Exec(ctx, `
+            INSERT INTO route_stops (route_id, seq, name, lat, lng, status)
+            VALUES ($1, $2, $3, $4, $5, 'pending')`,
+			newID, seq, stop.Name, stop.Lat, stop.Lng); err != nil {
+			log.Printf("routes: insert the stops failed: %v", err)
+			c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+			return
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		log.Printf("routes: commit failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
 		return
 	}
 
-	created, err := scanRoute(h.db.QueryRow(ctx, routeCols+" WHERE rt.id = $1", newID))
+	created, err := readRoute(ctx, h.db, newID)
 	if err != nil {
 		log.Printf("routes: read-back failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
@@ -586,7 +702,7 @@ func (h *RouteHandler) Start(c *gin.Context) {
 		return
 	}
 
-	started, err := scanRoute(h.db.QueryRow(ctx, routeCols+" WHERE rt.id = $1", routeID))
+	started, err := readRoute(ctx, h.db, routeID)
 	if err != nil {
 		log.Printf("routes: start read-back failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
@@ -598,7 +714,7 @@ func (h *RouteHandler) Start(c *gin.Context) {
 	// The unit is on its way. The operators hear about it, even when their
 	// tab is closed: the push goes out in the background, so it never holds
 	// this answer up.
-	h.notifyRouteStarted(c, started, h.vehicleLabel(ctx, id))
+	h.notifyRouteStarted(c, started, vehicleLabel(ctx, h.db, id))
 
 	c.JSON(http.StatusOK, gin.H{"data": started})
 }
@@ -636,9 +752,9 @@ func (h *RouteHandler) notifyRouteStarted(c *gin.Context, route routeView, label
 
 // vehicleLabel is how a unit is named in a notification: the code if it has
 // one, the name otherwise.
-func (h *RouteHandler) vehicleLabel(ctx context.Context, vehicleID int64) string {
+func vehicleLabel(ctx context.Context, pool *db.Pool, vehicleID int64) string {
 	var code, name string
-	err := h.db.QueryRow(ctx, `SELECT code, name FROM vehicles WHERE id = $1`, vehicleID).
+	err := pool.QueryRow(ctx, `SELECT code, name FROM vehicles WHERE id = $1`, vehicleID).
 		Scan(&code, &name)
 	if err != nil {
 		log.Printf("routes: read the label of unit %d failed: %v", vehicleID, err)
@@ -680,6 +796,374 @@ func (h *RouteHandler) mayStart(c *gin.Context, id int64) bool {
 	return true
 }
 
+// arriveStopSQL marks the stop a unit is serving as arrived.
+//
+// The stop the unit is serving is the first one that is not finished yet: the
+// stops of a route are visited one after the other, so a later stop is never
+// reached before the one before it is done. A unit that drives past a later
+// stop at the beginning of the trip does not count it.
+//
+// The statement is one round trip, and it is idempotent: a stop that is
+// already arrived keeps its status and its time, so a second report from the
+// same place does not detect a second arrival.
+//
+// $1 the unit, $2 the latitude, $3 the longitude, $4 the radius in metres.
+const arriveStopSQL = `WITH route AS (
+         SELECT rt.id
+           FROM vehicle_routes rt
+          WHERE rt.vehicle_id = $1
+            AND rt.status = 'active'
+            AND rt.started_at IS NOT NULL
+          ORDER BY rt.id DESC
+          LIMIT 1
+     ), stops AS (
+         SELECT rs.id, rs.route_id, rs.seq, rs.name, rs.lat, rs.lng, rs.status,
+                (SELECT max(x.seq) FROM route_stops x WHERE x.route_id = rs.route_id) AS last_seq
+           FROM route_stops rs
+           JOIN route r ON r.id = rs.route_id
+          WHERE rs.status IN ('pending', 'arrived')
+     ), target AS (
+         SELECT * FROM stops ORDER BY seq LIMIT 1
+     )
+     UPDATE route_stops rs
+        SET status = 'arrived', arrived_at = now()
+       FROM target
+      WHERE rs.id = target.id
+        AND target.status = 'pending'
+        AND ST_Distance(
+              ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+              ST_SetSRID(ST_MakePoint(target.lng, target.lat), 4326)::geography) <= $4
+     RETURNING target.route_id, target.last_seq, target.seq,
+               rs.id, rs.name, rs.lat, rs.lng, rs.status,
+               rs.arrived_at, rs.completed_at, rs.completion_note`
+
+// checkStopArrival marks the stop a unit is serving as arrived, when the unit
+// is close enough to it.
+//
+// Called from the flow of a position report, so a failure here never fails
+// the report: the position is already stored, and the error is logged. The
+// next report tries again.
+//
+// The arrival is not the end of the stop: the driver still has to confirm it.
+// That is what the note of the stop is for.
+func (h *VehicleHandler) checkStopArrival(ctx context.Context, vehicleID int64, lat, lng float64) {
+	var (
+		routeID int64
+		lastSeq int
+		stop    vehicle.RouteStop
+	)
+	err := h.db.QueryRow(ctx, arriveStopSQL, vehicleID, lat, lng, arrivalRadiusM).Scan(
+		&routeID, &lastSeq, &stop.Seq, &stop.ID, &stop.Name, &stop.Lat, &stop.Lng,
+		&stop.Status, &stop.ArrivedAt, &stop.CompletedAt, &stop.CompletionNote)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// The unit is not near the stop it is serving.
+		return
+	case err != nil:
+		log.Printf("routes: arrival check for vehicle %d failed: %v", vehicleID, err)
+		return
+	}
+
+	publishFrame(h.hub, "route_stop", gin.H{
+		"route_id":   routeID,
+		"vehicle_id": vehicleID,
+		"stop":       stop,
+	})
+
+	// The last stop of a route is the arrival itself: the route closes there
+	// and the operators hear about it as "Unit tiba". A second push for the
+	// same moment would say the same thing twice.
+	if stop.Seq == lastSeq {
+		return
+	}
+
+	h.notifyStopArrived(ctx, vehicleID, stop)
+}
+
+// notifyStopArrived tells the operators that a unit reached a stop of its
+// route.
+//
+// The push goes out in the background, so it never holds up the position
+// report that noticed the arrival.
+func (h *VehicleHandler) notifyStopArrived(ctx context.Context, vehicleID int64, stop vehicle.RouteStop) {
+	if h.push == nil {
+		return
+	}
+
+	payload := push.Payload{
+		Title: "Unit singgah",
+		Body:  fmt.Sprintf("%s singgah di %s", vehicleLabel(ctx, h.db, vehicleID), stop.Name),
+		Tag:   fmt.Sprintf("route-stop-arrived-%d", stop.ID),
+		URL:   "/",
+	}
+
+	push.Background(func(ctx context.Context) {
+		h.push.NotifyOperators(ctx, 0, payload)
+	})
+}
+
+// completeLastStop closes the last stop of a route that is finished.
+//
+// The unit is at the end of the line, so the last stop is served even when
+// nobody confirmed it by hand: the route says so, and the note says why.
+func (h *VehicleHandler) completeLastStop(ctx context.Context, routeID, vehicleID int64, endedAt time.Time) {
+	row := h.db.QueryRow(ctx, `
+        UPDATE route_stops rs
+           SET status = 'completed', completed_at = $2, completion_note = 'Otomatis: rute selesai'
+         WHERE rs.route_id = $1
+           AND rs.seq = (SELECT max(seq) FROM route_stops WHERE route_id = $1)
+           AND rs.status IN ('pending', 'arrived')
+     RETURNING id, seq, name, lat, lng, status, arrived_at, completed_at, completion_note`,
+		routeID, endedAt)
+
+	stop, err := scanStop(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The last stop was already finished by hand.
+		return
+	}
+	if err != nil {
+		log.Printf("routes: close the last stop of route %d failed: %v", routeID, err)
+		return
+	}
+
+	publishFrame(h.hub, "route_stop", gin.H{
+		"route_id":   routeID,
+		"vehicle_id": vehicleID,
+		"stop":       stop,
+	})
+}
+
+// stopNoteInput is the body of the two endpoints that finish a stop.
+//
+// The body is optional: a stop may be finished without a note. The note is
+// the proof of the visit, so it may be up to maxStopNote characters.
+type stopNoteInput struct {
+	Note string `json:"note"`
+}
+
+// CompleteStop handles POST /api/vehicles/:id/route/stops/:stop_id/complete.
+//
+// The driver says the stop is done. The proof of the visit is written with
+// it: the note, the name of the account that wrote it, the time of the
+// server, and the position of the unit at that moment.
+//
+// Finishing a stop is not the end of the route: the route closes itself when
+// the unit reaches the end of the line.
+func (h *RouteHandler) CompleteStop(c *gin.Context) {
+	h.finishStop(c, vehicle.StopCompleted)
+}
+
+// SkipStop handles POST /api/vehicles/:id/route/stops/:stop_id/skip.
+//
+// A stop that is passed by is finished too: the trip moves on to the next
+// stop instead of waiting for a delivery that will not happen.
+func (h *RouteHandler) SkipStop(c *gin.Context) {
+	h.finishStop(c, vehicle.StopSkipped)
+}
+
+// finishStop finishes the stop the unit is serving right now.
+//
+// The rules are the same for both actions: the stop belongs to the active
+// route of this vehicle, it is the stop the unit is serving (the stops are
+// visited one after the other), and its status allows the action. A stop
+// that is confirmed has to be arrived at first; a stop that is passed by does
+// not need an arrival.
+func (h *RouteHandler) finishStop(c *gin.Context, status string) {
+	id, ok := vehicleIDParam(c)
+	if !ok {
+		return
+	}
+	stopID, ok := parseID(c.Param("stop_id"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, errorBody("invalid_id", "stop id must be a positive integer"))
+		return
+	}
+
+	var in stopNoteInput
+	if err := c.ShouldBindJSON(&in); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, errorBody("invalid_json", "request body must be valid JSON"))
+		return
+	}
+	note := strings.TrimSpace(in.Note)
+	if fields := validateStopNote(note); len(fields) > 0 {
+		c.JSON(http.StatusBadRequest, validationErrorBody(fields))
+		return
+	}
+
+	if !h.mayFinishStop(c, id) {
+		return
+	}
+
+	ctx, cancel := h.ctxWithTimeout(c)
+	defer cancel()
+
+	// The route the stop belongs to: the active one of this vehicle.
+	var (
+		routeID   int64
+		startedAt *time.Time
+	)
+	err := h.db.QueryRow(ctx, `SELECT rt.id, rt.started_at FROM vehicle_routes rt
+		 WHERE rt.vehicle_id = $1 AND rt.status = 'active'
+		 ORDER BY rt.id DESC LIMIT 1`, id).Scan(&routeID, &startedAt)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		c.JSON(http.StatusConflict, errorBody("conflict", "this vehicle has no active route"))
+		return
+	case err != nil:
+		log.Printf("routes: read the active route failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	// A driver finishes the stops of a trip that is running. A plan that
+	// still waits for its start has no stops to finish yet.
+	if auth.UserRole(c) == auth.RoleDriver && startedAt == nil {
+		c.JSON(http.StatusConflict, errorBody("conflict", "the trip has not started yet"))
+		return
+	}
+
+	// The stops of the route, in the visiting order.
+	stops, err := h.stopsOfRoute(ctx, routeID)
+	if err != nil {
+		log.Printf("routes: read the stops of route %d failed: %v", routeID, err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	var stop *vehicle.RouteStop
+	for i := range stops {
+		if stops[i].ID == stopID {
+			stop = &stops[i]
+			break
+		}
+	}
+	if stop == nil {
+		c.JSON(http.StatusNotFound, errorBody("not_found", "stop not found"))
+		return
+	}
+
+	// The stops are served one after the other: only the stop the unit is
+	// serving right now can be finished.
+	current := currentStop(stops)
+	if current == nil || current.ID != stop.ID {
+		c.JSON(http.StatusConflict, errorBody("conflict", "this stop is not the stop the unit is serving right now"))
+		return
+	}
+
+	// A stop is confirmed after the unit arrived at it. A stop that is passed
+	// by does not need an arrival.
+	if status == vehicle.StopCompleted && stop.Status != vehicle.StopArrived {
+		c.JSON(http.StatusConflict, errorBody("conflict", "the unit has not arrived at this stop yet"))
+		return
+	}
+
+	updated, err := h.writeStop(ctx, id, routeID, stop.ID, status, note, stopActor(c))
+	if err != nil {
+		log.Printf("routes: finish the stop %d failed: %v", stopID, err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	publishFrame(h.hub, "route_stop", gin.H{
+		"route_id":   routeID,
+		"vehicle_id": id,
+		"stop":       updated,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"data": updated})
+}
+
+// stopsOfRoute reads the stops of one route, in the visiting order.
+func (h *RouteHandler) stopsOfRoute(ctx context.Context, routeID int64) ([]vehicle.RouteStop, error) {
+	rows, err := h.db.Query(ctx, `SELECT id, seq, name, lat, lng, status,
+			arrived_at, completed_at, completion_note
+		  FROM route_stops
+		 WHERE route_id = $1
+		 ORDER BY seq`, routeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stops := make([]vehicle.RouteStop, 0)
+	for rows.Next() {
+		stop, err := scanStop(rows)
+		if err != nil {
+			return nil, err
+		}
+		stops = append(stops, stop)
+	}
+
+	return stops, rows.Err()
+}
+
+// writeStop finishes one stop: confirmed by somebody, or passed by.
+//
+// The proof of the stop is written with it: the note, the account that wrote
+// it, and the position of the unit at that moment.
+func (h *RouteHandler) writeStop(ctx context.Context, vehicleID, routeID, stopID int64, status, note string, actor *int64) (vehicle.RouteStop, error) {
+	row := h.db.QueryRow(ctx, `
+        UPDATE route_stops
+           SET status = $3,
+               completed_at = now(),
+               completed_by = $4,
+               completion_note = $5,
+               completed_lat = (SELECT last_lat FROM vehicles WHERE id = $1),
+               completed_lng = (SELECT last_lng FROM vehicles WHERE id = $1)
+         WHERE id = $2 AND route_id = $6
+     RETURNING id, seq, name, lat, lng, status, arrived_at, completed_at, completion_note`,
+		vehicleID, stopID, status, actor, note, routeID)
+
+	return scanStop(row)
+}
+
+// mayFinishStop reports whether the signed-in account may finish a stop of
+// this vehicle.
+//
+// An admin may finish the stops of any vehicle — a dispatcher closes a
+// delivery by hand — and a driver the stops of their own unit. The staff and
+// the viewer read the route, they do not drive it. It writes the error
+// response itself, so the caller can simply return.
+func (h *RouteHandler) mayFinishStop(c *gin.Context, id int64) bool {
+	if auth.UserRole(c) == auth.RoleAdmin {
+		return true
+	}
+
+	scope := driverScope(c)
+	if scope == nil {
+		c.JSON(http.StatusForbidden, errorBody("forbidden", "only the driver of this vehicle or an admin can finish a stop"))
+		return false
+	}
+
+	ctx, cancel := h.ctxWithTimeout(c)
+	defer cancel()
+
+	allowed, err := vehicleBelongsToDriver(ctx, h.db, id, *scope)
+	if err != nil {
+		log.Printf("routes: driver scope for vehicle %d failed: %v", id, err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return false
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, errorBody("forbidden", "this vehicle is not assigned to you"))
+		return false
+	}
+
+	return true
+}
+
+// actorID is the account that made the request, as the users table knows it.
+// A token without a readable subject has no actor: the stop is then finished
+// without a name.
+func stopActor(c *gin.Context) *int64 {
+	id, ok := actorID(c)
+	if !ok || id <= 0 {
+		return nil
+	}
+
+	return &id
+}
+
 // completeRouteIfArrived closes the active route once a reported position is
 // inside the arrival radius of its destination. Called from UpdatePosition, so
 // a route ends where the vehicle actually stops, not on a timer.
@@ -699,6 +1183,7 @@ func (h *VehicleHandler) completeRouteIfArrived(ctx context.Context, vehicleID i
 		destName    string
 		vehicleCode string
 		vehicleName string
+		endedAt     time.Time
 	)
 	// The closed route is read back together with the unit it belongs to:
 	// the notification names both, and the statement does it in one round
@@ -723,12 +1208,12 @@ func (h *VehicleHandler) completeRouteIfArrived(ctx context.Context, vehicleID i
                         ) >= 0.95
                     )
                )
-            RETURNING rt.id, rt.dest_name, rt.vehicle_id
+            RETURNING rt.id, rt.dest_name, rt.vehicle_id, rt.ended_at
         )
-        SELECT closed.id, closed.dest_name, v.code, v.name
+        SELECT closed.id, closed.dest_name, v.code, v.name, closed.ended_at
           FROM closed
           JOIN vehicles v ON v.id = closed.vehicle_id`,
-		vehicleID, lat, lng, arrivalRadiusM).Scan(&routeID, &destName, &vehicleCode, &vehicleName)
+		vehicleID, lat, lng, arrivalRadiusM).Scan(&routeID, &destName, &vehicleCode, &vehicleName, &endedAt)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return
@@ -738,6 +1223,11 @@ func (h *VehicleHandler) completeRouteIfArrived(ctx context.Context, vehicleID i
 	}
 
 	publishFrame(h.hub, "route_completed", gin.H{"route_id": routeID, "vehicle_id": vehicleID})
+
+	// The last stop of the route is served by the arrival itself: the unit is
+	// at the end of the line, so the delivery is over even when nobody
+	// confirmed that stop by hand.
+	h.completeLastStop(ctx, routeID, vehicleID, endedAt)
 
 	// The unit arrived. The operators hear about it, even when their tab is
 	// closed.
@@ -776,15 +1266,24 @@ func (h *VehicleHandler) notifyRouteCompleted(routeID int64, code, name, destina
 // truck. Without this the line would only change when the route itself is
 // edited, which makes a live delivery look frozen.
 func (h *VehicleHandler) followRoute(ctx context.Context, vehicleID int64, lat, lng float64) {
+	// The stop the unit is serving is marked as arrived before the route is
+	// closed: the arrival at the last stop is the arrival of the route.
+	h.checkStopArrival(ctx, vehicleID, lat, lng)
 	h.completeRouteIfArrived(ctx, vehicleID, lat, lng)
 
-	row := h.db.QueryRow(ctx,
-		routeCols+" WHERE rt.vehicle_id = $1 AND rt.status = 'active' ORDER BY rt.id DESC LIMIT 1", vehicleID)
-	view, err := scanRoute(row)
+	view, err := scanRoute(h.db.QueryRow(ctx,
+		routeCols+" WHERE rt.vehicle_id = $1 AND rt.status = 'active' ORDER BY rt.id DESC LIMIT 1", vehicleID))
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			log.Printf("routes: progress reload failed: %v", err)
 		}
+		return
+	}
+
+	// The stops travel with the route, so the clients see the status of
+	// every stop without asking for it.
+	if err := loadStops(ctx, h.db, []*vehicle.Route{&view}); err != nil {
+		log.Printf("routes: read the stops of route %d failed: %v", view.ID, err)
 		return
 	}
 
@@ -806,8 +1305,33 @@ func (h *RouteHandler) queryRoutes(ctx context.Context, sql string, args ...any)
 		}
 		routes = append(routes, route)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-	return routes, rows.Err()
+	// The stops of every route in the answer, in one query.
+	refs := make([]*vehicle.Route, 0, len(routes))
+	for i := range routes {
+		refs = append(refs, &routes[i])
+	}
+	if err := loadStops(ctx, h.db, refs); err != nil {
+		return nil, err
+	}
+
+	return routes, nil
+}
+
+// readRoute reads one route with its stops.
+func readRoute(ctx context.Context, pool *db.Pool, id int64) (routeView, error) {
+	route, err := scanRoute(pool.QueryRow(ctx, routeCols+" WHERE rt.id = $1", id))
+	if err != nil {
+		return routeView{}, err
+	}
+	if err := loadStops(ctx, pool, []*vehicle.Route{&route}); err != nil {
+		return routeView{}, err
+	}
+
+	return route, nil
 }
 
 // vehicleIDParam parses :id and writes the error response itself, so each

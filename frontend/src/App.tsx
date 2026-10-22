@@ -16,7 +16,7 @@ import type {
   RegionCollection,
   RouteDraft,
   RoutePick,
-  RouteStop,
+  RouteStopPlace,
   Task,
   TaskInput,
   TaskStatus,
@@ -770,6 +770,17 @@ export default function App() {
               setToast({ kind: 'success', text: 'Delivery complete — route closed.', id: Date.now() })
               return
             }
+            if (frame.type === 'route_stop') {
+              // A stop of a route changed: the route is asked for again, so
+              // the map shows the status of every stop without a reload.
+              void api
+                .getVehicleRoute(frame.vehicle_id)
+                .then((route) => setRoutes((prev) => mergeRoutes(prev, [route])))
+                .catch(() => {
+                  /* the route is gone: there is nothing left to draw */
+                })
+              return
+            }
             if (frame.type === 'zones') {
               // The counters of the zones changed: a place was added, moved or
               // removed, or a unit crossed a border.
@@ -868,7 +879,7 @@ export default function App() {
      * answer carries the stops in that order: the map numbers them.
      */
     const planRoute = useCallback(
-      async (vehicleId: number, origin: RouteStop, stops: RouteStop[]) => {
+      async (vehicleId: number, origin: RouteStopPlace, stops: RouteStopPlace[]) => {
         setRouteSaving(true)
         try {
           const route = await api.setVehicleRoute(vehicleId, { origin, destinations: stops })
@@ -898,7 +909,7 @@ export default function App() {
     const handleRoutePlanStart = useCallback(
       (vehicleId: number) => {
         const unit = vehicles.find((v) => v.id === vehicleId)
-        const origin: RouteStop | null =
+        const origin: RouteStopPlace | null =
           unit && hasPosition(unit)
             ? { lat: Number(unit.lat.toFixed(6)), lng: Number(unit.lng.toFixed(6)), name: unit.name }
             : null
@@ -932,7 +943,7 @@ export default function App() {
 
     const handleRoutePoint = (lat: number, lng: number) => {
       if (!routePick) return
-      const stop: RouteStop = {
+      const stop: RouteStopPlace = {
         lat: Number(lat.toFixed(6)),
         lng: Number(lng.toFixed(6)),
         name: labelForPoint(lat, lng, routePick.stage === 'origin' ? 'Origin' : 'Stop'),
@@ -993,7 +1004,7 @@ export default function App() {
       })
     }, [])
 
-    const handleRouteSet = async (vehicleId: number, origin: RouteStop, stops: RouteStop[]) => {
+    const handleRouteSet = async (vehicleId: number, origin: RouteStopPlace, stops: RouteStopPlace[]) => {
       if (!canEdit) return
       await planRoute(vehicleId, origin, stops)
     }

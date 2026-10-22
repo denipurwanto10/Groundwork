@@ -33,6 +33,8 @@ Plain SQL files, applied in filename order. No migration framework
 | `024_single_route_color.up.sql` | semua `vehicles.route_color` diseragamkan ke merah primer tema (satu warna rute untuk semua unit) |
 | `025_report_indexes.up.sql` | index tanggal untuk `vehicle_routes` dan `tasks` (bacaan rentang laporan operasional) |
 | `026_create_push_subscriptions.up.sql` | tabel `push_subscriptions` (subscription Web Push per browser: endpoint, kunci p256dh/auth) |
+| `027_idle_detection.up.sql` | tabel `idle_events` (sesi diam unit) + kolom jangkar diam di `vehicles` |
+| `028_route_stops_status.up.sql` | tabel `route_stops` (status tiap stop rute: pending/arrived/completed/skipped + bukti singgah) + backfill dari `vehicle_routes.stops` |
 
 Tiap file punya pasangan `*.down.sql` untuk rollback (urutan terbalik).
 
@@ -42,6 +44,18 @@ bentuk zona disimpan, lalu dibaca dari `zone_metrics`. Ini yang membuat
 `GET /api/zones/:id` untuk polygon 227 ribu titik turun dari ±7 detik ke
 ±60 milidetik, dan membuat hitungan zona tetap benar tanpa memuat ulang
 peta.
+
+Migrasi 028 memindahkan **status tiap stop rute** ke tabel sendiri
+(`route_stops`). Kolom `vehicle_routes.stops` (JSONB) tetap ada untuk
+kompatibilitas, tapi isinya cuma titik-titik — status stop dibaca dari tabel
+baru. Backfill-nya jalan di file migrasi yang sama:
+
+- rute multi-stop: satu baris per elemen JSONB, urutannya dari
+  `jsonb_array_elements ... WITH ORDINALITY` (`seq` = ordinality − 1);
+- rute satu tujuan: satu baris dari `dest_lat` / `dest_lng` / `dest_name`;
+- status hasil backfill mengikuti status rutenya: rute `completed` → stop
+  `completed` (`completed_at` = `ended_at`), rute `cancelled` → stop
+  `skipped`, rute `active` → stop `pending`.
 
 Migrasi 015 dan 016 mengisi database baru dengan data, jadi workspace tidak
 pernah kosong setelah migrasi. Ingin kembali ke layar **"No entities yet."**?

@@ -143,13 +143,13 @@ const vehicleColsWithRoute = `SELECT v.id, v.code, v.name, v.kind, v.status, v.d
        rt.dest_name, rt.dest_lat, rt.dest_lng,
        COALESCE(ST_AsGeoJSON(rt.geom, 6)::json, '{}'::json),
        rt.distance_m, rt.duration_s, rt.source, rt.status, rt.created_at, rt.progress,
-       rt.stops, rt.started_at, rt.ended_at,
+       rt.started_at, rt.ended_at,
        (v.driver_id IS NOT NULL) AS driver_assigned
   FROM vehicles v
   LEFT JOIN LATERAL (
        SELECT rt.id, rt.origin_name, rt.origin_lat, rt.origin_lng,
               rt.dest_name, rt.dest_lat, rt.dest_lng, rt.geom, rt.distance_m,
-              rt.duration_s, rt.source, rt.status, rt.created_at, rt.stops,
+              rt.duration_s, rt.source, rt.status, rt.created_at,
               rt.started_at, rt.ended_at,
               ` + routeProgressSQL + ` AS progress
          FROM vehicle_routes rt
@@ -242,7 +242,6 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 		status     *string
 		createdAt  *time.Time
 		progress   *float64
-		stops      []byte
 		startedAt  *time.Time
 		endedAt    *time.Time
 		driverSet  *bool
@@ -252,7 +251,7 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 	dest = append(dest, &routeID, &originName, &originLat, &originLng,
 		&destName, &destLat, &destLng,
 		&geojson, &distanceM, &durationS, &source, &status, &createdAt, &progress,
-		&stops, &startedAt, &endedAt, &driverSet)
+		&startedAt, &endedAt, &driverSet)
 	if err := row.Scan(dest...); err != nil {
 		return vehicle.Vehicle{}, err
 	}
@@ -265,9 +264,8 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 	route := &vehicle.Route{
 		ID:          *routeID,
 		VehicleID:   v.ID,
-		Origin:      vehicle.RouteStop{Name: *originName, Lat: *originLat, Lng: *originLng},
-		Destination: vehicle.RouteStop{Name: *destName, Lat: *destLat, Lng: *destLng},
-		Stops:       decodeStops(stops),
+		Origin:      vehicle.RoutePlace{Name: *originName, Lat: *originLat, Lng: *originLng},
+		Destination: vehicle.RoutePlace{Name: *destName, Lat: *destLat, Lng: *destLng},
 		Geometry:    json.RawMessage(geojson),
 		DistanceM:   *distanceM,
 		DurationS:   *durationS,
@@ -287,6 +285,22 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 	v.ActiveRoute = route
 
 	return v, nil
+}
+
+// fillRouteStops reads the stops of the active routes of the given units, in
+// one query.
+//
+// The stops of a route are the steps of the trip, each one with a status of
+// its own (migration 028), so the fleet list carries them too.
+func fillRouteStops(ctx context.Context, pool *db.Pool, vehicles []vehicle.Vehicle) error {
+	routes := make([]*vehicle.Route, 0, len(vehicles))
+	for i := range vehicles {
+		if vehicles[i].ActiveRoute != nil {
+			routes = append(routes, vehicles[i].ActiveRoute)
+		}
+	}
+
+	return loadStops(ctx, pool, routes)
 }
 
 // driverScope returns the signed-in driver's user id, or nil for the roles that
@@ -339,6 +353,13 @@ func (h *VehicleHandler) List(c *gin.Context) {
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("vehicles: list read failed: %v", err)
+		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
+		return
+	}
+
+	// The stops of the active routes, in one query.
+	if err := fillRouteStops(ctx, h.db, vehicles); err != nil {
+		log.Printf("vehicles: read the stops of the routes failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
 		return
 	}
@@ -775,6 +796,11 @@ func (h *VehicleHandler) snapshot(ctx context.Context, driverID *int64) ([]byte,
 		return nil, fmt.Errorf("read fleet: %w", err)
 	}
 
+	// The stops of the active routes, in one query.
+	if err := fillRouteStops(ctx, h.db, vehicles); err != nil {
+		return nil, fmt.Errorf("read the stops of the routes: %w", err)
+	}
+
 	return json.Marshal(gin.H{"type": "snapshot", "vehicles": vehicles, "at": time.Now().UTC()})
 }
 
@@ -830,6 +856,9 @@ func (h *VehicleHandler) MarkStaleOffline(ctx context.Context) (int, error) {
 			// The unit was deleted in the meantime. It is gone from the map
 			// anyway, so there is nothing to tell the browsers about.
 			continue
+		}
+		if err := fillRouteStops(ctx, h.db, []vehicle.Vehicle{v}); err != nil {
+			log.Printf("vehicles: read the stops of the routes failed: %v", err)
 		}
 		h.publish("vehicle_updated", gin.H{"vehicle": v})
 	}
@@ -963,6 +992,9 @@ func (h *VehicleHandler) MarkStationaryIdle(ctx context.Context) (int, error) {
 			// The unit was deleted in the meantime. It is gone from the map
 			// anyway, so there is nothing to tell the browsers about.
 			continue
+		}
+		if err := fillRouteStops(ctx, h.db, []vehicle.Vehicle{v}); err != nil {
+			log.Printf("vehicles: read the stops of the routes failed: %v", err)
 		}
 		h.publish("vehicle_updated", gin.H{"vehicle": v})
 	}

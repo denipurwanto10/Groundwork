@@ -178,6 +178,11 @@ func main() {
 			protected.POST("/vehicles/:id/route/start", routeHandler.Start)
 			protected.DELETE("/vehicles/:id/route", routeHandler.Clear)
 
+			// The stops of a route are steps of the trip: the driver
+			// confirms the one the unit is serving, or passes it by.
+			protected.POST("/vehicles/:id/route/stops/:stop_id/complete", routeHandler.CompleteStop)
+			protected.POST("/vehicles/:id/route/stops/:stop_id/skip", routeHandler.SkipStop)
+
 			// The aggregate of the day, for the Overview tab. A driver only
 			// sees their own unit, the same rule the fleet list follows.
 			overviewHandler := handler.NewOverviewHandler(pool)

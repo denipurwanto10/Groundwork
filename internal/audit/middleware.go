@@ -175,6 +175,11 @@ func describe(c *gin.Context) (action, entityType string, entityID *int64, ok bo
 		}
 	case "import":
 		action = actionImport
+	case "complete", "skip":
+		// A stop of a route is confirmed or passed by: the route is what
+		// changed, and the trail names it after the unit that drives it.
+		entityType = entityRoute
+		action = actionUpdate
 	default:
 		switch c.Request.Method {
 		case http.MethodPost:

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../lib/api'
-import type { Task, TaskStatus, Vehicle, VehicleRoute } from '../lib/types'
+import { api, ApiError } from '../lib/api'
+import type { RouteStop, Task, TaskStatus, Vehicle, VehicleRoute } from '../lib/types'
 import {
+  currentRouteStop,
   formatDistance,
   formatDuration,
   formatEtaClock,
   formatLastSeen,
   routeEtaAt,
+  routeStopStatusLabel,
   vehicleKindLabel,
   vehicleStatusLabel,
 } from '../lib/types'
@@ -26,6 +28,33 @@ function useNow(intervalMs = 5000): number {
     return () => window.clearInterval(id)
   }, [intervalMs])
   return now
+}
+
+/** "14:32" — the wall clock of a moment, in the timezone of the phone. */
+function clockOf(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return ''
+  return at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * What the chip of a stop says: the status, and when it happened.
+ *
+ * The times are the ones of the server, so two drivers of the same unit read
+ * the same thing.
+ */
+function stopStatusText(stop: RouteStop): string {
+  const label = routeStopStatusLabel(stop.status)
+  if (stop.status === 'arrived') {
+    const at = clockOf(stop.arrived_at)
+    return at ? `${label} · ${at}` : label
+  }
+  if (stop.status === 'completed') {
+    const at = clockOf(stop.completed_at)
+    return at ? `${label} · ${at}` : label
+  }
+  return label
 }
 
 /** True when the moment falls on the day of the clock. */
@@ -89,6 +118,15 @@ export default function DriverView() {
   const [tasksError, setTasksError] = useState<string | null>(null)
   const [taskBusyId, setTaskBusyId] = useState<number | null>(null)
 
+  // The stops of the route: every one of them has a status of its own, and
+  // the one the unit is serving is the one the driver can finish.
+  //
+  // The note belongs to the stop it was written for: the driver moves on to
+  // the next stop, and the note of the stop before it stays with it.
+  const [stopNote, setStopNote] = useState({ id: 0, text: '' })
+  /** The stop that is being finished right now. */
+  const [stopBusyId, setStopBusyId] = useState<number | null>(null)
+
   // Is there a connection at all? The road has dead spots, and there the
   // trip comes from the copy on the device.
   const online = useOnline()
@@ -120,6 +158,29 @@ export default function DriverView() {
     }
   }, [userId])
 
+  // The unit on screen, remembered for the live feed: the handler of a
+  // frame is written once, when the feed opens.
+  const selectedIdRef = useRef(selectedId)
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
+
+  /**
+   * The active route, asked for again.
+   *
+   * The stops of a route change while the unit drives it: the server detects
+   * the arrival, and the driver confirms the stops. The card follows the
+   * server instead of guessing.
+   */
+  const reloadRoute = useCallback(async (vehicleId: number) => {
+    try {
+      setLiveRoute(await api.getVehicleRoute(vehicleId))
+    } catch (err) {
+      // No active route any more: the trip is over, or it was cleared.
+      if (err instanceof ApiError && err.status === 404) setLiveRoute(null)
+    }
+  }, [])
+
   // The live feed: the position of the unit and the route it drives.
   useEffect(
     () =>
@@ -147,13 +208,22 @@ export default function DriverView() {
             setLiveRoute(frame.route)
             return
           }
+          if (frame.type === 'route_stop') {
+            // A stop of the route changed: the route is asked for again, so
+            // the status of the stops is on screen without a reload.
+            const unit = selectedIdRef.current
+            if (unit != null && frame.vehicle_id === unit) {
+              void reloadRoute(unit)
+            }
+            return
+          }
           if (frame.type === 'route_cleared' || frame.type === 'route_completed') {
             setLiveRoute((prev) => (prev && prev.id === frame.route_id ? null : prev))
           }
         },
         onState: setStreamState,
       }),
-    [],
+    [reloadRoute],
   )
 
   // The routes of the unit on screen: the trips of today. The list is
@@ -250,6 +320,14 @@ export default function DriverView() {
     [history, now],
   )
 
+  // The stops of the route, in the visiting order the server worked out, and
+  // the one the unit is serving right now: the stops are visited one after
+  // the other, so only that one can be finished.
+  const routeStops = useMemo(() => route?.stops ?? [], [route])
+  const activeStop = useMemo(() => currentRouteStop(routeStops), [routeStops])
+  /** The note of the stop the driver is serving, if it was written for it. */
+  const note = activeStop && stopNote.id === activeStop.id ? stopNote.text : ''
+
   const started = !!route?.started_at
   // Starting a trip needs the server: without a connection the button says
   // so instead of failing with an error.
@@ -281,6 +359,42 @@ export default function DriverView() {
       setStarting(false)
     }
   }, [vehicle, route])
+
+  /**
+   * Finish the stop the unit is serving: confirmed with a note, or passed
+   * by.
+   *
+   * Finishing a stop needs the server — it is the server that writes down
+   * who finished it, when, and where the unit stood — so the buttons are off
+   * when the phone has no connection.
+   */
+  const finishStop = useCallback(
+    async (stop: RouteStop, action: 'complete' | 'skip') => {
+      if (!vehicle) return
+      setStopBusyId(stop.id)
+      try {
+        const updated =
+          action === 'complete'
+            ? await api.completeRouteStop(vehicle.id, stop.id, note)
+            : await api.skipRouteStop(vehicle.id, stop.id, note)
+        setStopNote({ id: 0, text: '' })
+        setNotice({
+          kind: 'ok',
+          text: action === 'complete' ? `"${updated.name}" is done.` : `"${updated.name}" is skipped.`,
+        })
+        // The next stop is the one the unit is serving now.
+        await reloadRoute(vehicle.id)
+      } catch (err) {
+        setNotice({
+          kind: 'bad',
+          text: err instanceof Error ? err.message : 'Could not save the stop.',
+        })
+      } finally {
+        setStopBusyId(null)
+      }
+    },
+    [vehicle, note, reloadRoute],
+  )
 
   const name = user?.name?.trim() || user?.username || user?.email || 'Driver'
   const initial = name.charAt(0).toUpperCase()
@@ -484,6 +598,69 @@ export default function DriverView() {
               <p className="drv-empty">No trip planned for this unit yet.</p>
             )}
           </div>
+
+          {/* The stops of the route: the trip is a list of steps, and every
+              step has a status of its own. The one the unit is serving is
+              the one the driver finishes. */}
+          {routeStops.length > 0 && (
+            <div className="drv-block drv-panel">
+              <span className="drv-label">
+                <IconRoute width={14} height={14} /> Stops ({routeStops.length})
+              </span>
+              <ol className="drv-stops">
+                {routeStops.map((stop, index) => {
+                  const isActive = activeStop?.id === stop.id
+                  const busy = stopBusyId === stop.id
+                  const arrived = stop.status === 'arrived'
+                  return (
+                    <li key={stop.id ?? index} className={`drv-stop ${stop.status}${isActive ? ' active' : ''}`}>
+                      <div className="drv-stop-head">
+                        <b className="drv-stop-num">{index + 1}</b>
+                        <span className="drv-stop-name">{stop.name || `Stop ${index + 1}`}</span>
+                        <span className={`drv-stop-chip ${stop.status}`}>{stopStatusText(stop)}</span>
+                      </div>
+
+                      {stop.completion_note && <p className="drv-stop-note">“{stop.completion_note}”</p>}
+
+                      {isActive && (
+                        <div className="drv-stop-actions">
+                          {arrived && (
+                            <input
+                              className="drv-stop-input"
+                              value={note}
+                              onChange={(e) => setStopNote({ id: stop.id, text: e.target.value })}
+                              placeholder="Paket diterima satpam"
+                              aria-label={`Note for ${stop.name || `stop ${index + 1}`}`}
+                              maxLength={500}
+                              disabled={busy || !online}
+                            />
+                          )}
+                          <button
+                            type="button"
+                            className="drv-stop-done"
+                            onClick={() => void finishStop(stop, 'complete')}
+                            disabled={!arrived || busy || !online}
+                            title={!online ? 'Finishing a stop needs a connection' : undefined}
+                          >
+                            {busy ? 'Saving…' : 'Complete this stop'}
+                          </button>
+                          <button
+                            type="button"
+                            className="drv-stop-skip"
+                            onClick={() => void finishStop(stop, 'skip')}
+                            disabled={busy || !online}
+                            title={!online ? 'Finishing a stop needs a connection' : undefined}
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ol>
+            </div>
+          )}
 
           {/* The work orders of this driver: the jobs of the day */}
           <div className="drv-block">

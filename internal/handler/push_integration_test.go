@@ -698,6 +698,133 @@ func TestPushArrivalIsAnnouncedOnce(t *testing.T) {
 	}
 }
 
+// seedPushRouteWithStops writes an active route with two stops and starts
+// it. The line runs from (0, 0) to (0, 0.02), so the first stop is at
+// (0, 0.01) and the last one is the end of the line.
+//
+// It returns the id of the route and the id of its first stop.
+func seedPushRouteWithStops(t *testing.T, pool *db.Pool, vehicleID int64) (int64, int64) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var routeID int64
+	err := pool.QueryRow(ctx, `
+        INSERT INTO vehicle_routes
+            (vehicle_id, origin_name, dest_name, origin_lat, origin_lng, dest_lat, dest_lng,
+             geom, distance_m, duration_s, source, status, started_at)
+        VALUES ($1, 'Gudang', 'Gudang Cisitu', 0, 0, 0, 0.02,
+                ST_GeomFromText('LINESTRING(0 0, 0 0.01, 0 0.02)', 4326), 2226, 120, 'direct', 'active', now())
+        RETURNING id`, vehicleID).Scan(&routeID)
+	if err != nil {
+		t.Fatalf("insert route: %v", err)
+	}
+
+	var stopID int64
+	err = pool.QueryRow(ctx, `
+        INSERT INTO route_stops (route_id, seq, name, lat, lng, status)
+        VALUES ($1, 0, 'Toko Tengah', 0.01, 0, 'pending')
+        RETURNING id`, routeID).Scan(&stopID)
+	if err != nil {
+		t.Fatalf("insert the first stop: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+        INSERT INTO route_stops (route_id, seq, name, lat, lng, status)
+        VALUES ($1, 1, 'Gudang Cisitu', 0.02, 0, 'pending')`, routeID); err != nil {
+		t.Fatalf("insert the last stop: %v", err)
+	}
+
+	return routeID, stopID
+}
+
+// A unit that reaches a stop of its route is announced to the operators — and
+// the last stop of a route is not announced twice: the arrival there is the
+// arrival of the route itself.
+func TestPushStopArrivalIsAnnounced(t *testing.T) {
+	f := pushFixtureFor(t)
+
+	admin := seedPushUser(t, f.pool, "pushtest-admin", auth.RoleAdmin)
+	adminToken := pushToken(t, f, admin, "pushtest-admin", auth.RoleAdmin)
+	pushRequest(t, f, http.MethodPost, "/api/push/subscribe", adminToken,
+		subscriptionBody("https://push.test/admin"))
+
+	vehicle := seedPushVehicle(t, f.pool, "pushtest-unit", nil)
+	_, stopID := seedPushRouteWithStops(t, f.pool, vehicle)
+
+	// The unit reports the place of the first stop.
+	body := map[string]any{"lat": 0.01, "lng": 0, "speed_kmh": 0}
+	rec := pushRequest(t, f, http.MethodPost,
+		"/api/vehicles/"+itoa(vehicle)+"/position", adminToken, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the position answered %d: %s", rec.Code, rec.Body.String())
+	}
+
+	deliveries := f.sender.waitFor(t, 1)
+
+	found := false
+	for _, d := range deliveries {
+		if d.UserID != admin {
+			continue
+		}
+		if d.Payload.Title != "Unit singgah" {
+			t.Errorf("the title is %q, want \"Unit singgah\"", d.Payload.Title)
+		}
+		if d.Payload.Tag != fmt.Sprintf("route-stop-arrived-%d", stopID) {
+			t.Errorf("the tag is %q, want \"route-stop-arrived-%d\"", d.Payload.Tag, stopID)
+		}
+		if !strings.Contains(d.Payload.Body, "pushtest-unit") {
+			t.Errorf("the body %q does not name the unit", d.Payload.Body)
+		}
+		found = true
+		break
+	}
+	if !found {
+		t.Errorf("the test-created admin (id=%d) did not receive the arrival notification", admin)
+	}
+
+	// The same place again: the arrival is not announced twice.
+	time.Sleep(300 * time.Millisecond)
+	before := len(f.sender.deliveries())
+	rec = pushRequest(t, f, http.MethodPost,
+		"/api/vehicles/"+itoa(vehicle)+"/position", adminToken, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the second position answered %d: %s", rec.Code, rec.Body.String())
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := len(f.sender.deliveries()); got != before {
+		t.Errorf("%d messages were delivered after the second report, want %d", got, before)
+	}
+
+	// The last stop is the arrival of the route: it is announced as such,
+	// and not as a stop on top of that.
+	body = map[string]any{"lat": 0.02, "lng": 0, "speed_kmh": 0}
+	rec = pushRequest(t, f, http.MethodPost,
+		"/api/vehicles/"+itoa(vehicle)+"/position", adminToken, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the last position answered %d: %s", rec.Code, rec.Body.String())
+	}
+
+	deliveries = f.sender.waitFor(t, before+1)
+	titles := map[string]int{}
+	for _, d := range deliveries {
+		// Other admins and staff of the workspace receive the push too, so
+		// only the messages of the test account are counted.
+		if d.UserID != admin {
+			continue
+		}
+		titles[d.Payload.Title]++
+	}
+	if titles["Unit tiba"] != 1 {
+		t.Errorf("the arrival of the route was announced %d time(s), want 1", titles["Unit tiba"])
+	}
+	if titles["Unit singgah"] != 1 {
+		t.Errorf("the stops were announced %d time(s), want 1 (the last stop is not announced twice)",
+			titles["Unit singgah"])
+	}
+}
+
 // A work order reaches the account it was assigned to, and nobody else.
 func TestPushTaskReachesTheAssignedAccountOnly(t *testing.T) {
 	f := pushFixtureFor(t)

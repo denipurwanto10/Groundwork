@@ -27,6 +27,7 @@ TypeScript + Leaflet di frontend.
 - [Perilaku Zona](#perilaku-zona)
 - [Audit Log](#audit-log-jejak-aktivitas)
 - [Driver View](#driver-view-layar-driver)
+- [Status Per-Stop](#status-per-stop-bukti-singgah)
 - [Task Management](#task-management-work-orders)
 - [Laporan & Export](#laporan--export-laporan-operasional)
 - [Notifikasi Desktop](#notifikasi-desktop-web-push)
@@ -276,6 +277,13 @@ sehingga peta bisa menomori titik (1, 2, 3) dan card unit menampilkan urutan
 kunjungan yang sudah ditentukan. Rute dengan satu tujuan saja menyimpan
 `stops: []` — kolom `origin_*`/`dest_*` yang sudah cukup.
 
+Status tiap stop **tidak** hidup di JSONB itu: sejak migrasi 028 tiap stop
+adalah baris di tabel `route_stops` (`seq`, `status`, `arrived_at`,
+`completed_at`, `completed_by`, `completion_note`, `completed_lat/lng`), jadi
+tahu stop mana yang sudah dilayani — lihat
+[Status Per-Stop](#status-per-stop-bukti-singgah). Rute satu tujuan tetap
+satu baris: tujuannya sendiri.
+
 Batas 12 titik per rute (`maxRouteStops`), karena trip service publik mulai
 lambat di atas angka itu. Rute ditutup di titik **terakhir**: kedatangan di
 tujuan hanya dihitung kalau unit sudah hampir selesai dengan garisnya, jadi
@@ -356,6 +364,8 @@ dengan yang asli.
 | `POST` | `/api/vehicles/:id/route` | rencanakan rute `{origin:{lat,lng,name}, destinations:[{…}]}` (multi-stop) |
 | `DELETE` | `/api/vehicles/:id/route` | batalkan rute aktif |
 | `POST` | `/api/vehicles/:id/route/start` | mulai perjalanan (driver unitnya, atau admin) |
+| `POST` | `/api/vehicles/:id/route/stops/:stop_id/complete` | selesaikan stop yang sedang dilayani (`{note}` opsional — catatannya adalah bukti) |
+| `POST` | `/api/vehicles/:id/route/stops/:stop_id/skip` | lewati stop yang sedang dilayani (`{note}` opsional) |
 | `GET` | `/api/tasks` | papan tugas (work order); driver hanya melihat tugasnya sendiri |
 | `GET` | `/api/tasks/:id` | satu tugas (`403` kalau tugas milik orang lain dan peminta driver) |
 | `POST` | `/api/tasks` | buat tugas baru (admin) |
@@ -428,11 +438,21 @@ Bentuk rute (yang di `GET /api/routes` dan di `active_route`):
 {"id": 32, "vehicle_id": 1,
  "origin": {"lat": -6.929, "lng": 107.636, "name": "Gudang"},
  "destination": {"lat": -6.95, "lng": 107.61, "name": "Cisitu"},
+ "stops": [{"id": 90, "seq": 0, "lat": -6.85, "lng": 107.6, "name": "Toko Melchior",
+            "status": "arrived", "arrived_at": "2026-10-22T17:56:52+07:00",
+            "completed_at": null, "completion_note": ""}],
+ "stops_total": 3, "stops_done": 1,
  "geometry": {"type": "LineString", "coordinates": [[107.636, -6.929], "…"]},
  "distance_m": 14187, "duration_s": 1016, "source": "osrm",
  "status": "active", "progress": 0.05, "remaining_m": 13478,
  "created_at": "…", "ended_at": null}
 ```
+
+`stops` adalah **langkah-langkah perjalanan**, bukan cuma daftar titik: tiap
+stop membawa statusnya sendiri (`pending` / `arrived` / `completed` /
+`skipped`) — lihat [Status Per-Stop](#status-per-stop-bukti-singgah).
+`stops_total` = jumlah stop, `stops_done` = yang sudah selesai (dikonfirmasi
+atau dilewati).
 
 Bentuk sesi idle (yang di `GET /api/idle-events`):
 
@@ -707,6 +727,118 @@ motor, layar kecil.
 > `budi.driver` / `driver-pass-123` (email `budi.driver@test.local`), dengan
 > unit `TRK-001` yang ditugaskan ke sana. Hapus dari tab **Users** kalau
 > sudah tidak dipakai.
+
+## Status Per-Stop (Bukti Singgah)
+
+Dulu titik singgah di rute multi-stop cuma daftar: tidak ada yang tahu stop
+mana yang sudah dilayani, mana yang belum, dan tidak ada bukti apa pun saat
+driver mengklaim sudah sampai. Sekarang tiap titik singgah adalah **langkah
+perjalanan** dengan status sendiri, dan penyelesaikannya tercatat.
+
+Statusnya **data**, bukan tebakan UI: kolomnya ada di tabel `route_stops`
+(migrasi 028), jadi dashboard, Driver View, dan peta membaca hal yang sama.
+
+### Empat status
+
+| Status | Siapa yang menetapkannya | Arti |
+| ------ | ------------------------- | ---- |
+| `pending` | server, saat rute dibuat | Unit belum sampai di stop ini |
+| `arrived` | **server**, dari laporan posisi | Server melihat unit di dalam radius 150 m dari stop. Stop **belum** selesai — driver masih harus mengonfirmasi |
+| `completed` | **driver** (atau admin) | Driver mengonfirmasi stop selesai; catatan, nama penyelesai, waktu server, dan posisi kendaraan ikut tersimpan |
+| `skipped` | **driver** (atau admin) | Stop dilewati tanpa dilayani; trip langsung lanjut ke stop berikutnya |
+
+Alurnya **berurutan**: stop yang sedang dilayani selalu stop pertama yang
+belum selesai (`pending` atau `arrived`, urutan `seq` terkecil). Stop
+berikutnya tidak pernah dideteksi maupun diselesaikan sebelum stop
+sebelumnya `completed`/`skipped` — kendaraan bisa saja lewat dekat stop
+urutan akhir di awal perjalanan, dan itu bukan kunjungan.
+
+### Isi bukti singgah
+
+Saat driver menekan **Selesaikan stop ini**, server menyimpan:
+
+- **catatan** driver (maks. 500 karakter, opsional) — mis. "Paket diterima satpam";
+- **nama penyelesai** (`completed_by` — akun yang menekan tombol);
+- **waktu server** (`completed_at` — jam database, bukan jam telepon);
+- **posisi kendaraan** saat stop diselesaikan (`completed_lat` / `completed_lng`).
+
+> Batas jujurnya: bukti singgah di project ini adalah **catatan + waktu +
+> posisi yang dicatat server**. Foto bukti belum termasuk, karena project ini
+> belum punya penyimpanan file — dan itu disengaja untuk tahap ini.
+
+### Yang otomatis, dan yang manual
+
+- **Kedatangan** (`arrived`) **deteksi server**, dari laporan posisi
+  kendaraan: jarak ke titik stop ≤ 150 m (`arrivalRadiusM`, radius yang sama
+  dengan tiba rute). Kedatangan di **stop terakhir** tidak mengirim push
+  singgah: tiba di stop terakhir adalah tiba di tujuan, dan rute sudah
+  mengirim push "Unit tiba" — jadi tidak ada push ganda.
+- **Penyelesaian** (`completed`) **manual**, dari Driver View: tombol
+  "Selesaikan stop ini" + kolom catatan kecil. Butuh server (maka tombolnya
+  mati saat offline), dan hanya berlaku pada stop yang sedang dilayani.
+- **Melewati** (`skipped`) juga manual, tombol "Lewati".
+- **Stop terakhir** ditutup otomatis bersama rute: `completed` dengan
+  `completed_at` = waktu akhir rute dan catatan "Otomatis: rute selesai".
+- Menyelesaikan stop **bukan** akhir rute. Rute tetap ditutup oleh
+  `completeRouteIfArrived`, seperti sebelumnya.
+
+### Di mana status ini kelihatan
+
+- **Driver View** — daftar stop di kartu trip: nomor, nama, chip status
+  (Menuju / Sampai · jam / Selesai · jam / Dilewati), dan catatan
+  penyelesaian. Frame WebSocket `route_stop` memperbarui tampilan tanpa
+  muat ulang, jadi status yang dilihat server (atau perangkat lain) langsung
+  terlihat.
+- **Card armada** (tab Fleet) — progres stop dalam teks, mis. "Stop 2 dari 5 ·
+  1 selesai".
+- **Peta** — marker stop yang sudah `completed`/`skipped` tampil redup, dengan
+  tanda centang pada labelnya. Cara menggambar garis rutenya tidak berubah.
+
+### Endpoint-nya
+
+| Method | Path | Keterangan |
+| ------ | ---- | ---------- |
+| `POST` | `/api/vehicles/:id/route/stops/:stop_id/complete` | selesaikan stop yang sedang dilayani; body `{"note":"…"}` opsional |
+| `POST` | `/api/vehicles/:id/route/stops/:stop_id/skip` | lewati stop yang sedang dilayani; body `{"note":"…"}` opsional |
+
+Hak akses: **admin** boleh untuk kendaraan mana pun, **driver** hanya untuk
+unitnya sendiri (dan hanya pada rute yang sudah dimulai). **Staff** dan
+**viewer** hanya membaca. Stop yang bukan stop aktif saat ini, atau yang
+statusnya tidak memenuhi syarat, dijawab `409` dengan
+`{"error":{"code":"conflict",…}}`; stop yang tidak ada dijawab `404`; driver
+dari unit lain dijawab `403`.
+
+### Cara mengetestnya
+
+1. **Buat rute 2–3 stop** untuk unit yang punya driver: tab **Fleet** → unit →
+   *Plan route* → *+ Add Stop* → pilih titik di peta → *Build route*. Pilih
+   titik-titik yang **berdekatan** (satu–dua kilometer), supaya perjalanannya
+   tidak lama.
+2. **Tekan "Start trip"** di Driver View (login sebagai driver unit tersebut).
+3. **Jalankan simulator dengan pace kecil**, supaya kedatangan terbaca
+   satu-satu:
+
+   ```bash
+   go run ./cmd/simulator -api http://127.0.0.1:8080 \
+     -email <email-admin> -password <password> -count 1 -interval 2s -pace 10
+   ```
+
+   `-pace` adalah meter per tick: makin kecil, unit makin dekat mengikuti
+   belokan jalannya.
+4. **Stop pertama harus berubah jadi "Sampai"** dengan sendirinya (deteksi
+   server, bukan tombol), dan push **"Unit singgah"** masuk ke operator.
+5. **Selesaikan stop itu dari Driver View**: isi catatan (mis. "Paket
+   diterima satpam") lalu tekan **Selesaikan stop ini**. Chipnya berubah jadi
+   "Selesai · jam", catatan muncul, dan **stop kedua langsung jadi sasaran**
+   (tombolnya aktif, chipnya "Menuju").
+6. **Biarkan simulator tiba di tujuan akhir**: rute tertutup sendiri, dan
+   **stop terakhirnya** jadi `completed` dengan catatan "Otomatis: rute
+   selesai" — tanpa push singgah ganda di stop terakhir.
+
+> Kalau arrival tidak terbaca padahal unitnya sudah lewat, jaraknya mungkin
+> lebih dari 150 m: OSRM mem-*snap* titik yang dipilih ke jalan terdekat,
+> sedangkan kedeteksian memakai koordinat titik yang asli. Pilih titik yang
+> persis di jalan untuk tes yang mulus.
 
 ## Task Management (Work Orders)
 

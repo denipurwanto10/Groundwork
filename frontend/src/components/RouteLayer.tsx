@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { ComponentProps } from 'react'
 import { Marker, Polyline as RLPolyline, Popup, Tooltip } from 'react-leaflet'
 import L from 'leaflet'
-import type { RouteDraft, VehicleRoute } from '../lib/types'
+import type { RouteDraft, RouteStopStatus, VehicleRoute } from '../lib/types'
 import { formatDistance, formatDuration, routeLatLngs, routeProgress } from '../lib/types'
 
 /**
@@ -15,15 +15,25 @@ import { formatDistance, formatDuration, routeLatLngs, routeProgress } from '../
  */
 
 
-function stopIcon(kind: 'A' | 'B' | 'stop', label: string, color?: string, order?: number): L.DivIcon {
+function stopIcon(
+  kind: 'A' | 'B' | 'stop',
+  label: string,
+  color?: string,
+  order?: number,
+  status?: RouteStopStatus,
+): L.DivIcon {
   const cls = kind === 'A' ? 'origin' : kind === 'B' ? 'dest' : 'stop'
+  // A stop that is served already says so on its label: the number stays, so
+  // the order of the visits is still readable, and the marker fades.
+  const mark = status === 'completed' ? '✓ ' : status === 'skipped' ? '– ' : ''
   const badge = kind === 'stop' ? String(order ?? '') : kind
+  const state = status ? ` ${status}` : ''
   return L.divIcon({
     className: 'route-stop-wrap',
     html:
-      `<span class="route-stop ${cls}"` +
+      `<span class="route-stop ${cls}${state}"` +
       (color ? ` style="--route:${color}"` : '') +
-      `><b>${badge}</b><i>${label}</i></span>`,
+      `><b>${badge}</b><i>${mark}${label}</i></span>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   })
@@ -143,11 +153,12 @@ function RouteLine({
 
   const origin = route.origin
   const destination = route.destination
-  // The stops of a multi-stop route, in the visiting order. Empty for a route
-  // with a single destination, which is drawn with its A/B ends.
+  // The stops of the route, in the visiting order. A route with a single
+  // destination has one stop — the destination itself — and is drawn with its
+  // A/B ends, the way it always was.
   const stops = route.stops ?? []
   const summary =
-    stops.length > 0
+    stops.length > 1
       ? `${origin.name || 'Origin'} → ${stops.map((s) => s.name || '?').join(' → ')}`
       : `${origin.name || 'Origin'} → ${destination.name || 'Destination'}`
   const detail = `${formatDistance(route.distance_m)} · ${formatDuration(route.duration_s)} · ${
@@ -185,7 +196,7 @@ function RouteLine({
           </Tooltip>
         </Polyline>
       )}
-      {stops.length > 0 ? (
+      {stops.length > 1 ? (
         <>
           <Marker
             position={[origin.lat, origin.lng]}
@@ -201,9 +212,9 @@ function RouteLine({
           </Marker>
           {stops.map((stop, index) => (
             <Marker
-              key={index}
+              key={stop.id ?? index}
               position={[stop.lat, stop.lng]}
-              icon={stopIcon('stop', stop.name || `Stop ${index + 1}`, color, index + 1)}
+              icon={stopIcon('stop', stop.name || `Stop ${index + 1}`, color, index + 1, stop.status)}
               keyboard={false}
             >
               <Popup>
@@ -230,7 +241,7 @@ function RouteLine({
           </Marker>
           <Marker
             position={[destination.lat, destination.lng]}
-            icon={stopIcon('B', destination.name || 'Finish', color)}
+            icon={stopIcon('B', destination.name || 'Finish', color, undefined, stops[0]?.status)}
             keyboard={false}
           >
             <Popup>

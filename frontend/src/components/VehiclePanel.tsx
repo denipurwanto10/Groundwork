@@ -5,7 +5,7 @@ import type {
   GeofenceEvent,
   RouteDraft,
   RoutePick,
-  RouteStop,
+  RouteStopPlace,
   UserAccount,
   Vehicle,
   VehicleInput,
@@ -134,7 +134,7 @@ interface Props {
   /** A plan is on its way to the server. */
   routeBusy: boolean
   onClearDraft: () => void
-  onRouteSet: (vehicleId: number, origin: RouteStop, stops: RouteStop[]) => Promise<void>
+  onRouteSet: (vehicleId: number, origin: RouteStopPlace, stops: RouteStopPlace[]) => Promise<void>
   onRouteClear: (vehicleId: number) => Promise<void>
   /** Only admins may plan or clear routes; viewer and driver stay read-only. */
   canEdit: boolean
@@ -284,6 +284,17 @@ export default function VehiclePanel({
     return m
   }, [routes])
 
+  // How far the trip is along its stops: "Stop 2 dari 5 · 1 selesai". The
+  // numbers come from the server, so the card and the driver screen always
+  // say the same.
+  const stopProgress = useMemo(() => {
+    const total = activeRoute?.stops_total ?? routeStops.length
+    if (!total) return ''
+    const done = activeRoute?.stops_done ?? 0
+    const current = Math.min(done + 1, total)
+    return `Stop ${current} dari ${total} · ${done} selesai`
+  }, [activeRoute, routeStops.length])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const order: Record<VehicleStatus, number> = { moving: 0, idle: 1, offline: 2 }
@@ -316,7 +327,7 @@ export default function VehiclePanel({
     if (!selected || !draft?.origin) return
     // Every stop must be picked before the route can be built: a row that is
     // still waiting for a map click would send a hole in the tour.
-    const stops = draft.stops.filter((s): s is RouteStop => s != null)
+    const stops = draft.stops.filter((s): s is RouteStopPlace => s != null)
     if (stops.length === 0 || stops.length !== draft.stops.length) return
     setSaving(true)
     setRouteError(null)
@@ -604,9 +615,12 @@ export default function VehiclePanel({
                     <b className="route-pin origin">A</b>
                     <span className="lt-stop-name">{activeRoute.origin.name || 'Origin'}</span>
                   </li>
-                  {routeStops.length > 0 ? (
+                  {routeStops.length > 1 ? (
                     routeStops.map((stop, index) => (
-                      <li key={index} className={index === routeStops.length - 1 ? 'dest last' : 'dest'}>
+                      <li
+                        key={stop.id ?? index}
+                        className={`${index === routeStops.length - 1 ? 'dest last' : 'dest'} ${stop.status}`}
+                      >
                         <b className="route-pin dest">{index + 1}</b>
                         <span className="lt-stop-name">{stop.name || `Stop ${index + 1}`}</span>
                       </li>
@@ -650,6 +664,7 @@ export default function VehiclePanel({
                   <span>
                     Total {formatDistance(activeRoute.distance_m)} · {formatDuration(activeRoute.duration_s)} drive
                   </span>
+                  {stopProgress && <span className="lt-stop-progress">{stopProgress}</span>}
                   {canEdit && (
                     <button type="button" className="text-action" onClick={() => void clearRoute(selected.id)}>
                       Clear route

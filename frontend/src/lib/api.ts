@@ -15,6 +15,7 @@ import type {
   VehicleRoute,
   RouteList,
   RouteStop,
+  RouteStopPlace,
   IslandList,
   UserAccount,
   UserInput,
@@ -696,11 +697,20 @@ export const api = {
    * are visited in and answers with the route, the stops in that order and
    * the line through all of them.
    */
-  setVehicleRoute(id: number, input: { origin: RouteStop; destinations: RouteStop[] }): Promise<VehicleRoute> {
+  setVehicleRoute(id: number, input: { origin: RouteStopPlace; destinations: RouteStopPlace[] }): Promise<VehicleRoute> {
     return request<VehicleRoute>(`/api/vehicles/${id}/route`, {
       method: 'POST',
       body: JSON.stringify(input),
     })
+  },
+
+  /**
+   * The active route of a vehicle, with its stops and their status.
+   *
+   * The server answers 404 when the vehicle has no active route.
+   */
+  getVehicleRoute(id: number): Promise<VehicleRoute> {
+    return request<VehicleRoute>(`/api/vehicles/${id}/route`)
   },
 
   /**
@@ -713,6 +723,30 @@ export const api = {
 
   clearVehicleRoute(id: number): Promise<void> {
     return request<void>(`/api/vehicles/${id}/route`, { method: 'DELETE' })
+  },
+
+  /**
+   * Confirm a stop: the driver says the delivery at that stop is done.
+   *
+   * The note is the proof of the visit. The server writes it down together
+   * with the name of the account that wrote it, the time of the server and
+   * the position of the unit at that moment.
+   */
+  completeRouteStop(vehicleId: number, stopId: number, note?: string): Promise<RouteStop> {
+    return request<RouteStop>(`/api/vehicles/${vehicleId}/route/stops/${stopId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? '' }),
+    })
+  },
+
+  /**
+   * Pass a stop by: the unit does not stop there. The note says why.
+   */
+  skipRouteStop(vehicleId: number, stopId: number, note?: string): Promise<RouteStop> {
+    return request<RouteStop>(`/api/vehicles/${vehicleId}/route/stops/${stopId}/skip`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? '' }),
+    })
   },
 
   // ---- Authentication ----

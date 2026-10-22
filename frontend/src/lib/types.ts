@@ -449,6 +449,14 @@ export type VehicleFrame =
   | { type: 'route'; route: VehicleRoute; at: string }
   | { type: 'route_cleared'; route_id: number; vehicle_id: number; at: string }
   | { type: 'route_completed'; route_id: number; vehicle_id: number; at: string }
+  | {
+      type: 'route_stop'
+      route_id: number
+      vehicle_id: number
+      /** The stop that changed, with its status. */
+      stop: RouteStop
+      at: string
+    }
   | { type: 'zones'; zones: ZoneCount[]; at: string }
   | {
       type: 'geofence'
@@ -884,11 +892,50 @@ export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number]
 export const ROUTE_STATUSES = ['active', 'completed', 'cancelled'] as const
 export type RouteStatus = (typeof ROUTE_STATUSES)[number]
 
-/** One end of a route. The label is what the operator typed (or picked). */
-export interface RouteStop {
+/**
+ * One place of a route: the origin, the destination, or a stop that is being
+ * planned. It says where the place is, nothing else.
+ */
+export interface RouteStopPlace {
   lat: number
   lng: number
   name: string
+}
+
+/**
+ * The status of one stop of a route.
+ *
+ * The stops of a route are a workflow: the server sees the unit arrive
+ * (`arrived`), and the driver confirms the stop (`completed`) or passes it
+ * by (`skipped`).
+ */
+export const ROUTE_STOP_STATUSES = ['pending', 'arrived', 'completed', 'skipped'] as const
+export type RouteStopStatus = (typeof ROUTE_STOP_STATUSES)[number]
+
+/** What the driver reads on the chip of a stop. */
+export const ROUTE_STOP_STATUS_LABELS: Record<RouteStopStatus, string> = {
+  pending: 'Menuju',
+  arrived: 'Sampai',
+  completed: 'Selesai',
+  skipped: 'Dilewati',
+}
+
+/**
+ * One stop of a route, with its own status and the proof that it was served.
+ *
+ * `arrived_at` is the moment the server detected the unit at the stop,
+ * `completed_at` the moment somebody finished it, and `completion_note` what
+ * was written as the proof of the visit.
+ */
+export interface RouteStop extends RouteStopPlace {
+  /** The identity of the stop. */
+  id: number
+  /** The place of the stop in the visiting order (the first stop is 0). */
+  seq: number
+  status: RouteStopStatus
+  arrived_at: string | null
+  completed_at: string | null
+  completion_note: string
 }
 
 /**
@@ -899,8 +946,8 @@ export interface RouteStop {
  * form shows the row and waits for the map click.
  */
 export interface RouteDraft {
-  origin: RouteStop | null
-  stops: (RouteStop | null)[]
+  origin: RouteStopPlace | null
+  stops: (RouteStopPlace | null)[]
 }
 
 /**
@@ -923,14 +970,19 @@ export type RouteSource = 'osrm' | 'direct'
 export interface VehicleRoute {
   id: number
   vehicle_id: number
-  origin: RouteStop
-  destination: RouteStop
+  origin: RouteStopPlace
+  destination: RouteStopPlace
   /**
-   * The destinations of a multi-stop route, in the visiting order the server
-   * worked out. The last one is the destination above. It is empty for a
-   * route with a single destination.
+   * The steps of the route, in the visiting order the server worked out. The
+   * first one is served first and the last one is the destination above.
+   * Every route has at least one stop: a route with a single destination has
+   * that destination as its only stop.
    */
   stops?: RouteStop[]
+  /** How many stops the route has. */
+  stops_total: number
+  /** How many stops are finished (confirmed or passed by). */
+  stops_done: number
   geometry: RouteGeometry
   distance_m: number
   duration_s: number
@@ -957,6 +1009,27 @@ export interface VehicleRoute {
 export interface RouteList {
   routes: VehicleRoute[]
   count: number
+}
+
+/**
+ * The stop a unit is serving right now: the first one that is not finished.
+ *
+ * The stops of a route are visited one after the other, so the next stop is
+ * never reached before the one before it is done.
+ */
+export function currentRouteStop(stops: RouteStop[] | undefined): RouteStop | undefined {
+  return (stops ?? []).find((s) => s.status === 'pending' || s.status === 'arrived')
+}
+
+/** Values come from the wire, so coerce anything unexpected to a known one. */
+export function normalizeRouteStopStatus(status: string): RouteStopStatus {
+  return (ROUTE_STOP_STATUSES as readonly string[]).includes(status)
+    ? (status as RouteStopStatus)
+    : 'pending'
+}
+
+export function routeStopStatusLabel(status: string): string {
+  return ROUTE_STOP_STATUS_LABELS[normalizeRouteStopStatus(status)]
 }
 
 /**
