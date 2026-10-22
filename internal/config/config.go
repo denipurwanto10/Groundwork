@@ -16,7 +16,35 @@ type Config struct {
 	Database DatabaseConfig
 	Auth     AuthConfig
 	Fleet    FleetConfig
+	Service  ServiceConfig
 	Push     PushConfig
+}
+
+// The defaults of the service schedule. They are the values of the two
+// variables of the .env, so a server without them behaves exactly like one
+// that has them.
+const (
+	// defaultServiceIntervalKM is the interval a unit is serviced on when it
+	// has no interval of its own.
+	defaultServiceIntervalKM = 5000.0
+	// defaultServiceWarnKM is how close to the schedule a unit has to come
+	// before the server warns about it.
+	defaultServiceWarnKM = 500.0
+)
+
+// ServiceConfig holds the settings of the service reminders.
+//
+// The schedule of a unit is counted from its odometer: the next service is
+// due when the odometer reaches the reading of the last service plus the
+// interval of the unit. A unit without an interval of its own uses the
+// default of the server.
+type ServiceConfig struct {
+	// IntervalDefaultKM is the interval a unit falls back to when
+	// vehicles.service_interval_km is null.
+	IntervalDefaultKM float64
+	// WarnKM is how close to the schedule a unit has to come before it
+	// counts as due.
+	WarnKM float64
 }
 
 // PushConfig holds the VAPID keys of the Web Push feature.
@@ -151,6 +179,10 @@ func Load() (*Config, error) {
 			IdleRadiusM:     getFloatEnv("SERVER_IDLE_RADIUS_M", 25),
 			IdleMaxSpeedKmh: getFloatEnv("SERVER_IDLE_MAX_SPEED_KMH", 2),
 		},
+		Service: ServiceConfig{
+			IntervalDefaultKM: getPositiveFloatEnv("SERVICE_INTERVAL_DEFAULT_KM", defaultServiceIntervalKM),
+			WarnKM:            getPositiveFloatEnv("SERVICE_WARN_KM", defaultServiceWarnKM),
+		},
 		Push: PushConfig{
 			PublicKey:  getEnv("VAPID_PUBLIC_KEY", ""),
 			PrivateKey: getEnv("VAPID_PRIVATE_KEY", ""),
@@ -216,6 +248,21 @@ func getIntEnv(key string, fallback int) int {
 func getFloatEnv(key string, fallback float64) float64 {
 	if v := os.Getenv(key); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return fallback
+}
+
+// getPositiveFloatEnv reads a decimal number that has to be positive.
+//
+// A value that cannot be read, or that is not positive, is replaced by the
+// fallback: the service schedule needs a real interval and a real warning
+// distance to work with, and a zero would turn every unit into an overdue
+// one.
+func getPositiveFloatEnv(key string, fallback float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
 			return f
 		}
 	}

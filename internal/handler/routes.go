@@ -433,25 +433,7 @@ func (h *RouteHandler) Active(c *gin.Context) {
 // is theirs, the same rule the fleet list follows. It writes the error
 // response itself, so the caller can simply return.
 func (h *RouteHandler) vehicleReadable(c *gin.Context, id int64) bool {
-	scope := driverScope(c)
-	if scope == nil {
-		return true
-	}
-
-	ctx, cancel := h.ctxWithTimeout(c)
-	defer cancel()
-
-	allowed, err := vehicleBelongsToDriver(ctx, h.db, id, *scope)
-	if err != nil {
-		log.Printf("routes: driver scope for vehicle %d failed: %v", id, err)
-		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
-		return false
-	}
-	if !allowed {
-		c.JSON(http.StatusForbidden, errorBody("forbidden", "this vehicle is not assigned to you"))
-		return false
-	}
-	return true
+	return vehicleReadable(c, h.db, id)
 }
 
 // Set plans and stores a new active route. An earlier active route for the same

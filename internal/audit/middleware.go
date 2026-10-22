@@ -180,6 +180,11 @@ func describe(c *gin.Context) (action, entityType string, entityID *int64, ok bo
 		// changed, and the trail names it after the unit that drives it.
 		entityType = entityRoute
 		action = actionUpdate
+	case "services":
+		// A service was written down for a unit: the unit is what
+		// changed, so the trail names the unit and not the record.
+		entityType = entityVehicle
+		action = actionUpdate
 	default:
 		switch c.Request.Method {
 		case http.MethodPost:

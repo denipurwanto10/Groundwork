@@ -7,6 +7,7 @@ package vehicle
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -94,6 +95,13 @@ type Vehicle struct {
 	// the dwell time it has spent there. Null while the unit is outside every
 	// zone.
 	CurrentZone *VehicleZone `json:"current_zone"`
+	// TotalDistanceKM is the odometer of the unit: how far it has driven
+	// since it was created. The server accumulates it, one position report
+	// at a time, so it never means reading the whole history again.
+	TotalDistanceKM float64 `json:"total_distance_km"`
+	// Service is the service schedule of the unit: when it was serviced
+	// last, when the next service is due and how far it is from it.
+	Service ServiceSchedule `json:"service"`
 }
 
 // VehicleZone is the work area a unit is standing in, and for how long.
@@ -207,6 +215,10 @@ type CreateInput struct {
 	// workspace, so the server decides it: the field is accepted for the sake
 	// of older clients and then overwritten.
 	RouteColor string `json:"route_color"`
+	// ServiceIntervalKM is the interval the unit is serviced on, in
+	// kilometres. Null means the default of the server, which every unit
+	// without an interval of its own follows.
+	ServiceIntervalKM *float64 `json:"service_interval_km"`
 }
 
 // DefaultRouteColor is the colour of every delivery line: the primary red of
@@ -241,6 +253,15 @@ func (in *CreateInput) Validate() FieldErrors {
 	}
 	if !kinds[in.Kind] {
 		errs["kind"] = "kind must be one of truck, van, motorcycle, pickup"
+	}
+	if in.ServiceIntervalKM != nil {
+		switch interval := *in.ServiceIntervalKM; {
+		case math.IsNaN(interval) || interval <= 0:
+			errs["service_interval_km"] = "service_interval_km must be greater than 0"
+		case interval > MaxServiceIntervalKM:
+			errs["service_interval_km"] = fmt.Sprintf(
+				"service_interval_km must be at most %g", MaxServiceIntervalKM)
+		}
 	}
 	return errs
 }

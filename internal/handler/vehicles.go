@@ -41,12 +41,24 @@ type VehicleHandler struct {
 	idleRadiusM float64
 	// idleMaxSpeedKmh is the speed above which a report counts as movement.
 	idleMaxSpeedKmh float64
+	// serviceIntervalKM is the interval a unit falls back to when it has no
+	// interval of its own.
+	serviceIntervalKM float64
+	// serviceWarnKM is how close to the schedule a unit has to come before
+	// the server warns about it.
+	serviceWarnKM float64
 	// push tells the operators that a unit arrived.
 	push *push.Service
 }
 
 func NewVehicleHandler(pool *db.Pool, hub *ws.Hub, pushService *push.Service) *VehicleHandler {
-	return &VehicleHandler{db: pool, hub: hub, push: pushService}
+	return &VehicleHandler{
+		db:                pool,
+		hub:               hub,
+		push:              pushService,
+		serviceIntervalKM: vehicle.DefaultServiceIntervalKM,
+		serviceWarnKM:     vehicle.DefaultServiceWarnKM,
+	}
 }
 
 // SetOfflineAfter turns the automatic offline detection on: a unit that has
@@ -67,6 +79,21 @@ func (h *VehicleHandler) SetIdleDetection(after time.Duration, radiusM, maxSpeed
 	h.idleMaxSpeedKmh = maxSpeedKmh
 }
 
+// SetServiceSchedule sets the two numbers the service schedule of the fleet
+// is counted with: the interval a unit falls back to when it has none of its
+// own, and how close to the schedule it has to come before it counts as due.
+//
+// A value that is not positive is ignored: the schedule needs a real
+// interval to work with.
+func (h *VehicleHandler) SetServiceSchedule(defaultIntervalKM, warnKM float64) {
+	if defaultIntervalKM > 0 {
+		h.serviceIntervalKM = defaultIntervalKM
+	}
+	if warnKM > 0 {
+		h.serviceWarnKM = warnKM
+	}
+}
+
 func (h *VehicleHandler) ctxWithTimeout(c *gin.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(c.Request.Context(), 10*time.Second)
 }
@@ -74,6 +101,7 @@ func (h *VehicleHandler) ctxWithTimeout(c *gin.Context) (context.Context, contex
 const vehicleCols = `SELECT v.id, v.code, v.name, v.kind, v.status, v.driver_id,
        v.last_lat, v.last_lng, v.last_speed_kmh, v.last_seen_at,
        v.last_heading, v.route_color,
+       v.total_distance_m, v.service_interval_km, v.last_service_at, v.last_service_odometer_m,
        ` + vehicleIdleCols
 
 const vehicleFrom = ` FROM vehicles v` + vehicleIdleJoins
@@ -138,6 +166,7 @@ const vehicleIdleJoins = ` LEFT JOIN LATERAL (
 const vehicleColsWithRoute = `SELECT v.id, v.code, v.name, v.kind, v.status, v.driver_id,
        v.last_lat, v.last_lng, v.last_speed_kmh, v.last_seen_at,
        v.last_heading, v.route_color,
+       v.total_distance_m, v.service_interval_km, v.last_service_at, v.last_service_odometer_m,
        ` + vehicleIdleCols + `,
        rt.id, rt.origin_name, rt.origin_lat, rt.origin_lng,
        rt.dest_name, rt.dest_lat, rt.dest_lng,
@@ -194,12 +223,35 @@ func (s *idleScan) apply(v *vehicle.Vehicle) {
 	}
 }
 
+// serviceScan holds the places the service columns of a vehicle row are
+// scanned into: the odometer and the baseline of the last service.
+type serviceScan struct {
+	totalDistanceM float64
+	intervalKM     *float64
+	lastServiceAt  *time.Time
+	lastOdometerM  float64
+}
+
+// apply fills the service fields of a vehicle with what was scanned.
+//
+// The schedule itself is worked out in one place — vehicle.ComputeService —
+// so the fleet list, the sweep of the reminders and the answer of the service
+// endpoint never disagree about the same unit.
+func (s serviceScan) apply(v *vehicle.Vehicle, defaultIntervalKM, warnKM float64) {
+	v.TotalDistanceKM = round2(s.totalDistanceM / 1000)
+	v.Service = vehicle.ComputeService(
+		s.totalDistanceM, s.intervalKM, s.lastServiceAt, s.lastOdometerM,
+		defaultIntervalKM, warnKM,
+	)
+}
+
 // vehicleDest returns the destinations of the columns every vehicle row
 // carries, in the order the queries return them: the fleet data first, then
-// the idle columns.
-func vehicleDest(v *vehicle.Vehicle, idle *idleScan) []any {
+// the service columns, then the idle columns.
+func vehicleDest(v *vehicle.Vehicle, idle *idleScan, svc *serviceScan) []any {
 	return []any{&v.ID, &v.Code, &v.Name, &v.Kind, &v.Status, &v.DriverID,
 		&v.Lat, &v.Lng, &v.SpeedKmh, &v.LastSeenAt, &v.Heading, &v.RouteColor,
+		&svc.totalDistanceM, &svc.intervalKM, &svc.lastServiceAt, &svc.lastOdometerM,
 		&idle.since, &idle.duration, &idle.zoneID, &idle.zoneName,
 		&idle.zoneSince, &idle.dwellS}
 }
@@ -207,16 +259,18 @@ func vehicleDest(v *vehicle.Vehicle, idle *idleScan) []any {
 // scanVehicle reads one fleet row. extra collects the additional columns of
 // queries that return more than the fleet itself (the position update adds the
 // coordinates the vehicle had before it).
-func scanVehicle(row rowScanner, extra ...any) (vehicle.Vehicle, error) {
+func (h *VehicleHandler) scanVehicle(row rowScanner, extra ...any) (vehicle.Vehicle, error) {
 	var v vehicle.Vehicle
 	var idle idleScan
+	var svc serviceScan
 
-	dest := vehicleDest(&v, &idle)
+	dest := vehicleDest(&v, &idle, &svc)
 	dest = append(dest, extra...)
 	if err := row.Scan(dest...); err != nil {
 		return vehicle.Vehicle{}, err
 	}
 	idle.apply(&v)
+	svc.apply(&v, h.serviceIntervalKM, h.serviceWarnKM)
 
 	return v, nil
 }
@@ -224,10 +278,11 @@ func scanVehicle(row rowScanner, extra ...any) (vehicle.Vehicle, error) {
 // scanVehicleWithRoute reads a fleet row that also carries the delivery route
 // the unit is following. The route columns are nullable: a unit without a
 // route leaves them empty and the vehicle travels on without one.
-func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
+func (h *VehicleHandler) scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 	var (
 		v          vehicle.Vehicle
 		idle       idleScan
+		svc        serviceScan
 		routeID    *int64
 		originName *string
 		originLat  *float64
@@ -247,7 +302,7 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 		driverSet  *bool
 	)
 
-	dest := vehicleDest(&v, &idle)
+	dest := vehicleDest(&v, &idle, &svc)
 	dest = append(dest, &routeID, &originName, &originLat, &originLng,
 		&destName, &destLat, &destLng,
 		&geojson, &distanceM, &durationS, &source, &status, &createdAt, &progress,
@@ -256,6 +311,7 @@ func scanVehicleWithRoute(row rowScanner) (vehicle.Vehicle, error) {
 		return vehicle.Vehicle{}, err
 	}
 	idle.apply(&v)
+	svc.apply(&v, h.serviceIntervalKM, h.serviceWarnKM)
 
 	if routeID == nil {
 		return v, nil
@@ -343,7 +399,7 @@ func (h *VehicleHandler) List(c *gin.Context) {
 
 	vehicles := make([]vehicle.Vehicle, 0)
 	for rows.Next() {
-		v, err := scanVehicleWithRoute(rows)
+		v, err := h.scanVehicleWithRoute(rows)
 		if err != nil {
 			log.Printf("vehicles: list scan failed: %v", err)
 			c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
@@ -387,8 +443,9 @@ func (h *VehicleHandler) Create(c *gin.Context) {
 
 	var id int64
 	err := h.db.QueryRow(ctx,
-		`INSERT INTO vehicles (code, name, kind, driver_id, route_color) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		in.Code, in.Name, in.Kind, in.DriverID, in.RouteColor).Scan(&id)
+		`INSERT INTO vehicles (code, name, kind, driver_id, route_color, service_interval_km)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		in.Code, in.Name, in.Kind, in.DriverID, in.RouteColor, in.ServiceIntervalKM).Scan(&id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
@@ -406,7 +463,7 @@ func (h *VehicleHandler) Create(c *gin.Context) {
 		return
 	}
 
-	created, err := scanVehicle(h.db.QueryRow(ctx, vehicleCols+vehicleFrom+" WHERE v.id = $1", id))
+	created, err := h.scanVehicle(h.db.QueryRow(ctx, vehicleCols+vehicleFrom+" WHERE v.id = $1", id))
 	if err != nil {
 		log.Printf("vehicles: read-back failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
@@ -442,7 +499,8 @@ func (h *VehicleHandler) Update(c *gin.Context) {
 	ctx, cancel := h.ctxWithTimeout(c)
 	defer cancel()
 
-	updated, err := scanVehicle(h.db.QueryRow(ctx, updateVehicleSQL, id, in.Code, in.Name, in.Kind, in.DriverID, in.RouteColor))
+	updated, err := h.scanVehicle(h.db.QueryRow(ctx, updateVehicleSQL,
+		id, in.Code, in.Name, in.Kind, in.DriverID, in.RouteColor, in.ServiceIntervalKM))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		c.JSON(http.StatusNotFound, errorBody("not_found", "vehicle not found"))
@@ -470,13 +528,22 @@ func (h *VehicleHandler) Update(c *gin.Context) {
 }
 
 // updateVehicleSQL edits the fleet row and reads it back in one round trip.
+//
+// The edit is a full replace of the details of a unit, but only of the
+// details: the odometer, the baseline of the last service and the marker of
+// the last warning are not part of the body and stay where they are. The
+// interval of the service is the one field of the schedule an operator may
+// change from here.
 const updateVehicleSQL = `WITH updated AS (
          UPDATE vehicles
-            SET code = $2, name = $3, kind = $4, driver_id = $5, route_color = $6, updated_at = now()
+            SET code = $2, name = $3, kind = $4, driver_id = $5, route_color = $6,
+                service_interval_km = $7, updated_at = now()
           WHERE id = $1
          RETURNING id, code, name, kind, status, driver_id,
                    last_lat, last_lng, last_speed_kmh, last_seen_at,
-                   last_heading, route_color
+                   last_heading, route_color,
+                   total_distance_m, service_interval_km, last_service_at, last_service_odometer_m,
+                   stationary_since, stationary_anchor_lat, stationary_anchor_lng
      )
 ` + vehicleCols + ` FROM updated v` + vehicleIdleJoins
 
@@ -554,7 +621,7 @@ func (h *VehicleHandler) UpdatePosition(c *gin.Context) {
 		anchorSince      *time.Time
 		anchorDistanceM  *float64
 	)
-	updated, err := scanVehicle(h.db.QueryRow(ctx, reportPositionSQL, id, *in.Lat, *in.Lng, speed, in.Status, heading),
+	updated, err := h.scanVehicle(h.db.QueryRow(ctx, reportPositionSQL, id, *in.Lat, *in.Lng, speed, in.Status, heading),
 		&prevLat, &prevLng, &anchorSince, &anchorDistanceM)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -616,27 +683,32 @@ func (h *VehicleHandler) UpdatePosition(c *gin.Context) {
 // `previous` captures the coordinates the vehicle had before this report. All
 // CTEs of a statement see the same snapshot, so it holds the old position even
 // though `updated` overwrites it — that is what the geofence check compares
-// the new position against.
+// the new position against, and what the odometer measures its step from.
 //
 // The heading is written with COALESCE: a report that carries no direction
 // keeps the last known one instead of clearing it.
+//
+// The odometer grows in the same statement: the step between the old and the
+// new position is added to the row (see odometerStepSQL).
 //
 // The statement also hands back what the idle detection needs to know: where
 // the anchor of the unit stands, how far the new position is from it, and
 // whether an idle session is still running.
 const reportPositionSQL = `WITH previous AS (
-         SELECT last_lat AS prev_lat, last_lng AS prev_lng
+         SELECT last_lat AS prev_lat, last_lng AS prev_lng, last_seen_at AS prev_at
            FROM vehicles
           WHERE id = $1
      ), updated AS (
          UPDATE vehicles
             SET last_lat = $2, last_lng = $3, last_speed_kmh = $4, status = $5,
                 last_heading = COALESCE($6, last_heading),
-                last_seen_at = now(), updated_at = now()
+                last_seen_at = now(), updated_at = now(),
+                total_distance_m = total_distance_m + ` + odometerStepSQL + `
           WHERE id = $1
          RETURNING id, code, name, kind, status, driver_id,
                    last_lat, last_lng, last_speed_kmh, last_seen_at,
                    last_heading, route_color,
+                   total_distance_m, service_interval_km, last_service_at, last_service_odometer_m,
                    stationary_since, stationary_anchor_lat, stationary_anchor_lng
      ), logged AS (
          INSERT INTO vehicle_positions (vehicle_id, lat, lng, speed_kmh, heading)
@@ -646,12 +718,44 @@ const reportPositionSQL = `WITH previous AS (
      SELECT v.id, v.code, v.name, v.kind, v.status, v.driver_id,
             v.last_lat, v.last_lng, v.last_speed_kmh, v.last_seen_at,
             v.last_heading, v.route_color,
+            v.total_distance_m, v.service_interval_km, v.last_service_at, v.last_service_odometer_m,
             ` + vehicleIdleCols + `,
             p.prev_lat, p.prev_lng,
             v.stationary_since,
             ` + anchorDistanceSQL + `
        FROM updated v
        CROSS JOIN previous p` + vehicleIdleJoins
+
+// odometerStepSQL is the distance this report adds to the odometer of the
+// unit.
+//
+// It is the step between the position the unit had and the one it reports
+// now, measured on the sphere — and it is guarded exactly like the distance
+// of the Overview tab and of the operational report: a step that would need
+// an impossible speed (more than 200 km/h) is not a step, it is a jump of
+// the position. A unit that is placed at the origin of a new route has not
+// driven that distance.
+//
+// The guard is the speed of the step itself, never the speed the reporter
+// claims: a report that says 5 km/h after a jump of a hundred kilometres is
+// still a jump.
+//
+// The first report of a unit adds nothing: there is no step before it.
+const odometerStepSQL = `COALESCE((
+         SELECT CASE
+                    WHEN s.seconds <= 0 THEN 0
+                    WHEN s.meters / s.seconds * 3.6 > 200 THEN 0
+                    ELSE s.meters
+                END
+           FROM (
+                SELECT ST_Distance(
+                           ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+                           ST_SetSRID(ST_MakePoint(p.prev_lng, p.prev_lat), 4326)::geography) AS meters,
+                       EXTRACT(EPOCH FROM (now() - p.prev_at)) AS seconds
+                  FROM previous p
+                 WHERE p.prev_lat IS NOT NULL AND p.prev_at IS NOT NULL
+               ) s
+       ), 0)`
 
 // anchorDistanceSQL measures how far the new position of a unit is from its
 // anchor, on the sphere and not on the flat map. It is null while the unit
@@ -786,7 +890,7 @@ func (h *VehicleHandler) snapshot(ctx context.Context, driverID *int64) ([]byte,
 
 	vehicles := make([]vehicle.Vehicle, 0)
 	for rows.Next() {
-		v, err := scanVehicleWithRoute(rows)
+		v, err := h.scanVehicleWithRoute(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan vehicle: %w", err)
 		}
@@ -851,7 +955,7 @@ func (h *VehicleHandler) MarkStaleOffline(ctx context.Context) (int, error) {
 
 	for _, id := range ids {
 		row := h.db.QueryRow(ctx, vehicleColsWithRoute+" WHERE v.id = $1", id)
-		v, err := scanVehicleWithRoute(row)
+		v, err := h.scanVehicleWithRoute(row)
 		if err != nil {
 			// The unit was deleted in the meantime. It is gone from the map
 			// anyway, so there is nothing to tell the browsers about.
@@ -987,7 +1091,7 @@ func (h *VehicleHandler) MarkStationaryIdle(ctx context.Context) (int, error) {
 
 	for _, id := range ids {
 		row := h.db.QueryRow(ctx, vehicleColsWithRoute+" WHERE v.id = $1", id)
-		v, err := scanVehicleWithRoute(row)
+		v, err := h.scanVehicleWithRoute(row)
 		if err != nil {
 			// The unit was deleted in the meantime. It is gone from the map
 			// anyway, so there is nothing to tell the browsers about.

@@ -138,6 +138,13 @@ func main() {
 			protected.GET("/vehicles/:id/history", vehicleHandler.History)
 			protected.GET("/vehicles/stream", vehicleHandler.Stream)
 
+			// The service schedule of the fleet: the odometer of a unit
+			// and the service that is due. Everybody may read the history
+			// of a unit (a driver only their own); writing a service down
+			// is the work of an admin.
+			protected.GET("/vehicles/:id/services", vehicleHandler.ListServices)
+			protected.POST("/vehicles/:id/services", adminOnly, vehicleHandler.RecordService)
+
 			// A unit that stops reporting must not look alive forever. The
 			// sweep puts the silent ones into the offline state; a unit that
 			// reports again lifts itself back up, because every position
@@ -158,6 +165,15 @@ func main() {
 				log.Printf("units that stand still for %s count as idle (radius %gm, speed %gkm/h)",
 					cfg.Fleet.IdleAfter, cfg.Fleet.IdleRadiusM, cfg.Fleet.IdleMaxSpeedKmh)
 			}
+
+			// The service reminders. The schedule of a unit is counted from
+			// its odometer, and the operators are warned once when a unit
+			// comes close to its next service — and once more when it drove
+			// past it.
+			vehicleHandler.SetServiceSchedule(cfg.Service.IntervalDefaultKM, cfg.Service.WarnKM)
+			go sweepServiceReminders(vehicleHandler)
+			log.Printf("service reminders: every %gkm (default interval %gkm)",
+				cfg.Service.WarnKM, cfg.Service.IntervalDefaultKM)
 
 			// Crossing history of the zone boundaries. Every signed-in role may
 			// read it; a driver only sees the crossings of their own unit.
@@ -307,6 +323,30 @@ func sweepIdleVehicles(h *handler.VehicleHandler) {
 		}
 		if n > 0 {
 			log.Printf("idle sweep: %d unit(s) have been standing still", n)
+		}
+	}
+}
+
+// sweepServiceReminders warns the operators about the units that come close
+// to their next service, again and again, until the server stops.
+//
+// A service is not an event of the second: a unit that comes close to its
+// schedule stays close to it for hours. One minute is often enough, and the
+// sweep itself is idempotent — a unit is warned once per level.
+func sweepServiceReminders(h *handler.VehicleHandler) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		n, err := h.CheckServiceReminders(ctx)
+		cancel()
+		if err != nil {
+			log.Printf("service reminder sweep failed: %v", err)
+			continue
+		}
+		if n > 0 {
+			log.Printf("service reminder sweep: %d reminder(s) sent", n)
 		}
 	}
 }
