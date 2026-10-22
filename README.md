@@ -30,6 +30,7 @@ TypeScript + Leaflet di frontend.
 - [Status Per-Stop](#status-per-stop-bukti-singgah)
 - [Task Management](#task-management-work-orders)
 - [Laporan & Export](#laporan--export-laporan-operasional)
+- [Pengingat Servis](#pengingat-servis)
 - [Notifikasi Desktop](#notifikasi-desktop-web-push)
 - [Playback Rute](#playback-rute-history-perjalanan)
 - [Keamanan](#keamanan)
@@ -371,10 +372,12 @@ dengan yang asli.
 | `POST` | `/api/zones/from-region` | buat zona dari kode wilayah administratif |
 | `GET` | `/api/islands` | gugus pulau yang bisa dijadikan zona |
 | `POST` | `/api/zones/from-island` | buat zona dari gugus pulau |
-| `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir + rute aktif (`active_route`) + status idle (`idle_since`, `idle_duration_s`) + zona yang ditempati (`current_zone`) / daftar unit baru |
-| `PUT` | `/api/vehicles/:id` | ubah unit (nama, tipe, driver) |
-| `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `heading`, `status` opsional) → disiar ke WS |
+| `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir + rute aktif (`active_route`) + status idle (`idle_since`, `idle_duration_s`) + zona yang ditempati (`current_zone`) + odometer (`total_distance_km`) + jadwal servis (`service`) / daftar unit baru |
+| `PUT` | `/api/vehicles/:id` | ubah unit (nama, tipe, driver, `service_interval_km` opsional) |
+| `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `heading`, `status` opsional) → disiar ke WS, odometer bertambah |
 | `GET` | `/api/vehicles/:id/history` | histori posisi unit: `?date=YYYY-MM-DD` atau `?from=&to=` |
+| `GET` | `/api/vehicles/:id/services` | riwayat servis unit (terbaru dulu); driver hanya unitnya sendiri |
+| `POST` | `/api/vehicles/:id/services` | catat servis `{note?, serviced_at?}` (admin) → jadwal servis mulai dari odometer sekarang |
 | `GET` | `/api/vehicles/stream` | WebSocket: frame `snapshot` saat connect, lalu `position` |
 | `GET` | `/api/idle-events` | riwayat sesi idle (terbaru dulu); `?vehicle_id=&from=&to=&limit=` (bawaan 100, maks. 500) |
 | `GET` | `/api/routes` | semua rute aktif |
@@ -416,8 +419,28 @@ Bentuk unit (yang di `GET /api/vehicles`):
  "heading": 353.2, "route_color": "#d0171e",
  "last_seen_at": "…", "active_route": {…},
  "idle_since": null, "idle_duration_s": null,
- "current_zone": null}
+ "current_zone": null,
+ "total_distance_km": 1574.42,
+ "service": {"interval_km": 5000, "last_service_at": null,
+             "last_service_km": 0, "next_due_km": 5000,
+             "remaining_km": 3425.58, "status": "ok"}}
 ```
+
+`total_distance_km` = odometer unit (akumulasi sejak unit dibuat), dan
+`service` = jadwal servisnya:
+
+```json
+{"interval_km": 5000,
+ "last_service_at": "2026-10-22T09:12:00+07:00",
+ "last_service_km": 12500.5,
+ "next_due_km": 17500.5,
+ "remaining_km": 3425.58,
+ "status": "ok"}
+```
+
+`status` adalah `ok` (masih jauh dari jadwal), `due_soon` (sisa jarak sudah
+masuk ambang peringatan) atau `overdue` (sudah lewat jadwal). Lihat
+[Pengingat Servis](#pengingat-servis) untuk aturannya.
 
 `idle_since` = waktu mulai sesi idle yang sedang berjalan (`null` kalau unit
 tidak idle), `idle_duration_s` = detiknya (dihitung server, `null` kalau tidak
@@ -998,6 +1021,165 @@ curl -o report.csv "http://127.0.0.1:8091/api/reports/export.csv?from=2026-10-16
   -H "Authorization: Bearer $TOKEN"
 ```
 
+## Pengingat Servis
+
+Setiap unit punya **odometer** (jarak tempuh seumur kendaraan) dan **jadwal
+servis** yang dihitung dari odometer itu. Operator diberi tahu saat unit
+mendekati jadwal servisnya dan saat unit sudah melewatinya; mencatat servis
+mengembalikan jadwal ke awal.
+
+### Odometer: satu cara hitung saja
+
+Odometer disimpan di `vehicles.total_distance_m` (meter) dan **diakumulasi
+server**, satu laporan posisi sekaligus — bukan dihitung ulang dari seluruh
+histori posisi setiap kali dibaca.
+
+Langkah yang ditambahkan sama persis dengan cara hitung jarak di tab Overview
+dan di laporan operasional (`GET /api/overview`, `internal/handler/reports.go`):
+
+- jarak antara dua posisi berurutan diukur di bola bumi
+  (`ST_Distance` pada `geography`), bukan di peta datar;
+- **langkah yang butuh kecepatan mustahil (> 200 km/h) dibuang** — lompatan
+  posisi (misal unit dipindah ke titik awal rute) bukan jarak yang ditempuh;
+- langkah pertama unit (belum ada posisi sebelumnya) menambah `0`;
+- penjaganya adalah **kecepatan langkah hasil hitungan**, bukan klaim
+  `speed_kmh` dari pelapor: laporan yang bilang "5 km/h" setelah lompatan
+  100 km tetap lompatan.
+
+Semua ini terjadi dalam **statement yang sama** dengan penulisan posisi
+(`reportPositionSQL` di `internal/handler/vehicles.go`), jadi odometer tidak
+pernah tertinggal satu laporan. Tab Reports dan Overview tetap menghitung
+jarak **per periode** seperti sebelumnya — odometer adalah total seumur unit.
+
+> Penjaga yang sama berlaku untuk Overview dan laporan, jadi sebuah lompatan
+> posisi setelah jeda panjang bisa ikut terhitung kalau kecepatan rata-ratanya
+> masih di bawah 200 km/h — persis seperti yang terjadi pada angka jarak di
+> laporan. Kalau ingin angka yang lebih ketat, yang harus diubah adalah
+> **satu** guard itu, di satu tempat, untuk ketiga pembacaannya.
+
+Migrasi 029 mengisi ulang odometer dari riwayat posisi yang sudah ada,
+memakai logika langkah yang sama persis. Angka backfill itu hanya sebaik
+histori posisi yang tersimpan — posisi yang tidak pernah dilaporkan tetap
+tidak terhitung.
+
+### Tiga status servis
+
+Jadwal berikutnya dihitung dari odometer:
+
+```
+batas berikutnya (km) = odometer servis terakhir (km) + interval (km)
+sisa jarak (km)        = batas berikutnya − odometer sekarang (km)
+```
+
+| Status | Arti | Syarat |
+| ------ | ---- | ------ |
+| `ok` | Aman | sisa jarak > ambang peringatan |
+| `due_soon` | Mendekati jadwal | 0 < sisa jarak ≤ ambang peringatan |
+| `overdue` | Terlewat | sisa jarak ≤ 0 |
+
+Semua angka km dibulatkan dua desimal, sama seperti laporan.
+
+### Dua variabel `.env`
+
+| Variabel | Bawaan | Arti |
+| -------- | ------ | ---- |
+| `SERVICE_INTERVAL_DEFAULT_KM` | `5000` | Interval servis yang dipakai unit yang tidak punya interval sendiri |
+| `SERVICE_WARN_KM` | `500` | Jarak (km) dari jadwal saat unit sudah dianggap `due_soon` |
+
+Keduanya harus di atas 0; nilai yang tidak bisa dibaca atau bukan positif
+diganti bawaan, sama seperti parsing config yang lain. Satu unit boleh punya
+interval sendiri (`vehicles.service_interval_km`, diisi lewat
+`PUT /api/vehicles/:id` dengan field `service_interval_km`, harus > 0 dan
+≤ 100.000 km).
+
+### Cara mencatat servis
+
+Tombol **Catat servis** ada di tab Fleet untuk admin, di bawah bagian
+**Servis** unit yang dipilih. Form-nya meminta:
+
+- **Tanggal servis** — bawaan hari ini, tidak boleh di masa depan;
+- **Catatan** — opsional, maksimal 500 karakter.
+
+Menekan tombolnya menulis satu baris di `vehicle_services` (dengan odometer
+unit **saat itu** sebagai potret) dan mengembalikan jadwal unit: titik awal
+jadwal berikutnya jadi odometer sekarang, sehingga **sisa jaraknya satu
+interval penuh** lagi dan statusnya kembali `ok`. Penanda peringatan ikut
+dihapus, sehingga siklus servis berikutnya bisa mengirim peringatan lagi dari
+awal.
+
+### Peringatan dikirim sekali per tingkat
+
+Sweep `CheckServiceReminders` (`internal/handler/services.go`) berjalan tiap
+menit, seperti sweep offline dan sweep idle. Untuk setiap unit ia menghitung
+status servisnya, lalu:
+
+- `ok` → tidak ada apa-apa, penandanya tidak diubah;
+- tingkat yang lebih tinggi dari penanda terakhir (`''` < `due_soon` <
+  `overdue`) → **satu** Web Push ke operator (admin + staff), lalu penandanya
+  diisi dengan tingkat itu.
+
+Jadi unit yang tetap di satu tingkat tidak diberi tahu berulang; unit yang
+menaik ke `overdue` diberi tahu sekali lagi. Penanda hanya direset oleh
+pencatatan servis. Tanpa pasangan kunci VAPID, sweep tetap memperbarui
+penanda dan menulis log — hanya tidak mengirim apa pun.
+
+| Event | Judul | Body | Tag | Tujuan |
+| ----- | ----- | ---- | --- | ------ |
+| Unit mendekati jadwal | `Servis sebentar lagi` | `TRK-001 sisa 320 km menuju servis 5000 km` | `service-<vehicle_id>-due_soon` | `/` |
+| Unit lewat jadwal | `Servis terlewat` | `TRK-001 sudah lewat 150 km dari jadwal servis` | `service-<vehicle_id>-overdue` | `/` |
+
+### Di mana terlihat
+
+- **Fleet** — kartu unit menampilkan odometer (`1.577,5 km`) dan chip status
+  servis: kuning `Servis sebentar lagi · sisa 320 km`, merah
+  `Telat servis · lewat 150 km`, atau teks redup `Servis aman` kalau unitnya
+  masih aman. Unit yang dipilih menampilkan bagian **Servis**: servis
+  terakhir, jadwal berikutnya, riwayat servis, dan tombol **Catat servis**.
+- **Overview** — satu baris ringkas di bawah kartu armada:
+  `Servis: 2 mendekati jadwal · 1 terlewat` (atau `Servis: semua aman`).
+- **Driver View** — tidak berubah: driver tidak mencatat servis, dan
+  scheduler tidak pernah menolak membacanya.
+
+### Cara mengetestnya manual
+
+1. **Pilih interval dan ambang kecil** di `.env` lokal, supaya jadwalnya
+   cepat tercapai:
+
+   ```bash
+   SERVICE_INTERVAL_DEFAULT_KM=2
+   SERVICE_WARN_KM=1
+   ```
+
+2. **Restart backend** (`go build -o bin/server.exe ./cmd/server && ./bin/server.exe`)
+   dan **buat unit baru** di tab Fleet (odometer unit baru mulai dari 0).
+3. **Jalankan simulator** beberapa menit
+   (`go run ./cmd/simulator -api http://127.0.0.1:8091 -email fleetadm@test.local -password Groundwork123 -count 5 -interval 2s`)
+   sampai odometer unit itu **melewati 1 km**.
+   - Chip kuning **Servis sebentar lagi · sisa … km** muncul di Fleet.
+   - **Satu** push `Servis sebentar lagi` masuk. Sweep berikutnya tidak
+     mengirim apa pun (tingkatnya sama).
+4. **Biarkan unit berjalan sampai odometernya lewat 2 km.**
+   - Push `Servis terlewat` masuk **sekali** (menaik satu tingkat).
+   - Sweep berikutnya diam.
+5. **Catat servis dari Fleet** sebagai admin.
+   - Status kembali **Servis aman**, jadwal berikutnya bergeser
+     (`next_due_km` = odometer sekarang + interval), riwayat servis berisi
+     satu baris baru, dan penanda peringatan dikosongkan.
+6. **Kembalikan dua variabel itu ke bawaan** kalau sudah selesai menguji:
+
+   ```bash
+   SERVICE_INTERVAL_DEFAULT_KM=5000
+   SERVICE_WARN_KM=500
+   ```
+
+   (atau hapus kedua barisnya dari `.env` — server memakai bawaannya kalau
+   variabelnya tidak ada).
+
+> **Batas jujur:** odometer ini adalah akumulasi dari laporan posisi
+> simulator dengan penjaga kecepatan mustahil — **bukan** pembacaan odometer
+> fisik kendaraan. Angka backfill untuk data lama hanya sebaik riwayat
+> posisi yang tersimpan.
+
 ## Notifikasi Desktop (Web Push)
 
 Lonceng di pojok kanan atas top bar adalah **pusat notifikasi** aplikasi.
@@ -1211,12 +1393,12 @@ cmd/
   import-regions/         # importer COD-AB → admin_regions (bisa unduh sendiri)
 internal/
   config/ db/             # .env + DSN, pgxpool + health
-  entity/ vehicle/ task/  # model + validasi + unit test (vehicle juga model rute)
-  handler/                # entities, zones, vehicles, routes, regions, islands, tasks, reports, auth
+  entity/ vehicle/ task/  # model + validasi + unit test (vehicle juga model rute & jadwal servis)
+  handler/                # entities, zones, vehicles, routes, regions, islands, tasks, reports, services, auth
   middleware/             # kompresi gzip
   routing/                # klien OSRM + fallback direct
   ws/                     # hub WebSocket
-migrations/               # 001-025 up/down + README
+migrations/               # 001-029 up/down + README
 scripts/empty-state.sql   # kembali ke layar "No entities yet."
 frontend/src/
   lib/                    # api.ts, types.ts, vehicleStream.ts, session.ts, playback.ts

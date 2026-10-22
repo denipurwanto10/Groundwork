@@ -35,6 +35,7 @@ Plain SQL files, applied in filename order. No migration framework
 | `026_create_push_subscriptions.up.sql` | tabel `push_subscriptions` (subscription Web Push per browser: endpoint, kunci p256dh/auth) |
 | `027_idle_detection.up.sql` | tabel `idle_events` (sesi diam unit) + kolom jangkar diam di `vehicles` |
 | `028_route_stops_status.up.sql` | tabel `route_stops` (status tiap stop rute: pending/arrived/completed/skipped + bukti singgah) + backfill dari `vehicle_routes.stops` |
+| `029_service_reminders.up.sql` | odometer unit (`vehicles.total_distance_m`) + jadwal servis (interval, servis terakhir, penanda peringatan) + tabel `vehicle_services` + backfill odometer dari riwayat posisi |
 
 Tiap file punya pasangan `*.down.sql` untuk rollback (urutan terbalik).
 
@@ -56,6 +57,29 @@ baru. Backfill-nya jalan di file migrasi yang sama:
 - status hasil backfill mengikuti status rutenya: rute `completed` → stop
   `completed` (`completed_at` = `ended_at`), rute `cancelled` → stop
   `skipped`, rute `active` → stop `pending`.
+
+Migrasi 029 menambah **odometer** dan **jadwal servis** per unit:
+
+- `vehicles.total_distance_m` — odometer (meter), diakumulasi server dari
+  laporan posisi (satu statement dengan penulisan posisi), bukan dihitung
+  ulang dari histori;
+- `vehicles.service_interval_km` — interval servis unit (km), `null` = pakai
+  bawaan server (`SERVICE_INTERVAL_DEFAULT_KM`);
+- `vehicles.last_service_at` + `vehicles.last_service_odometer_m` — dua
+  setengah baseline: kapan servis terakhir dicatat dan odometernya;
+- `vehicles.service_notified_level` — penanda peringatan terakhir untuk
+  siklus servis berjalan (`''` / `due_soon` / `overdue`), supaya sweep hanya
+  mengirim satu kali per tingkat;
+- `vehicle_services` — riwayat servis per unit (FK ke `vehicles`, `ON DELETE
+  CASCADE`), dengan potret odometer saat servis dicatat dan akun yang
+  menuliskannya.
+
+Backfill odometer-nya jalan di file migrasi yang sama: jarak antar posisi
+berurutan dihitung dengan `lag()` per kendaraan (urut `recorded_at`),
+`ST_Distance` pada `geography`, dan dua penjaga yang sama dengan Overview dan
+laporan operasional — langkah tanpa selang waktu dan langkah yang butuh
+kecepatan mustahil (> 200 km/h) dibuang. Kendaraan tanpa riwayat posisi
+tetap `0`.
 
 Migrasi 015 dan 016 mengisi database baru dengan data, jadi workspace tidak
 pernah kosong setelah migrasi. Ingin kembali ke layar **"No entities yet."**?
