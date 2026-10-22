@@ -511,7 +511,10 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   grid-template-columns: minmax(0, 1fr) 392px;
-  grid-template-rows: auto minmax(520px, auto) auto;
+  /* The row is tall enough for the fleet card beside the map: a fleet card
+     with five units is about 590px, and a shorter row would push the cards
+     of the row below over it. */
+  grid-template-rows: auto minmax(620px, auto) auto;
   grid-template-areas:
     'kpis kpis'
     'map side'
@@ -532,6 +535,18 @@
 
 .stage-side > .d-card {
   flex: 1;
+}
+
+/* The side column may not be taller than its row: the fleet card scrolls
+   inside itself instead of running under the cards of the row below. */
+.stage[data-view='overview'] .stage-side {
+  min-height: 0;
+}
+
+.stage[data-view='overview'] .stage-side > .d-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .stage-extra {
@@ -2536,4 +2551,12 @@ button.d-row:disabled {
   .um-modal {
     animation: none;
   }
+}
+
+/* Date picker inside form fields: same height as the other inputs. */
+.um-field .dp-field {
+  height: 44px;
+  padding: 0 14px;
+  font-size: 14px;
+  border-radius: 12px;
 }
