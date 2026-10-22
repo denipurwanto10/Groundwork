@@ -314,14 +314,16 @@ function VehicleRow({ row }: { row: ReportVehicle }) {
         <b>{row.vehicle_name}</b>
         <small>{row.vehicle_code}</small>
       </th>
-      <td>{row.driver_name || '—'}</td>
-      <td className="num">{formatKm(row.distance_km)} km</td>
-      <td className="num">
-        {row.routes_completed}
-        <small> of {row.routes_total}</small>
+      <td data-label="Driver">{row.driver_name || '—'}</td>
+      <td className="num" data-label="Distance">{formatKm(row.distance_km)} km</td>
+      <td className="num" data-label="Routes">
+        <span>
+          {row.routes_completed}
+          <small> of {row.routes_total}</small>
+        </span>
       </td>
-      <td className="num">{row.geofence_enter}</td>
-      <td className="num">{row.geofence_exit}</td>
+      <td className="num" data-label="Zones in">{row.geofence_enter}</td>
+      <td className="num" data-label="Zones out">{row.geofence_exit}</td>
     </tr>
   )
 }
@@ -331,10 +333,10 @@ function ZoneRow({ row }: { row: ReportZone }) {
   return (
     <tr>
       <th scope="row">{row.zone_name || `Zone ${row.zone_id}`}</th>
-      <td className="num">{row.enter}</td>
-      <td className="num">{row.exit}</td>
-      <td className="num">{row.total}</td>
-      <td className="num">{row.unique_vehicles}</td>
+      <td className="num" data-label="Entered">{row.enter}</td>
+      <td className="num" data-label="Left">{row.exit}</td>
+      <td className="num" data-label="Crossings">{row.total}</td>
+      <td className="num" data-label="Vehicles">{row.unique_vehicles}</td>
     </tr>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { IconTrash } from './Icons'
 
 interface Props {
@@ -45,7 +46,8 @@ export default function ConfirmDialog({ open, title, message, confirmLabel, busy
     }
   }
 
-  return (
+  // Rendered in <body> so the sheet always sits above the bottom navigation and the map.
+  return createPortal(
     <div className="overlay dialog-overlay" onClick={busy ? undefined : onCancel}>
       <div
         ref={cardRef}
@@ -74,6 +76,7 @@ export default function ConfirmDialog({ open, title, message, confirmLabel, busy
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

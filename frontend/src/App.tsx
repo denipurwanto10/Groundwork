@@ -92,6 +92,7 @@ import './tasks.css'
 import './modern-ui.css'
 import './motion.css'
 import './reports.css'
+import './responsive-final.css'
 
 type Toast = { kind: 'success' | 'error' | 'alert'; text: string; id: number } | null
 type ApiState = 'checking' | 'online' | 'offline'
