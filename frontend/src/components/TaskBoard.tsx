@@ -19,6 +19,7 @@ import {
   IconRefresh,
   IconSearch,
   IconTrash,
+  IconUsers,
   IconX,
 } from './Icons'
 

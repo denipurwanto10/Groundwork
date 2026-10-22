@@ -1065,6 +1065,13 @@ export default function App() {
 
   const selected = entities.find((e) => e.id === selectedId)
 
+  /** The colour of every unit's delivery line, keyed by vehicle id. */
+  const routeColors = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const v of vehicles) if (v.route_color) m.set(v.id, v.route_color)
+    return m
+  }, [vehicles])
+
   const fleet = useMemo(() => {
     const c = { moving: 0, idle: 0, offline: 0 }
     for (const v of vehicles) {
@@ -1370,6 +1377,12 @@ export default function App() {
 
   /** Phone dock: four tabs in reach, the rest tucked behind "More". */
   const [moreOpen, setMoreOpen] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const close = () => mq.matches && setMoreOpen(false)
+    mq.addEventListener('change', close)
+    return () => mq.removeEventListener('change', close)
+  }, [])
   const dockMain = useMemo(
     () => visibleNav.filter((n) => DOCK_MAIN.includes(n.key)),
     [visibleNav],
@@ -1649,6 +1662,7 @@ export default function App() {
               // Delivery routes (from -> to)
               routes={routes}
               routesVisible={vehiclesVisible}
+              routeColors={routeColors}
               routeDraft={routeDraft}
               // Playback of a recorded trip
               playback={playback}

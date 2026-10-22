@@ -15,12 +15,15 @@ import { formatDistance, formatDuration, routeLatLngs, routeProgress } from '../
  */
 
 
-function stopIcon(kind: 'A' | 'B' | 'stop', label: string, order?: number): L.DivIcon {
+function stopIcon(kind: 'A' | 'B' | 'stop', label: string, color?: string, order?: number): L.DivIcon {
   const cls = kind === 'A' ? 'origin' : kind === 'B' ? 'dest' : 'stop'
   const badge = kind === 'stop' ? String(order ?? '') : kind
   return L.divIcon({
     className: 'route-stop-wrap',
-    html: `<span class="route-stop ${cls}"><b>${badge}</b><i>${label}</i></span>`,
+    html:
+      `<span class="route-stop ${cls}"` +
+      (color ? ` style="--route:${color}"` : '') +
+      `><b>${badge}</b><i>${label}</i></span>`,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
   })
@@ -33,18 +36,23 @@ function stopIcon(kind: 'A' | 'B' | 'stop', label: string, order?: number): L.Di
  * class is added to the element itself; colours then come from CSS variables
  * (see modern.css) and follow the light / dark theme.
  *
- * Every line wears the theme colour: the delivery line of a unit is the
- * primary red of the workspace, not a colour of its own.
+ * A route that belongs to a unit with its own colour gets that colour as the
+ * `--route` variable of the element: the CSS rule reads the variable, so the
+ * line follows the unit instead of the global theme.
  */
 function Polyline({
   cls,
+  color,
   ...props
-}: ComponentProps<typeof RLPolyline> & { cls: string }) {
+}: ComponentProps<typeof RLPolyline> & { cls: string; color?: string }) {
   const ref = useRef<L.Polyline | null>(null)
   useEffect(() => {
     const el = ref.current?.getElement()
     if (!el) return
     el.classList.add(cls)
+    // The line takes the colour of the unit that drives it.
+    const path = el as SVGPathElement
+    if (color) path.style.setProperty('--route', color)
   })
   return <RLPolyline ref={ref} {...props} />
 }
@@ -105,10 +113,13 @@ function bearingDeg(from: [number, number], to: [number, number]): number {
 }
 
 /** The live puck: a dot at the head of the line, arrow turned along the road. */
-function puckIcon(deg: number): L.DivIcon {
+function puckIcon(deg: number, color?: string): L.DivIcon {
   return L.divIcon({
     className: 'route-puck-wrap',
-    html: `<span class="route-puck"><i style="transform:rotate(${deg.toFixed(0)}deg)"></i></span>`,
+    html:
+      `<span class="route-puck"` +
+      (color ? ` style="--route:${color}"` : '') +
+      `><i style="transform:rotate(${deg.toFixed(0)}deg)"></i></span>`,
     iconSize: [20, 20],
     iconAnchor: [10, 10],
   })
@@ -116,9 +127,12 @@ function puckIcon(deg: number): L.DivIcon {
 
 function RouteLine({
   route,
+  color,
   onSelectVehicle,
 }: {
   route: VehicleRoute
+  /** The colour of the unit that follows this route. */
+  color?: string
   onSelectVehicle: (id: number | null) => void
 }) {
   const points = useMemo(() => routeLatLngs(route), [route])
@@ -148,7 +162,7 @@ function RouteLine({
       {done.length > 1 && rest.length > 1 && (
         <Marker
           position={done[done.length - 1]}
-          icon={puckIcon(bearingDeg(done[done.length - 1], rest[1]))}
+          icon={puckIcon(bearingDeg(done[done.length - 1], rest[1]), color)}
           interactive={false}
           keyboard={false}
         />
@@ -160,6 +174,7 @@ function RouteLine({
         <Polyline
           cls="route-ahead"
           positions={rest}
+          color={color}
           pathOptions={{ weight: 7, opacity: 1, lineCap: 'round', lineJoin: 'round' }}
           eventHandlers={{ click: () => onSelectVehicle(route.vehicle_id) }}
         >
@@ -174,7 +189,7 @@ function RouteLine({
         <>
           <Marker
             position={[origin.lat, origin.lng]}
-            icon={stopIcon('A', origin.name || 'Start')}
+            icon={stopIcon('A', origin.name || 'Start', color)}
             keyboard={false}
           >
             <Popup>
@@ -188,7 +203,7 @@ function RouteLine({
             <Marker
               key={index}
               position={[stop.lat, stop.lng]}
-              icon={stopIcon('stop', stop.name || `Stop ${index + 1}`, index + 1)}
+              icon={stopIcon('stop', stop.name || `Stop ${index + 1}`, color, index + 1)}
               keyboard={false}
             >
               <Popup>
@@ -205,7 +220,7 @@ function RouteLine({
         </>
       ) : (
         <>
-          <Marker position={[origin.lat, origin.lng]} icon={stopIcon('A', origin.name || 'Start')} keyboard={false}>
+          <Marker position={[origin.lat, origin.lng]} icon={stopIcon('A', origin.name || 'Start', color)} keyboard={false}>
             <Popup>
               <strong className="popup-title">{origin.name || 'Origin'}</strong>
               <span className="popup-coords">
@@ -215,7 +230,7 @@ function RouteLine({
           </Marker>
           <Marker
             position={[destination.lat, destination.lng]}
-            icon={stopIcon('B', destination.name || 'Finish')}
+            icon={stopIcon('B', destination.name || 'Finish', color)}
             keyboard={false}
           >
             <Popup>
@@ -237,10 +252,12 @@ interface Props {
   visible: boolean
   /** Stops picked for a route that has not been saved yet. */
   draft: RouteDraft | null
+  /** The colour of each unit's line, keyed by vehicle id. */
+  colors: Map<number, string>
   onSelectVehicle: (id: number | null) => void
 }
 
-export default function RouteLayer({ routes, visible, draft, onSelectVehicle }: Props) {
+export default function RouteLayer({ routes, visible, draft, colors, onSelectVehicle }: Props) {
   if (!visible) return null
 
   return (
@@ -248,7 +265,7 @@ export default function RouteLayer({ routes, visible, draft, onSelectVehicle }: 
       {routes
         .filter((r) => r.status === 'active')
         .map((r) => (
-          <RouteLine key={r.id} route={r} onSelectVehicle={onSelectVehicle} />
+          <RouteLine key={r.id} route={r} color={colors.get(r.vehicle_id)} onSelectVehicle={onSelectVehicle} />
         ))}
       {draft?.origin && (
         <Marker position={[draft.origin.lat, draft.origin.lng]} icon={stopIcon('A', draft.origin.name || 'Origin')} keyboard={false} />
@@ -258,7 +275,7 @@ export default function RouteLayer({ routes, visible, draft, onSelectVehicle }: 
           <Marker
             key={index}
             position={[stop.lat, stop.lng]}
-            icon={stopIcon('stop', stop.name || `Stop ${index + 1}`, index + 1)}
+            icon={stopIcon('stop', stop.name || `Stop ${index + 1}`, undefined, index + 1)}
             keyboard={false}
           />
         ) : null,

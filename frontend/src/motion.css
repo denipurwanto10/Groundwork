@@ -316,3 +316,25 @@
     transition: none;
   }
 }
+
+/* ---- One navigation per width ----------------------------------------------
+   Phone (< 768px): bottom dock.  Tablet and up (>= 768px): the side rail.
+   Older layers showed the dock up to 1099px while the rail was already on
+   screen, so tablets got both. This block is last on purpose. */
+@media (min-width: 768px) {
+  .dash,
+  .dash:root {
+    --nav-h: 0px;
+  }
+
+  .dash nav.bottom-nav,
+  .dash .bottom-nav,
+  .more-overlay,
+  .more-sheet {
+    display: none !important;
+  }
+
+  .dash .main {
+    padding-bottom: 0;
+  }
+}

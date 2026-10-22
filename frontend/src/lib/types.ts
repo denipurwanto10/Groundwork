@@ -342,7 +342,7 @@ export const VEHICLE_STATUS_COLORS: Record<VehicleStatus, string> = {
   offline: '#7d8693',
 }
 
-/** The colour of every delivery line: the primary red of the theme. */
+/** The colour a unit's delivery line gets when nobody picked one. */
 export const DEFAULT_ROUTE_COLOR = '#d0171e'
 
 /** One tracked unit, latest known position included (null until it reports). */
@@ -363,7 +363,7 @@ export interface Vehicle {
    * between the last two positions.
    */
   heading: number | null
-  /** Colour of this unit's delivery line: always the primary red. */
+  /** Colour of this unit's delivery line. */
   route_color: string
   last_seen_at: string | null
   /** The delivery route the unit is following, if any. */
@@ -376,7 +376,7 @@ export interface VehicleInput {
   name: string
   kind: VehicleKind
   driver_id: number | null
-  /** Colour of the delivery line: one colour for every unit. */
+  /** Colour of the delivery line of this unit. */
   route_color: string
 }
 

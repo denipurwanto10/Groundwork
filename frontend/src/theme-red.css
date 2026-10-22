@@ -695,10 +695,42 @@ textarea,
 }
 
 /* ---- Route colour of a unit -------------------------------------------------
-   There is one colour: the primary red of the theme. Every delivery line is
-   drawn in it, so the fleet form does not offer a choice — the unit itself
-   does not carry a colour of its own. */
+   The delivery line of a unit follows the unit, not the theme: the fleet form
+   picks the colour, the map draws the line in it and the fleet card shows a
+   dot of it. */
 
+
+.um-colors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.um-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+  padding: 0;
+}
+
+.um-swatch.on {
+  border-color: var(--panel-solid, #fff);
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+.um-color-input {
+  width: 34px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field, var(--panel-2));
+  cursor: pointer;
+}
 
 /* ---- Playback of a recorded trip --------------------------------------------
    The dialog floats over the map, not over the page: the operator has to

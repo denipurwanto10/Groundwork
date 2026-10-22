@@ -332,6 +332,8 @@ interface Props {
   routes: VehicleRoute[]
   routesVisible: boolean
   routeDraft: RouteDraft | null
+  /** The colour of each unit's line, keyed by vehicle id. */
+  routeColors: Map<number, string>
   routePick: boolean
   /** Playback of a recorded trip: the track and the ghost marker. */
   playback: PlaybackController
@@ -373,6 +375,7 @@ export default function EntityMap({
   routes,
   routesVisible,
   routeDraft,
+  routeColors,
   routePick,
   playback,
   onRoutePoint,
@@ -452,6 +455,7 @@ export default function EntityMap({
         routes={routes}
         visible={routesVisible}
         draft={routeDraft}
+        colors={routeColors}
         onSelectVehicle={onVehicleSelect}
       />
       {/* Live vehicles on top of every other layer */}

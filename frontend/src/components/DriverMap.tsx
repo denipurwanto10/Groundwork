@@ -102,6 +102,8 @@ interface Props {
 export default function DriverMap({ vehicle, route, theme }: Props) {
   const located = vehicle && hasPosition(vehicle) ? vehicle : undefined
   const center: [number, number] = located ? [located.lat, located.lng] : JAKARTA
+  const colors = new Map<number, string>()
+  if (vehicle) colors.set(vehicle.id, vehicle.route_color)
 
   return (
     <MapContainer
@@ -123,6 +125,7 @@ export default function DriverMap({ vehicle, route, theme }: Props) {
         routes={route ? [route] : []}
         visible
         draft={null}
+        colors={colors}
         onSelectVehicle={() => {}}
       />
       <VehicleLayer
