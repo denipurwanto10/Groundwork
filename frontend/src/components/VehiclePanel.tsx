@@ -17,6 +17,7 @@ import {
   formatDistance,
   formatDuration,
   formatEtaClock,
+  formatIdleDuration,
   formatLastSeen,
   hasPosition,
   normalizeVehicleKind,
@@ -25,6 +26,7 @@ import {
   routeProgress,
   routeEtaAt,
   routeEtaSeconds,
+  secondsSince,
   vehicleKindLabel,
   vehicleStatusColor,
   vehicleStatusLabel,
@@ -47,6 +49,7 @@ import {
   IconNavigation,
   IconPickup,
   IconPlus,
+  IconPolygon,
   IconRefresh,
   IconRoute,
   IconSearch,
@@ -169,6 +172,40 @@ function useNow(intervalMs = 5000): number {
 }
 
 /**
+ * The clock of the idle badges: a tick every half minute.
+ *
+ * The badge counts in minutes, so it does not need the five-second clock of
+ * the panel — and it never asks the server for the duration: the moment the
+ * unit started standing still comes with the fleet, the rest is counted here.
+ */
+function useIdleClock(intervalMs = 30000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs)
+    return () => window.clearInterval(id)
+  }, [intervalMs])
+  return now
+}
+
+/**
+ * How long the unit has been standing still, in seconds. Null while the
+ * unit is not idle.
+ */
+function idleSecondsOf(v: Vehicle, now: number): number | null {
+  if (normalizeVehicleStatus(v.status) !== 'idle') return null
+  return secondsSince(v.idle_since, now) ?? v.idle_duration_s ?? null
+}
+
+/**
+ * How long the unit has been standing in its zone, in seconds. Null while
+ * the unit is outside every zone.
+ */
+function dwellSecondsOf(v: Vehicle, now: number): number | null {
+  if (!v.current_zone) return null
+  return secondsSince(v.current_zone.since, now) ?? v.current_zone.dwell_s
+}
+
+/**
  * Live tracking panel: fleet health at a glance (filter tiles), a searchable
  * list of units, and one detail card for the selected unit with follow mode
  * and the delivery route builder.
@@ -209,6 +246,7 @@ export default function VehiclePanel({
   playback,
 }: Props) {
   const now = useNow()
+  const idleNow = useIdleClock()
   const stream = STREAM_UI[streamState]
   const selected = vehicles.find((v) => v.id === selectedId) ?? null
   const activeRoute = routeForVehicle(routes, selectedId)
@@ -811,6 +849,8 @@ export default function VehiclePanel({
             const route = routeByVehicle.get(v.id)
             const pct = route ? Math.round(routeProgress(route) * 100) : null
             const entering = !seenIds.current.has(v.id)
+            const idleSeconds = idleSecondsOf(v, idleNow)
+            const dwellSeconds = dwellSecondsOf(v, idleNow)
             return (
               <li
                 key={v.id}
@@ -860,9 +900,24 @@ export default function VehiclePanel({
                     ) : (
                       <span className="lt-card-sub dim">{formatLastSeen(v.last_seen_at, now)}</span>
                     )}
+                    {v.current_zone && (
+                      <span className="lt-card-zone">
+                        <IconPolygon width={12} height={12} />
+                        <span className="sr-only">Stands in</span>
+                        Di {v.current_zone.zone_name} · {formatIdleDuration(dwellSeconds)}
+                      </span>
+                    )}
                   </span>
                   <span className="lt-card-end">
-                    <span className={`lt-chip ${status}`}>{vehicleStatusLabel(status)}</span>
+                    <span className={`lt-chip ${status}`}>
+                      {vehicleStatusLabel(status)}
+                      {idleSeconds !== null && (
+                        <>
+                          {' '}
+                          <span className="lt-idle-time">{formatIdleDuration(idleSeconds)}</span>
+                        </>
+                      )}
+                    </span>
                     {status === 'moving' && v.speed_kmh > 0 && (
                       <span className="lt-speed">
                         <AnimatedNumber value={v.speed_kmh} />

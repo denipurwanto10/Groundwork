@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import type { GeofenceEvent, Overview } from '../lib/types'
-import { formatLastSeen, formatOverviewDate } from '../lib/types'
+import type { GeofenceEvent, Overview, Vehicle } from '../lib/types'
+import { formatIdleDuration, formatLastSeen, formatOverviewDate, normalizeVehicleStatus } from '../lib/types'
 import { Card } from './DashboardParts'
 import { IconActivity, IconClock, IconNavigation, IconPolygon, IconTruck } from './Icons'
 
@@ -142,6 +142,32 @@ export function OverviewStatCards({ data, loading, error, onRetry }: OverviewPro
         </section>
       ))}
     </div>
+  )
+}
+
+/**
+ * One small line below the fleet card: the unit that has been standing
+ * still the longest.
+ *
+ * The number comes from the fleet list (GET /api/vehicles), not from the
+ * aggregate of the day: the server counts the idle session of every unit and
+ * hands the duration along with the fleet. Nothing is shown when no unit is
+ * idle.
+ */
+export function OverviewIdleNote({ vehicles }: { vehicles: Vehicle[] }) {
+  const longest = vehicles
+    .filter((v) => normalizeVehicleStatus(v.status) === 'idle' && v.idle_duration_s != null)
+    .sort((a, b) => (b.idle_duration_s ?? 0) - (a.idle_duration_s ?? 0))[0]
+
+  if (!longest) return null
+
+  return (
+    <p className="ov-idle-note">
+      <IconClock width={13} height={13} />
+      <span>
+        idle terlama: <b>{longest.name}</b> · {formatIdleDuration(longest.idle_duration_s)}
+      </span>
+    </p>
   )
 }
 

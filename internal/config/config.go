@@ -44,6 +44,16 @@ type FleetConfig struct {
 	// offline. Zero turns the check off, so a unit keeps whatever status its
 	// last report gave it.
 	OfflineAfter time.Duration
+	// IdleAfter is how long a unit may stand still — while it keeps
+	// reporting — before the server calls it idle. Zero turns the server-side
+	// idle detection off, so only the reporter decides the status again.
+	IdleAfter time.Duration
+	// IdleRadiusM is how far a unit may drift from its anchor and still
+	// count as standing still, in meters.
+	IdleRadiusM float64
+	// IdleMaxSpeedKmh is the speed above which a report counts as movement,
+	// however little the position moved.
+	IdleMaxSpeedKmh float64
 }
 
 type ServerConfig struct {
@@ -136,7 +146,10 @@ func Load() (*Config, error) {
 			RefreshTTL: getDurationEnv("JWT_REFRESH_TTL", 30*24*time.Hour),
 		},
 		Fleet: FleetConfig{
-			OfflineAfter: getDurationEnv("SERVER_OFFLINE_AFTER", 60*time.Second),
+			OfflineAfter:    getDurationEnv("SERVER_OFFLINE_AFTER", 60*time.Second),
+			IdleAfter:       getDurationEnv("SERVER_IDLE_AFTER", 10*time.Minute),
+			IdleRadiusM:     getFloatEnv("SERVER_IDLE_RADIUS_M", 25),
+			IdleMaxSpeedKmh: getFloatEnv("SERVER_IDLE_MAX_SPEED_KMH", 2),
 		},
 		Push: PushConfig{
 			PublicKey:  getEnv("VAPID_PUBLIC_KEY", ""),
@@ -194,6 +207,16 @@ func getIntEnv(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i
+		}
+	}
+	return fallback
+}
+
+// getFloatEnv reads a decimal number, used for the idle detection.
+func getFloatEnv(key string, fallback float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
 		}
 	}
 	return fallback

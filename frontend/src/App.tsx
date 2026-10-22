@@ -47,7 +47,7 @@ import ReportsPanel, { type ReportPreset } from './components/ReportsPanel'
 import { openVehicleStream, type StreamState } from './lib/vehicleStream'
 import { usePlayback } from './lib/playback'
 import { FleetCard, TypeBreakdownCard, ZonesCard } from './components/DashboardParts'
-import { OverviewStatCards, OverviewActivityCard } from './components/OverviewDashboard'
+import { OverviewStatCards, OverviewActivityCard, OverviewIdleNote } from './components/OverviewDashboard'
 import { useAuth } from './lib/auth'
 import { useTheme } from './lib/theme'
 import {
@@ -1866,6 +1866,7 @@ export default function App() {
             <>
               <div className="stage-side">
                 <FleetCard vehicles={vehicles} counts={fleet} onSelect={selectVehicle} onOpen={() => goTo('vehicles')} />
+                <OverviewIdleNote vehicles={vehicles} />
               </div>
               <div className="stage-extra">
                 <OverviewActivityCard {...overviewProps} onOpenFleet={() => goTo('vehicles')} />

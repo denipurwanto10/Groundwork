@@ -366,8 +366,34 @@ export interface Vehicle {
   /** Colour of this unit's delivery line. */
   route_color: string
   last_seen_at: string | null
+  /**
+   * When the running idle session began: the moment the unit started
+   * standing still. Null while the unit is not idle.
+   */
+  idle_since: string | null
+  /**
+   * How long the running idle session has lasted, in seconds. The server
+   * counts it, so every client reads the same number. Null while the unit is
+   * not idle.
+   */
+  idle_duration_s: number | null
+  /**
+   * The work area the unit stands in right now, with the time it has spent
+   * there. Null while the unit is outside every zone.
+   */
+  current_zone: VehicleZone | null
   /** The delivery route the unit is following, if any. */
   active_route?: VehicleRoute | null
+}
+
+/** The work area a unit stands in, and for how long. */
+export interface VehicleZone {
+  zone_id: number
+  zone_name: string
+  /** When the unit arrived in the zone. */
+  since: string
+  /** How long the unit has been there, in seconds. */
+  dwell_s: number
 }
 
 /** Body of the create/update vehicle calls. */
@@ -462,6 +488,30 @@ export interface GeofenceEvent {
   zone_name: string
   event_type: GeofenceEventType
   created_at: string
+}
+
+/* ------------------------------------------------------------------ *
+ * Idle sessions (migration 027): how long a unit stood still.
+ * ------------------------------------------------------------------ */
+
+/**
+ * One spell of standing still.
+ *
+ * A session without an end is still running: the unit stands there right
+ * now. The server counts the duration, so a session that is still running
+ * is counted up to now.
+ */
+export interface IdleEvent {
+  id: number
+  vehicle_id: number
+  vehicle_name: string
+  /** The zone the unit stood in; null when it stood outside every zone. */
+  zone_id: number | null
+  zone_name: string
+  started_at: string
+  ended_at: string | null
+  /** How long the session lasted, in seconds. */
+  duration_s: number
 }
 
 /* ------------------------------------------------------------------ *
@@ -1002,6 +1052,34 @@ export function formatDuration(seconds: number): string {
   const hours = Math.floor(mins / 60)
   const rest = mins % 60
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`
+}
+
+/**
+ * "12 mnt" / "1 j 05 mnt" — how long a unit has been standing still.
+ *
+ * The badge counts in minutes, so a spell of a few seconds reads as "<1 mnt"
+ * instead of a number nobody can read at a glance.
+ */
+export function formatIdleDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—'
+  const mins = Math.floor(seconds / 60)
+  if (mins < 1) return '<1 mnt'
+  if (mins < 60) return `${mins} mnt`
+  const hours = Math.floor(mins / 60)
+  const rest = mins % 60
+  return rest === 0 ? `${hours} j` : `${hours} j ${String(rest).padStart(2, '0')} mnt`
+}
+
+/**
+ * The seconds a moment has been going by, measured against the clock of the
+ * browser. A moment in the future (a clock that disagrees with the server)
+ * counts as zero, never as a negative number.
+ */
+export function secondsSince(iso: string | null | undefined, now = Date.now()): number | null {
+  if (!iso) return null
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  return Math.max(0, (now - t) / 1000)
 }
 
 /** Route for one vehicle, if it has one. */

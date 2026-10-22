@@ -932,6 +932,28 @@ button.kpi:hover {
 /* --------------------------------------------------------------------------
    Overview — the activity panel
    -------------------------------------------------------------------------- */
+
+/* "idle terlama: Truk 01 · 12 mnt" — the unit that stands still the
+   longest, one small line under the fleet card. */
+.ov-idle-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 2px 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.ov-idle-note svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.ov-idle-note b {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .ov-summary {
   display: flex;
   flex-direction: column;

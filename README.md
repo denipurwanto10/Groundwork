@@ -135,6 +135,9 @@ cp .env.example .env      # lalu isi DB_PASSWORD dan JWT_SECRET
 | `SERVER_WRITE_TIMEOUT` | `10s` | Batas tulis respons |
 | `SERVER_IDLE_TIMEOUT` | `60s` | Batas koneksi menganggur |
 | `SERVER_OFFLINE_AFTER` | `60s` | Berapa lama unit boleh diam sebelum dihitung offline; `0` mematikan pemeriksaannya |
+| `SERVER_IDLE_AFTER` | `10m` | Berapa lama unit boleh diam (masih melapor) sebelum dihitung idle; `0` mematikan deteksi idle server |
+| `SERVER_IDLE_RADIUS_M` | `25` | Jarak maksimum dari jangkar (meter) yang masih dihitung "tidak berpindah" |
+| `SERVER_IDLE_MAX_SPEED_KMH` | `2` | Kecepatan di atas ini (km/jam) selalu dianggap bergerak |
 | `DB_HOST` / `DB_PORT` | `localhost` / `5432` | Koneksi Postgres |
 | `DB_USER` / `DB_NAME` | `postgres` / `entity_management` | Koneksi Postgres |
 | `DB_PASSWORD` | _(kosong)_ | Wajib diisi lokal, jangan commit |
@@ -341,11 +344,12 @@ dengan yang asli.
 | `POST` | `/api/zones/from-region` | buat zona dari kode wilayah administratif |
 | `GET` | `/api/islands` | gugus pulau yang bisa dijadikan zona |
 | `POST` | `/api/zones/from-island` | buat zona dari gugus pulau |
-| `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir + rute aktif (`active_route`) / daftar unit baru |
+| `GET` `POST` | `/api/vehicles` | daftar armada + posisi terakhir + rute aktif (`active_route`) + status idle (`idle_since`, `idle_duration_s`) + zona yang ditempati (`current_zone`) / daftar unit baru |
 | `PUT` | `/api/vehicles/:id` | ubah unit (nama, tipe, driver) |
 | `POST` | `/api/vehicles/:id/position` | lapor posisi (`lat`, `lng`, `speed_kmh`, `heading`, `status` opsional) → disiar ke WS |
 | `GET` | `/api/vehicles/:id/history` | histori posisi unit: `?date=YYYY-MM-DD` atau `?from=&to=` |
 | `GET` | `/api/vehicles/stream` | WebSocket: frame `snapshot` saat connect, lalu `position` |
+| `GET` | `/api/idle-events` | riwayat sesi idle (terbaru dulu); `?vehicle_id=&from=&to=&limit=` (bawaan 100, maks. 500) |
 | `GET` | `/api/routes` | semua rute aktif |
 | `GET` | `/api/vehicles/:id/routes` | riwayat rute satu kendaraan |
 | `GET` | `/api/vehicles/:id/route` | rute aktif satu kendaraan (dengan geometri; `404` bila tidak ada) |
@@ -381,8 +385,23 @@ Bentuk unit (yang di `GET /api/vehicles`):
  "status": "moving", "driver_id": null,
  "lat": -6.6942, "lng": 107.2701, "speed_kmh": 33.3,
  "heading": 353.2, "route_color": "#d0171e",
- "last_seen_at": "…", "active_route": {…}}
+ "last_seen_at": "…", "active_route": {…},
+ "idle_since": null, "idle_duration_s": null,
+ "current_zone": null}
 ```
+
+`idle_since` = waktu mulai sesi idle yang sedang berjalan (`null` kalau unit
+tidak idle), `idle_duration_s` = detiknya (dihitung server, `null` kalau tidak
+idle), dan `current_zone` = zona yang sedang ditempati unit:
+
+```json
+{"zone_id": 11, "zone_name": "Gudang Utara",
+ "since": "2026-10-22T09:12:00+07:00", "dwell_s": 1500}
+```
+
+`current_zone` = `null` kalau unit berada di luar semua zona atau tidak punya
+ENTER yang belum ditutup EXIT-nya. Lihat
+[Status Unit](#status-unit-idle--moving--offline) untuk aturannya.
 
 Bentuk tugas (yang di `GET /api/tasks`):
 
@@ -405,7 +424,6 @@ rute; sekarang hanya satu untuk semua unit — merah primer tema (`#d0171e`),
 server yang menetapkannya dan form armada tidak menawarkannya lagi.
 
 Bentuk rute (yang di `GET /api/routes` dan di `active_route`):
-
 ```json
 {"id": 32, "vehicle_id": 1,
  "origin": {"lat": -6.929, "lng": 107.636, "name": "Gudang"},
@@ -415,6 +433,17 @@ Bentuk rute (yang di `GET /api/routes` dan di `active_route`):
  "status": "active", "progress": 0.05, "remaining_m": 13478,
  "created_at": "…", "ended_at": null}
 ```
+
+Bentuk sesi idle (yang di `GET /api/idle-events`):
+
+```json
+{"id": 7, "vehicle_id": 1, "vehicle_name": "Truck Simulator 1",
+ "zone_id": 11, "zone_name": "Gudang Utara",
+ "started_at": "…", "ended_at": null, "duration_s": 1500}
+```
+
+`ended_at` = `null` selama sesi masih berjalan; `duration_s` dihitung
+server, jadi sesi yang masih berjalan dihitung sampai sekarang.
 
 `source` = `osrm` (jalur jalan raya) atau `direct` (garis lurus). GeoJSON
 berisi koordinat `[lng, lat]`. `progress` dihitung PostGIS dari posisi
@@ -465,32 +494,104 @@ curl 'http://127.0.0.1:8091/api/entities?zone=11'
 
 ## Status Unit (idle / moving / offline)
 
-Status unit **adalah data**, bukan hasil hitungan: kolom `vehicles.status` hanya
-menerima tiga nilai (`idle`, `moving`, `offline` — dibatasi CHECK constraint).
-Server tidak pernah memutuskan sendiri; whoever melaporkan posisi yang
-mengisinya, dan kalau `status` tidak dikirim, API memakai `moving`.
+Status unit **adalah data**: kolom `vehicles.status` hanya menerima tiga nilai
+(`idle`, `moving`, `offline` — dibatasi CHECK constraint). Reporter posisi
+yang mengisinya, dan kalau `status` tidak dikirim, API memakai `moving`.
 
-Siapa mengisinya:
+**Pengecualiannya ada dua, dan keduanya milik server:**
 
-- **Simulator** mengirim `moving` saat berjalan, dan `idle` dalam dua kondisi:
-  rute sudah direncanakan tapi trip belum dimulai (menunggu tombol "Start
-  trip" dari driver), atau unit baru saja tiba di ujung rutenya.
-- **Offline** dipakai server sendiri: unit yang berhenti melapor lebih dari
-  `SERVER_OFFLINE_AFTER` (bawaan 60 detik) ditandai offline oleh *sweep*
+- **Offline** — unit yang berhenti melapor lebih dari `SERVER_OFFLINE_AFTER`
+  (bawaan 60 detik) ditandai offline oleh *sweep*
   (`internal/handler/vehicles.go`, `MarkStaleOffline`) yang berjalan tiap 10
   detik. Unit yang melapor lagi **bangkit sendiri**, karena setiap laporan
   posisi menulis status dan waktu yang baru — tidak perlu ada tindakan lain.
+- **Idle** — unit yang **masih melapor** tetapi tidak berpindah tempat
+  ditandai idle oleh server sendiri. Deteksi ini memakai *jangkar*
+  (anchor): titik tempat unit mulai tidak berpindah, dan jam yang berjalan
+  sejak itu.
 
-Unit yang **belum pernah melapor** tidak ditandai offline: tidak ada yang bisa
+Unit yang **belum pernah melapor** tidak ditandai: tidak ada yang bisa
 "terlambat" kalau belum pernah bicara.
 
-Semua tampilan ikut berubah, karena statusnya disimpan di database: daftar
-armada (`GET /api/vehicles`), frame WebSocket, hitungan Overview
-(`GET /api/overview`), dan Driver View. Browser yang sedang terbuka tahu
-segera karena sweep mengirim frame `vehicle_updated` untuk unit yang berubah.
+### Idle vs offline
 
-Yang **tidak** ada:-tebakan offline dari UI. Kalau server mati, badge "API
+Dua-duanyastatus "diam", tapi bukan hal yang sama:
+
+| | Idle | Offline |
+| --- | --- | --- |
+| Unit masih melapor? | **Ya** | Tidak |
+| Artinya | Unit hidup, tapi tidak bergerak | Unit berhenti bicara |
+| Ambang | `SERVER_IDLE_AFTER` (bawaan 10 menit) | `SERVER_OFFLINE_AFTER` (bawaan 60 detik) |
+| Siapa yang menentukan | Server (deteksi diam) | Server (deteksi sunyi) |
+
+**Offline selalu menang.** Unit yang diam tapi berhenti melapor jadi
+`offline`, bukan `idle` — dan memang tidak bisa jadi idle, karena ambang idle
+(10 menit) selalu lebih besar dari ambang offline (60 detik), jadi idle hanya
+bisa terjadi pada unit yang laporannya masih segar. Sweep idle sendiri juga
+melewati unit yang sudah waktunya offline; itu urusan sweep offline.
+
+### Cara server mengukur "diam"
+
+Dua angka menentukan, keduanya di `.env`:
+
+- `SERVER_IDLE_RADIUS_M` (bawaan **25** meter) — jarak maksimum dari jangkar
+  yang masih dihitung "tidak berpindah". Diukur di bola (`ST_Distance`
+  geography), bukan di peta datar.
+- `SERVER_IDLE_MAX_SPEED_KMH` (bawaan **2** km/jam) — laporan dengan kecepatan
+  di atas ini dianggap bergerak, **walaupun titik GPS-nya nyaris tidak
+  berubah**.
+
+Aturannya:
+
+1. Laporan posisi pertama sebuah unit menjadi **jangkar**-nya: titik awal
+   unit mulai tidak berpindah, dan jam (`stationary_since`) mulai jalan.
+2. Laporan berikutnya yang masih di dalam radius jangkar (dan kecepatannya di
+   bawah ambang) **tidak mengubah** jangkar dan **tidak mereset** jam. Unit
+   itu diam, dan jamnya terus berjalan.
+3. Laporan yang keluar dari radius jangkar — atau yang lebih cepat dari
+   ambang — **memindahkan** jangkar ke posisi baru dan **mereset** jam. Kalau
+   ada sesi idle yang masih berjalan, sesi itu ditutup (`ended_at` diisi) dan
+   status unit kembali mengikuti laporan (`moving`).
+
+### Sesi idle
+
+Sesi idle = satu periode diam yang cukup lama. Semuanya disimpan di tabel
+`idle_events` (migrasi 027):
+
+- Satu unit punya **paling banyak satu** sesi yang masih berjalan
+  (`ended_at IS NULL`) — dijaga oleh logika aplikasi *dan* oleh unique index
+  parsial di database.
+- Sweep idle (`MarkStationaryIdle`, tiap 30 detik) membuka sesi untuk unit
+  yang sudah diam melewati `SERVER_IDLE_AFTER`, dan mencatat zona yang memuat
+  titik jangkarnya (`zone_id`, `null` bila di luar semua zona). Sweep-nya
+  idempoten: unit yang sudah punya sesi terbuka tidak dibuatkan sesi kedua.
+- Session ditutup oleh laporan posisi berikutnya (unit bergerak lagi) — tidak
+  perlu sweep khusus untuk itu.
+
+Historisnya dibaca lewat `GET /api/idle-events`.
+
+### Dwell time di zona
+
+Dwell = berapa lama unit berada di sebuah zona. Dihitung dari data geofence
+yang sudah ada, tanpa tabel baru: dwell sebuah unit di sebuah zona = waktu
+sejak **ENTER terakhir** di zona itu yang belum punya EXIT pasangan. Untuk
+unit yang sedang berada di dalam zona, dwell berjalan = `now() -` waktu ENTER
+itu. Unit di luar semua zona (atau yang tidak punya ENTER terbuka) tidak punya
+dwell.
+
+### Semua tampilan ikut berubah
+
+Karena statusnya disimpan di database: daftar armada (`GET /api/vehicles`),
+frame WebSocket, hitungan Overview (`GET /api/overview`), dan Driver View.
+Browser yang sedang terbuka tahu segera karena sweep mengirim frame
+`vehicle_updated` untuk unit yang berubah.
+
+Yang **tidak** ada: tebakan offline dari UI. Kalau server mati, badge "API
 offline" yang muncul, bukan status unit yang berubah.
+
+> Batas jujurnya: deteksi ini menilai diam dari laporan posisi simulator.
+> GPS sungguhan yang loncat-loncat bisa perlu radius lebih besar, dan angka
+> bawaan (25 m / 2 km/jam) dipilih untuk data simulator project ini.
 
 ## Audit Log (Jejak Aktivitas)
 

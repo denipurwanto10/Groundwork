@@ -148,10 +148,27 @@ func main() {
 				log.Printf("units that stay silent for %s count as offline", cfg.Fleet.OfflineAfter)
 			}
 
+			// A unit that keeps reporting the same spot is standing still.
+			// The server decides that on its own: it keeps the anchor of
+			// every unit up to date with every report, and the sweep turns a
+			// unit that stood still long enough into an idle one.
+			if cfg.Fleet.IdleAfter > 0 {
+				vehicleHandler.SetIdleDetection(cfg.Fleet.IdleAfter, cfg.Fleet.IdleRadiusM, cfg.Fleet.IdleMaxSpeedKmh)
+				go sweepIdleVehicles(vehicleHandler)
+				log.Printf("units that stand still for %s count as idle (radius %gm, speed %gkm/h)",
+					cfg.Fleet.IdleAfter, cfg.Fleet.IdleRadiusM, cfg.Fleet.IdleMaxSpeedKmh)
+			}
+
 			// Crossing history of the zone boundaries. Every signed-in role may
 			// read it; a driver only sees the crossings of their own unit.
 			geofenceHandler := handler.NewGeofenceHandler(pool)
 			protected.GET("/geofence-events", geofenceHandler.List)
+
+			// The idle sessions of the fleet: how long a unit stood still, and
+			// where it stood. A driver only sees the sessions of their own
+			// unit.
+			idleHandler := handler.NewIdleHandler(pool)
+			protected.GET("/idle-events", idleHandler.List)
 
 			routeHandler := handler.NewRouteHandler(pool, hub, pushService)
 			protected.GET("/routes", routeHandler.List)
@@ -262,6 +279,29 @@ func sweepOfflineVehicles(h *handler.VehicleHandler) {
 		}
 		if n > 0 {
 			log.Printf("offline sweep: %d unit(s) stopped reporting", n)
+		}
+	}
+}
+
+// sweepIdleVehicles opens an idle session for every unit that stood still
+// long enough, again and again, until the server stops.
+//
+// Every thirty seconds is often enough: a unit turns idle at most that much
+// later than it came to a stop, and the check itself is one cheap statement.
+func sweepIdleVehicles(h *handler.VehicleHandler) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		n, err := h.MarkStationaryIdle(ctx)
+		cancel()
+		if err != nil {
+			log.Printf("idle sweep failed: %v", err)
+			continue
+		}
+		if n > 0 {
+			log.Printf("idle sweep: %d unit(s) have been standing still", n)
 		}
 	}
 }

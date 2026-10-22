@@ -83,6 +83,29 @@ type Vehicle struct {
 	// with the fleet list so the map can draw the line and the fleet card can
 	// say where the unit is heading without a second request.
 	ActiveRoute *Route `json:"active_route"`
+	// IdleSince is when the running idle session began: the moment the unit
+	// started standing still. Null while the unit is not idle.
+	IdleSince *time.Time `json:"idle_since"`
+	// IdleDurationS is how long the running idle session has lasted, in
+	// seconds. The server counts it, so every client sees the same number.
+	// Null while the unit is not idle.
+	IdleDurationS *float64 `json:"idle_duration_s"`
+	// CurrentZone is the work area the unit is standing in right now, with
+	// the dwell time it has spent there. Null while the unit is outside every
+	// zone.
+	CurrentZone *VehicleZone `json:"current_zone"`
+}
+
+// VehicleZone is the work area a unit is standing in, and for how long.
+//
+// The dwell time is counted from the last crossing into the zone that was
+// never left: the zone history holds an ENTER for every crossing and an EXIT
+// for every crossing back, so the open ENTER is the moment the unit arrived.
+type VehicleZone struct {
+	ZoneID   int64     `json:"zone_id"`
+	ZoneName string    `json:"zone_name"`
+	Since    time.Time `json:"since"`
+	DwellS   float64   `json:"dwell_s"`
 }
 
 // RouteStop is one end of a delivery route.
@@ -217,4 +240,35 @@ func (in *PositionInput) Validate() FieldErrors {
 		errs["status"] = "status must be one of idle, moving, offline"
 	}
 	return errs
+}
+
+// ShouldMoveAnchor decides whether the anchor of a unit moves to the position
+// of a fresh report.
+//
+// The anchor is the point where a unit started standing still. While the
+// reports keep coming in around that point, the unit stands still and the
+// clock keeps running; the moment it leaves the spot, the anchor moves to
+// the new position and the clock starts again.
+//
+// The rule has three parts:
+//
+//   - A unit without an anchor has nothing to compare with, so its first
+//     report becomes the anchor.
+//   - A report that is faster than the speed limit always counts as movement,
+//     however little the position moved: a unit that reports 40 km/h is
+//     driving, whatever its GPS says.
+//   - A report that stays inside the radius of the anchor keeps the anchor
+//     where it is. The radius absorbs the drift of a real GPS.
+//
+// The distance is measured by the database (ST_Distance on geography), so the
+// function only carries the rule itself: it is a pure function and can be
+// tested without a database.
+func ShouldMoveAnchor(hasAnchor bool, distanceM, speedKmh, radiusM, maxSpeedKmh float64) bool {
+	if !hasAnchor {
+		return true
+	}
+	if speedKmh > maxSpeedKmh {
+		return true
+	}
+	return distanceM > radiusM
 }

@@ -90,3 +90,40 @@ func TestPositionInputNormalizeDefaultsStatus(t *testing.T) {
 		t.Fatalf("expected default status %q, got %q", StatusMoving, in.Status)
 	}
 }
+
+// The rule of the anchor: the point where a unit started standing still stays
+// where it is while the reports keep coming in around it.
+func TestShouldMoveAnchor(t *testing.T) {
+	const (
+		radiusM  = 25.0
+		maxSpeed = 2.0
+	)
+
+	cases := []struct {
+		name      string
+		hasAnchor bool
+		distanceM float64
+		speedKmh  float64
+		want      bool
+	}{
+		{"no anchor yet", false, 0, 0, true},
+		{"same spot", true, 0, 0, false},
+		{"inside the radius", true, 24.9, 0, false},
+		{"exactly on the radius", true, 25, 0, false},
+		{"outside the radius", true, 25.1, 0, true},
+		{"far outside the radius", true, 120, 0, true},
+		{"fast report inside the radius", true, 1, 2.1, true},
+		{"fast report at the speed limit", true, 1, 2, false},
+		{"no anchor but fast", false, 0, 90, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ShouldMoveAnchor(tc.hasAnchor, tc.distanceM, tc.speedKmh, radiusM, maxSpeed)
+			if got != tc.want {
+				t.Fatalf("ShouldMoveAnchor(%v, %v, %v) = %v, want %v",
+					tc.hasAnchor, tc.distanceM, tc.speedKmh, got, tc.want)
+			}
+		})
+	}
+}

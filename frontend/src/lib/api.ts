@@ -19,6 +19,7 @@ import type {
   UserAccount,
   UserInput,
   GeofenceEvent,
+  IdleEvent,
   AuditLogList,
   LoginResult,
   AuthStatus,
@@ -510,6 +511,29 @@ export const api = {
     if (params?.limit != null) sp.set('limit', String(params.limit))
     const qs = sp.toString()
     return request<GeofenceEvent[]>(`/api/geofence-events${qs ? `?${qs}` : ''}`)
+  },
+
+  // ---- Idle sessions (how long a unit stood still) ----
+
+  /**
+   * The idle sessions of the fleet, newest first. Narrow it to one unit or
+   * to a period; a driver only receives the sessions of their own unit.
+   */
+  listIdleEvents(params?: {
+    vehicle_id?: number
+    /** First day (YYYY-MM-DD) or timestamp (RFC3339) of the period. */
+    from?: string
+    /** Last day (YYYY-MM-DD) or timestamp (RFC3339) of the period. */
+    to?: string
+    limit?: number
+  }): Promise<IdleEvent[]> {
+    const sp = new URLSearchParams()
+    if (params?.vehicle_id != null) sp.set('vehicle_id', String(params.vehicle_id))
+    if (params?.from) sp.set('from', params.from)
+    if (params?.to) sp.set('to', params.to)
+    if (params?.limit != null) sp.set('limit', String(params.limit))
+    const qs = sp.toString()
+    return request<IdleEvent[]>(`/api/idle-events${qs ? `?${qs}` : ''}`)
   },
 
   // ---- Work orders (the jobs the fleet is sent out for) ----

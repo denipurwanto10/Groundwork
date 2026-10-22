@@ -676,6 +676,31 @@
   white-space: nowrap;
 }
 
+/* "Di Gudang Utara · 25 mnt" — the work area the unit stands in, and how
+   long it has been standing there. */
+.lt-card-zone {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-card-zone svg {
+  flex: none;
+}
+
+/* The duration inside the status chip keeps its own case: "IDLE 12 mnt"
+   reads better than "IDLE 12 MNT". */
+.lt-chip .lt-idle-time {
+  text-transform: none;
+}
+
 .lt-card-end {
   display: flex;
   flex-direction: column;
