@@ -26,6 +26,7 @@ import type {
   VehicleInput,
   VehicleRoute,
   Overview,
+  Report,
 } from './lib/types'
 import { activeRoutesOf, bearingBetween, formatDistance, hasPosition, mergeRoutes, taskStatusLabel } from './lib/types'
 import EntityMap from './components/EntityMap'
@@ -42,6 +43,7 @@ import PlaybackDialog from './components/PlaybackDialog'
 import NotificationBell from './components/NotificationBell'
 import ActivityLogPanel, { AUDIT_PAGE_SIZE } from './components/ActivityLogPanel'
 import TaskBoard from './components/TaskBoard'
+import ReportsPanel, { type ReportPreset } from './components/ReportsPanel'
 import { openVehicleStream, type StreamState } from './lib/vehicleStream'
 import { usePlayback } from './lib/playback'
 import { FleetCard, TypeBreakdownCard, ZonesCard } from './components/DashboardParts'
@@ -67,6 +69,7 @@ import {
   IconPolygon,
   IconTruck,
   IconUsers,
+  IconFile,
 } from './components/Icons'
 import type { MapInset } from './components/EntityMap'
 import './App.css'
@@ -88,6 +91,7 @@ import './polish.css'
 import './tasks.css'
 import './modern-ui.css'
 import './motion.css'
+import './reports.css'
 
 type Toast = { kind: 'success' | 'error' | 'alert'; text: string; id: number } | null
 type ApiState = 'checking' | 'online' | 'offline'
@@ -125,18 +129,30 @@ function mergeGeofenceEvents(incoming: GeofenceEvent[], existing: GeofenceEvent[
   return out.slice(0, GEOFENCE_HISTORY_LIMIT)
 }
 
+/**
+ * A day of the report, counted from today: -1 is yesterday, 0 is today.
+ * The days are the way the period is picked, so they are plain days.
+ */
+function reportDay(offset: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + offset)
+  const pad = (v: number) => String(v).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 
 
 
 
-type Tab = 'overview' | 'entities' | 'zones' | 'vehicles' | 'tasks' | 'users' | 'activity'
+
+type Tab = 'overview' | 'entities' | 'zones' | 'vehicles' | 'tasks' | 'reports' | 'users' | 'activity'
 const NAV: { key: Tab; label: string; title: string; sub: string }[] = [
   { key: 'overview', label: 'Overview', title: 'Overview', sub: 'Your whole operation at a glance' },
   { key: 'entities', label: 'Places', title: 'Places', sub: 'Browse, search and manage locations' },
   { key: 'zones', label: 'Zones', title: 'Zones', sub: 'Draw and manage work areas' },
   { key: 'vehicles', label: 'Fleet', title: 'Fleet', sub: 'Live fleet: track units and plan delivery routes' },
   { key: 'tasks', label: 'Tasks', title: 'Tasks', sub: 'The work orders of the field: who does what, and where' },
+  { key: 'reports', label: 'Reports', title: 'Reports', sub: 'What the fleet did in a period, and the numbers as a CSV' },
   { key: 'users', label: 'Users', title: 'Users', sub: 'Register accounts and set their user type' },
   { key: 'activity', label: 'Activity Log', title: 'Activity Log', sub: 'Who changed what, and when' },
 ]
@@ -238,6 +254,17 @@ export default function App() {
   const [tasksError, setTasksError] = useState<string | null>(null)
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null)
   const [taskDeleting, setTaskDeleting] = useState(false)
+
+  // The operational report: what the fleet did in a period. The server adds
+  // the numbers up, so the browser only draws them.
+  const [report, setReport] = useState<Report | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
+  const [reportPreset, setReportPreset] = useState<ReportPreset>('week')
+  const [reportFrom, setReportFrom] = useState(() => reportDay(-6))
+  const [reportTo, setReportTo] = useState(() => reportDay(0))
+  const [reportVehicle, setReportVehicle] = useState('')
+  const [reportExporting, setReportExporting] = useState(false)
 
   // The aggregate of the day behind the Overview tab: the distance the fleet
   // drove, the fleet counted by status and the crossings of today. The server
@@ -589,6 +616,87 @@ export default function App() {
       if (view !== 'activity') return
       void refreshAuditLogs()
     }, [view, refreshAuditLogs])
+
+    // The operational report of a period. The server counts the numbers, so
+    // the browser only draws them; the report is asked for again whenever the
+    // period or the unit changes.
+    const reportParams = useMemo(
+      () => ({
+        from: reportFrom,
+        to: reportTo,
+        vehicle_id: reportVehicle === '' ? null : Number(reportVehicle),
+      }),
+      [reportFrom, reportTo, reportVehicle],
+    )
+
+    const refreshReport = useCallback(async () => {
+      setReportLoading(true)
+      try {
+        setReport(await api.getReport(reportParams))
+        setReportError(null)
+      } catch (err) {
+        setReportError(err instanceof Error ? err.message : 'Could not load the report.')
+      } finally {
+        setReportLoading(false)
+      }
+    }, [reportParams])
+
+    useEffect(() => {
+      if (view !== 'reports') return
+      void refreshReport()
+    }, [view, refreshReport])
+
+    /** Pick one of the periods of the report. */
+    const changeReportPreset = useCallback((preset: ReportPreset) => {
+      setReportPreset(preset)
+      if (preset === 'today') {
+        setReportFrom(reportDay(0))
+        setReportTo(reportDay(0))
+      } else if (preset === 'week') {
+        setReportFrom(reportDay(-6))
+        setReportTo(reportDay(0))
+      } else if (preset === 'month') {
+        setReportFrom(reportDay(-29))
+        setReportTo(reportDay(0))
+      }
+    }, [])
+
+    /** A day of our own: the period is no longer one of the presets. */
+    const changeReportFrom = useCallback((day: string) => {
+      setReportPreset('custom')
+      setReportFrom(day)
+    }, [])
+
+    const changeReportTo = useCallback((day: string) => {
+      setReportPreset('custom')
+      setReportTo(day)
+    }, [])
+
+    /**
+     * Download the report as a CSV file.
+     *
+     * The file is fetched with the token of the session, so the server knows
+     * who is asking; a plain link would not carry it.
+     */
+    const exportReport = useCallback(async () => {
+      setReportExporting(true)
+      try {
+        const { blob, filename } = await api.downloadReportCSV(reportParams)
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        URL.revokeObjectURL(url)
+        showToast('success', `Report downloaded: ${filename}`)
+      } catch (err) {
+        showToast('error', err instanceof Error ? err.message : 'Could not export the report.')
+      } finally {
+        setReportExporting(false)
+      }
+    }, [reportParams, showToast])
 
     /** Narrow the trail down to one kind of action. */
     const setAuditActionFilter = useCallback((action: string) => {
@@ -1400,11 +1508,13 @@ export default function App() {
           ? IconPolygon
           : k === 'tasks'
             ? IconClipboard
-            : k === 'users'
-              ? IconUsers
-              : k === 'activity'
-                ? IconHistory
-                : IconTruck
+            : k === 'reports'
+              ? IconFile
+              : k === 'users'
+                ? IconUsers
+                : k === 'activity'
+                  ? IconHistory
+                  : IconTruck
 
   useEffect(() => {
     setMoreOpen(false)
@@ -1480,11 +1590,13 @@ export default function App() {
                     ? IconPolygon
                     : n.key === 'tasks'
                       ? IconClipboard
-                      : n.key === 'users'
-                        ? IconUsers
-                        : n.key === 'activity'
-                          ? IconHistory
-                          : IconTruck
+                      : n.key === 'reports'
+                        ? IconFile
+                        : n.key === 'users'
+                          ? IconUsers
+                          : n.key === 'activity'
+                            ? IconHistory
+                            : IconTruck
             const count = navCount(n.key)
             return (
               <button
@@ -1581,7 +1693,7 @@ export default function App() {
 
         {/* ---- Stage -------------------------------------------------------- */}
         <main className="stage" data-view={view} data-tall={mapTall ? 'true' : 'false'} data-mpane={mobilePane}>
-          {view !== 'overview' && view !== 'users' && view !== 'tasks' && (
+          {view !== 'overview' && view !== 'users' && view !== 'tasks' && view !== 'reports' && (
             <div className="pane-switch" role="tablist" aria-label="Show the list or the map">
               <button
                 type="button"
@@ -1613,7 +1725,7 @@ export default function App() {
             </div>
           )}
 
-          {view !== 'users' && view !== 'tasks' && (
+          {view !== 'users' && view !== 'tasks' && view !== 'reports' && (
           <section className="map-card" aria-label="Map">
             <EntityMap
               entities={mapEntities}
@@ -1784,6 +1896,25 @@ export default function App() {
                 onUpdate={handleTaskUpdate}
                 onDelete={setTaskToDelete}
                 onStatus={handleTaskStatus}
+              />
+            ) : view === 'reports' ? (
+              <ReportsPanel
+                data={report}
+                loading={reportLoading}
+                error={reportError}
+                vehicles={vehicles}
+                vehicleId={reportVehicle}
+                from={reportFrom}
+                to={reportTo}
+                preset={reportPreset}
+                scoped={role === 'driver'}
+                exporting={reportExporting}
+                onPresetChange={changeReportPreset}
+                onFromChange={changeReportFrom}
+                onToChange={changeReportTo}
+                onVehicleChange={setReportVehicle}
+                onRetry={() => void refreshReport()}
+                onExport={() => void exportReport()}
               />
             ) : view === 'users' && canEdit ? (
               <UserPanel

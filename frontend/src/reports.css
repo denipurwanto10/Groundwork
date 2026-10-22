@@ -1,0 +1,246 @@
+/* ==========================================================================
+   Reports (the operational report of a period)
+   The numbers come from the server; the panel only draws them. Two tables
+   carry the breakdown: one per unit, one per work area.
+   ========================================================================== */
+
+/* The report is a page of its own: one column, the panel across the stage.
+   The map is not shown on this page, so the panel gets the room the map
+   would have taken. */
+.stage[data-view='reports'],
+.stage[data-view='reports'][data-tall='true'] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'panel';
+}
+
+.stage[data-view='reports'] .panel-pane {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.rp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--d-gap, 16px);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  padding: 2px 2px 28px;
+}
+
+/* ---- Toolbar: the period, the unit, the export --------------------------- */
+
+.rp-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* The presets of the period: today, a week, a month, or a range of our own. */
+.rp-presets {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+}
+
+.rp-preset {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.rp-preset:hover {
+  color: var(--text);
+}
+
+.rp-preset.on {
+  color: var(--on-btn);
+  background: var(--btn);
+}
+
+.rp-dates {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rp-dash {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.rp-filter {
+  width: 260px;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.rp-export {
+  margin-left: auto;
+}
+
+/* ---- The cards of the period --------------------------------------------- */
+
+.rp-cards {
+  margin: 0;
+}
+
+/* ---- Errors and the empty period ----------------------------------------- */
+
+.rp-error,
+.rp-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 36px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13.5px;
+  border: 1px solid var(--line);
+  border-radius: var(--d-radius, 16px);
+  background: var(--panel);
+}
+
+.rp-error {
+  color: var(--danger);
+}
+
+/* ---- The tables ----------------------------------------------------------- */
+
+.rp-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rp-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.rp-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.rp-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--d-radius, 16px);
+  background: var(--panel);
+}
+
+.rp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.rp-table th,
+.rp-table td {
+  padding: 11px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.rp-table thead th {
+  position: sticky;
+  top: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.rp-table tbody tr:last-child th,
+.rp-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.rp-table tbody tr:hover {
+  background: var(--panel-2);
+}
+
+.rp-table tbody th {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rp-table tbody th small {
+  display: block;
+  margin-top: 2px;
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.rp-table td {
+  color: var(--text-2);
+}
+
+.rp-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rp-table td small {
+  color: var(--muted);
+}
+
+/* ---- Phones: the toolbar stacks ------------------------------------------ */
+
+@media (max-width: 720px) {
+  .rp-toolbar {
+    align-items: stretch;
+  }
+
+  .rp-presets {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .rp-preset {
+    flex: 1;
+    text-align: center;
+    padding: 6px 8px;
+  }
+
+  .rp-filter {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+
+  .rp-export {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+  }
+}

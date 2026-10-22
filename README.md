@@ -28,6 +28,7 @@ TypeScript + Leaflet di frontend.
 - [Audit Log](#audit-log-jejak-aktivitas)
 - [Driver View](#driver-view-layar-driver)
 - [Task Management](#task-management-work-orders)
+- [Laporan & Export](#laporan--export-laporan-operasional)
 - [Notifikasi Desktop](#notifikasi-desktop-web-push)
 - [Playback Rute](#playback-rute-history-perjalanan)
 - [Keamanan](#keamanan)
@@ -86,19 +87,20 @@ Go + Gin (:8080 default, :8091 di mesin ini) ── pgxpool ──► PostgreSQL
 | `cmd/simulator` | pengirim posisi palsu untuk armada (sumber data live tracking) |
 | `internal/config`, `internal/db` | `.env` + DSN, `pgxpool` + health check |
 | `internal/entity`, `internal/vehicle` | model + `Normalize`/`Validate` + unit test; `vehicle` juga model rute (`Route`, `RouteStop`) |
-| `internal/handler` | entities, zones, vehicles, routes, regions, islands, zone-from-region, health, auth |
+| `internal/handler` | entities, zones, vehicles, routes, regions, islands, zone-from-region, reports, health, auth |
 | `internal/middleware` | kompresi gzip + `Vary`/`Content-Encoding` |
 | `internal/routing` | klien OSRM (`OSRM_BASE_URL`, `off` = fallback `direct`) |
 | `internal/ws` | hub fan-out untuk stream posisi kendaraan |
 
 **Frontend** (`frontend/src/`)
 
-`App.tsx` memegang state dan lima tab (Overview / Places / Zones / Fleet /
-Users); `EntityMap` menyusun layer peta: `RegionLayer` (batas administratif),
-`ZoneLayer` (polygon + editor Geoman), `VehicleLayer` (puck armada),
-`RouteLayer` (jalur). Panel: `EntityList`/`EntityDetail`/`EntityForm`/
-`ZonePanel`/`RegionZonePicker`/`VehiclePanel`. Kontrak API di `lib/types.ts`,
-client di `lib/api.ts`, stream di `lib/vehicleStream.ts`. Tema visual terakhir
+`App.tsx` memegang state dan tab-tabnya (Overview / Places / Zones / Fleet /
+Tasks / Reports / Users / Activity Log); `EntityMap` menyusun layer peta:
+`RegionLayer` (batas administratif), `ZoneLayer` (polygon + editor Geoman),
+`VehicleLayer` (puck armada), `RouteLayer` (jalur). Panel: `EntityList`/
+`EntityDetail`/`EntityForm`/`ZonePanel`/`RegionZonePicker`/`VehiclePanel`/
+`TaskBoard`/`ReportsPanel`. Kontrak API di `lib/types.ts`, client di
+`lib/api.ts`, stream di `lib/vehicleStream.ts`. Tema visual terakhir
 (`theme-red.css`) menentukan warna pin dan kontrol peta.
 
 REST untuk snapshot, WebSocket untuk stream posisi. Autentikasi JWT lokal
@@ -356,6 +358,8 @@ dengan yang asli.
 | `PUT` | `/api/tasks/:id` | ubah tugas penuh (admin) |
 | `DELETE` | `/api/tasks/:id` | hapus tugas (`204`, admin) |
 | `PUT` | `/api/tasks/:id/status` | pindahkan status tugas (admin / staff / driver) |
+| `GET` | `/api/reports` | laporan operasional satu periode (`from`, `to`, `vehicle_id` opsional) |
+| `GET` | `/api/reports/export.csv` | laporan yang sama sebagai file CSV (unduhan) |
 | `GET` | `/api/audit-logs` | jejak aktivitas (admin); `?limit=&offset=&action=&entity_type=&q=` |
 
 Bentuk entity:
@@ -662,6 +666,82 @@ ke mana, dan sebelum kapan.
      -d '{"status":"completed"}'
    ```
 
+## Laporan & Export (Laporan Operasional)
+
+Peta menunjukkan **sekarang**: di mana unit berada. Laporan menunjukkan
+**sebelumnya**: berapa yang sebenarnya dikerjakan dalam satu periode, per
+unit, per zona, dan per tugas. Semuanya dihitung di database, jadi angkanya
+sama dengan yang dibaca Overview — bukan perkiraan di browser.
+
+- **Tab Reports** di sidebar (`ReportsPanel.tsx`). Preset periode (**Hari ini**
+  / **7 hari** / **30 hari**), rentang bebas dengan kalender yang sudah ada,
+  dan dropdown unit (driver tidak melihat dropdown itu: server sudah
+  membatasianya ke unitnya sendiri).
+- **Kartu ringkasan** — jarak tempuh (km), rute selesai, task selesai, dan
+  jumlah lintasan masuk/keluar zona. Gaya kartunya sama dengan Overview.
+- **Dua tabel** — satu per kendaraan (jarak, rute, lintasan zona) dan satu
+  per zona (masuk, keluar, total, jumlah unit yang melintasi).
+- **Export CSV** — tombol mengunduh file yang isinya tabel per kendaraan.
+  File diambil dengan `fetch` + header `Authorization` yang sama seperti
+  request lain (link polos tidak membawa token, jadi server akan menjawab
+  `unauthorized`), lalu dijadikan `Blob` dan diunduh dengan nama dari header
+  `Content-Disposition`.
+
+### Aturan periodenya
+
+| Parameter | Arti |
+| --------- | ---- |
+| `from`, `to` | `YYYY-MM-DD` atau `RFC3339`. Tanpa keduanya: 7 hari terakhir termasuk hari ini. |
+| — | `from` tidak boleh setelah `to`; rentang maksimum 92 hari. |
+| `vehicle_id` | Batasi laporan ke satu unit (opsional). |
+
+Batas periode yang lebih dari 92 hari dijawab `400` dengan
+`{"error":{"code":"validation_failed", ...}}`, format error yang sama dengan
+seluruh API.
+
+### Cara hitung angkanya
+
+- **Jarak tempuh** memakai logika yang persis sama dengan `GET /api/overview`:
+  jumlah langkah antar posisi (`lag()` per kendaraan), diukur di bola
+  (`ST_Distance` geography), langkah dari posisi terakhir sebelum periode
+  ikut dihitung, dan langkah dengan kecepatan mustahil (> 200 km/h) dibuang.
+- **Rute** — `routes_total` = rute yang berjalan di periode itu (dibuat
+  sebelumnya dan belum selesai, atau selesai di dalam periode),
+  `routes_completed` = yang benar-benar selesai di dalam periode. Rute yang
+  dibatalkan tidak dihitung sebagai selesai.
+- **Lintasan zona** — event `ENTER`/`EXIT` di dalam periode, per unit dan per
+  zona. `unique_vehicles` = berapa unit berbeda yang melintasi zona itu.
+- **Task** — `tasks_total` = tugas yang dibuat di periode itu,
+  `tasks_completed` = yang sekarang berstatus `completed`.
+- Unit tanpa satu pun aktivitas tetap muncul dengan angka `0`; periode tanpa
+  aktivitas apa pun adalah laporan kosong, bukan error.
+
+### Peran dan akses
+
+`admin`, `staff`, dan `viewer` membaca laporan seluruh armada. `driver`
+hanya membaca laporan unitnya sendiri: server memaksa cakupannya, dan
+permintaan `vehicle_id` milik orang lain dijawab `403`.
+
+### Cara mengetestnya
+
+1. **Jalankan simulator** beberapa menit (`go run ./cmd/simulator`) supaya
+   ada posisi, rute, dan lintasan zona.
+2. **Buka tab Reports**, pilih periode **Hari ini**, lalu cocokkan angkanya
+   dengan peta dan card unit di tab **Fleet**.
+3. **Klik Export CSV**, buka filenya di spreadsheet, dan cocokkan isinya
+   dengan tabel per kendaraan di layar.
+4. **Login sebagai driver**: tab Reports hanya menampilkan unitnya sendiri.
+
+```bash
+# laporan sebagai JSON
+curl "http://127.0.0.1:8091/api/reports?from=2026-10-16&to=2026-10-22" \
+  -H "Authorization: Bearer $TOKEN"
+
+# laporan sebagai CSV
+curl -o report.csv "http://127.0.0.1:8091/api/reports/export.csv?from=2026-10-16&to=2026-10-22" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ## Notifikasi Desktop (Web Push)
 
 Lonceng di pojok kanan atas top bar adalah **pusat notifikasi** aplikasi.
@@ -793,17 +873,18 @@ cmd/
 internal/
   config/ db/             # .env + DSN, pgxpool + health
   entity/ vehicle/ task/  # model + validasi + unit test (vehicle juga model rute)
-  handler/                # entities, zones, vehicles, routes, regions, islands, tasks, auth
+  handler/                # entities, zones, vehicles, routes, regions, islands, tasks, reports, auth
   middleware/             # kompresi gzip
   routing/                # klien OSRM + fallback direct
   ws/                     # hub WebSocket
-migrations/               # 001-023 up/down + README
+migrations/               # 001-025 up/down + README
 scripts/empty-state.sql   # kembali ke layar "No entities yet."
 frontend/src/
   lib/                    # api.ts, types.ts, vehicleStream.ts, session.ts, playback.ts
-  components/             # map layers, panel, form, dialog, TaskBoard.tsx
+  components/             # map layers, panel, form, dialog, TaskBoard.tsx, ReportsPanel.tsx
   App.tsx                 # state, tab, toast, sheet mobile
   tasks.css               # papan tugas (3 kolom + form)
+  reports.css             # tab laporan (kartu, tabel, toolbar periode)
   theme-red.css           # tema visual terakhir (warna rute, pin, kontrol)
 AGENT.md                  # aturan kerja proyek
 README.md                 # file ini

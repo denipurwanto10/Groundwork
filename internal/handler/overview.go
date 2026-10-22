@@ -110,14 +110,14 @@ func (h *OverviewHandler) Get(c *gin.Context) {
 	ov.DistanceKM = round2(distance)
 
 	ov.Recent = make([]GeofenceEvent, 0)
-	if err := decodeOverviewJSON(recent, &ov.Recent); err != nil {
+	if err := decodeJSONColumn(recent, &ov.Recent); err != nil {
 		log.Printf("overview: decode recent events failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
 		return
 	}
 
 	ov.Events.Zones = make([]OverviewZone, 0)
-	if err := decodeOverviewJSON(zones, &ov.Events.Zones); err != nil {
+	if err := decodeJSONColumn(zones, &ov.Events.Zones); err != nil {
 		log.Printf("overview: decode zone breakdown failed: %v", err)
 		c.JSON(http.StatusInternalServerError, errorBody("internal_error", "internal server error"))
 		return
@@ -126,8 +126,8 @@ func (h *OverviewHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": ov})
 }
 
-// decodeOverviewJSON turns one JSON column of the aggregate into a slice.
-func decodeOverviewJSON(raw []byte, out any) error {
+// decodeJSONColumn turns one JSON column of an aggregate into a slice.
+func decodeJSONColumn(raw []byte, out any) error {
 	if len(raw) == 0 {
 		return nil
 	}

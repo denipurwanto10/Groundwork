@@ -34,6 +34,7 @@
 .dash[data-view='tasks'] { --pg: mo-pg-5; --fd: mo-fd-5; }
 .dash[data-view='users'] { --pg: mo-pg-6; --fd: mo-fd-6; }
 .dash[data-view='activity'] { --pg: mo-pg-7; --fd: mo-fd-7; }
+.dash[data-view='reports'] { --pg: mo-pg-8; --fd: mo-fd-8; }
 
 @keyframes mo-pg-1 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
 @keyframes mo-fd-1 { from { opacity: 0; } to { opacity: 1; } }
@@ -49,6 +50,8 @@
 @keyframes mo-fd-6 { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mo-pg-7 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
 @keyframes mo-fd-7 { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-pg-8 { from { opacity: 0; transform: translate3d(var(--mo-x, 0px), var(--mo-y, 14px), 0) scale(0.992); } to { opacity: 1; transform: none; } }
+@keyframes mo-fd-8 { from { opacity: 0; } to { opacity: 1; } }
 
 @keyframes mo-rise   { from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.99); } to { opacity: 1; transform: none; } }
 @keyframes mo-fade   { from { opacity: 0; } to { opacity: 1; } }

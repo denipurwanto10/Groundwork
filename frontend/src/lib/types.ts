@@ -664,6 +664,90 @@ export function formatOverviewDate(date: string): string {
   })
 }
 
+/* ------------------------------------------------------------------ *
+ * Reports (GET /api/reports): the operational report of a period.
+ * ------------------------------------------------------------------ */
+
+/** The window a report covers. */
+export interface ReportPeriod {
+  /** First day of the period (YYYY-MM-DD). */
+  from: string
+  /** Last day of the period (YYYY-MM-DD). */
+  to: string
+}
+
+/** The numbers of the whole period. */
+export interface ReportTotals {
+  /** How far the whole fleet drove in the period. */
+  distance_km: number
+  /** The routes that were finished in the period. */
+  routes_completed: number
+  /** The routes that ran in the period, finished or not. */
+  routes_total: number
+  /** The work orders of the period that are done. */
+  tasks_completed: number
+  /** The work orders of the period. */
+  tasks_total: number
+  /** The crossings into a zone. */
+  geofence_enter: number
+  /** The crossings out of a zone. */
+  geofence_exit: number
+}
+
+/** One unit and what it did in the period. */
+export interface ReportVehicle {
+  vehicle_id: number
+  vehicle_code: string
+  vehicle_name: string
+  /** The account of the driver; empty when the unit has none. */
+  driver_name: string
+  distance_km: number
+  routes_completed: number
+  routes_total: number
+  geofence_enter: number
+  geofence_exit: number
+}
+
+/** One work area and how often it was crossed in the period. */
+export interface ReportZone {
+  zone_id: number
+  zone_name: string
+  /** Crossings into the zone. */
+  enter: number
+  /** Crossings out of the zone. */
+  exit: number
+  /** Crossings of the border, in and out. */
+  total: number
+  /** How many units crossed the border. */
+  unique_vehicles: number
+}
+
+/** The report of a period: the totals and the two breakdowns. */
+export interface Report {
+  period: ReportPeriod
+  totals: ReportTotals
+  by_vehicle: ReportVehicle[]
+  by_zone: ReportZone[]
+}
+
+/** What a report request asks for. */
+export interface ReportParams {
+  /** First day of the period (YYYY-MM-DD). */
+  from?: string
+  /** Last day of the period (YYYY-MM-DD). */
+  to?: string
+  /** One unit only; null asks for the whole fleet. */
+  vehicle_id?: number | null
+}
+
+/** "2026-10-22" -> "22 Oct 2026": the day a report number belongs to. */
+export function formatReportDate(date: string): string {
+  if (!date) return ''
+  const t = Date.parse(`${date}T00:00:00`)
+  if (Number.isNaN(t)) return date
+  return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 /** A unit without a reported position must not get a marker. */
 export function hasPosition(v: Vehicle): v is Vehicle & { lat: number; lng: number } {
   return typeof v.lat === 'number' && typeof v.lng === 'number' && Number.isFinite(v.lat) && Number.isFinite(v.lng)

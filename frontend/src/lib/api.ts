@@ -24,6 +24,8 @@ import type {
   AuthStatus,
   HistoryPoint,
   Overview,
+  Report,
+  ReportParams,
   Task,
   TaskInput,
   TaskStatus,
@@ -73,12 +75,25 @@ interface BackendErrorBody {
   }
 }
 
+/**
+ * The headers every authenticated call carries.
+ *
+ * The JWT lives in the session, so a call that is made without it is
+ * refused by the server. A file download needs the same header: a plain link
+ * would not carry the token, and the answer would be "unauthorized".
+ */
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   // Every authenticated call carries the stored JWT.
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
-
   let res: Response
   try {
     res = await fetch(`${BASE_URL}${path}`, {
@@ -222,6 +237,17 @@ function toTaskPayload(input: TaskInput) {
     place_id: input.place_id ?? null,
     due_date: input.due_date || '',
   }
+}
+
+/**
+ * The name of a downloaded file, as the server asks for it.
+ *
+ * The header is only readable when the answer comes from the same origin, so
+ * a name of our own is the fallback.
+ */
+function filenameFromDisposition(header: string | null): string {
+  const match = header?.match(/filename="?([^";]+)"?/i)
+  return match ? match[1] : 'groundwork-report.csv'
 }
 
 export const api = {
@@ -541,6 +567,70 @@ export const api = {
    */
   getOverview(): Promise<Overview> {
     return request<Overview>('/api/overview')
+  },
+
+  // ---- Reports (the operational report of a period) ----
+
+  /**
+   * The report of a period: the distance of every unit, the routes they
+   * finished, the zone crossings and the work orders.
+   *
+   * The numbers are counted by the database; the browser only draws them.
+   */
+  getReport(params?: ReportParams): Promise<Report> {
+    const sp = new URLSearchParams()
+    if (params?.from) sp.set('from', params.from)
+    if (params?.to) sp.set('to', params.to)
+    if (params?.vehicle_id != null) sp.set('vehicle_id', String(params.vehicle_id))
+    const qs = sp.toString()
+    return request<Report>(`/api/reports${qs ? `?${qs}` : ''}`)
+  },
+
+  /**
+   * The report as a CSV file.
+   *
+   * The file is fetched with the same authorization as every other call, so
+   * the token travels with the request. A plain link would not carry it, and
+   * the server would answer "unauthorized".
+   */
+  async downloadReportCSV(params?: ReportParams): Promise<{ blob: Blob; filename: string }> {
+    const sp = new URLSearchParams()
+    if (params?.from) sp.set('from', params.from)
+    if (params?.to) sp.set('to', params.to)
+    if (params?.vehicle_id != null) sp.set('vehicle_id', String(params.vehicle_id))
+    const qs = sp.toString()
+    const path = `/api/reports/export.csv${qs ? `?${qs}` : ''}`
+
+    let res: Response
+    try {
+      res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() })
+    } catch {
+      throw new ApiError('network_error', 'Cannot reach the backend. Is the Go server running?')
+    }
+
+    // An expired access token is renewed and the file is asked for again.
+    if (res.status === 401) {
+      const renewed = await renewSession()
+      if (renewed) {
+        res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() })
+      }
+    }
+
+    if (!res.ok) {
+      let code: ApiErrorCode = 'http_error'
+      let message = `The export failed with status ${res.status}.`
+      try {
+        const body = (await res.json()) as BackendErrorBody
+        if (body.error?.code) code = body.error.code as ApiErrorCode
+        if (body.error?.message) message = body.error.message
+      } catch {
+        // The answer was not the error format of the API; the status speaks.
+      }
+      throw new ApiError(code, message, res.status)
+    }
+
+    const blob = await res.blob()
+    return { blob, filename: filenameFromDisposition(res.headers.get('Content-Disposition')) }
   },
 
   // ---- Delivery routes (migration 007) ----

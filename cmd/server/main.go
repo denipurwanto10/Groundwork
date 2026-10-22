@@ -165,6 +165,13 @@ func main() {
 			// accounts of the workspace.
 			auditHandler := handler.NewAuditHandler(auditRecorder)
 			protected.GET("/audit-logs", adminOnly, auditHandler.List)
+
+			// The operational report: what the fleet did in a period, as
+			// numbers and as a CSV file. Every role may read it, but a
+			// driver only reads the report of their own unit.
+			reportHandler := handler.NewReportHandler(pool)
+			protected.GET("/reports", reportHandler.Get)
+			protected.GET("/reports/export.csv", reportHandler.ExportCSV)
 		}
 	}
 

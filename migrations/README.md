@@ -31,6 +31,7 @@ Plain SQL files, applied in filename order. No migration framework
 | `022_add_staff_role.up.sql` | peran `staff` (mengerjakan tugas di lapangan) |
 | `023_drop_telematics_events.up.sql` | buang `telematics_events` (fitur peringatan kecepatan dihapus) |
 | `024_single_route_color.up.sql` | semua `vehicles.route_color` diseragamkan ke merah primer tema (satu warna rute untuk semua unit) |
+| `025_report_indexes.up.sql` | index tanggal untuk `vehicle_routes` dan `tasks` (bacaan rentang laporan operasional) |
 
 Tiap file punya pasangan `*.down.sql` untuk rollback (urutan terbalik).
 
