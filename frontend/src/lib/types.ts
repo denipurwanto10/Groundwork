@@ -345,6 +345,73 @@ export const VEHICLE_STATUS_COLORS: Record<VehicleStatus, string> = {
 /** The colour a unit's delivery line gets when nobody picked one. */
 export const DEFAULT_ROUTE_COLOR = '#d0171e'
 
+/* ------------------------------------------------------------------ *
+ * Service reminders (migration 029): the odometer of a unit and the
+ * schedule of its next service.
+ * ------------------------------------------------------------------ */
+
+/** The three states of the service schedule of a unit. */
+export const SERVICE_STATUSES = ['ok', 'due_soon', 'overdue'] as const
+export type ServiceStatus = (typeof SERVICE_STATUSES)[number]
+
+/** What the chip of a unit reads. */
+export const SERVICE_STATUS_LABELS: Record<ServiceStatus, string> = {
+  ok: 'Servis aman',
+  due_soon: 'Servis sebentar lagi',
+  overdue: 'Telat servis',
+}
+
+/**
+ * The colour of a service status.
+ *
+ * The palette of the vehicle statuses, nothing new: the amber of a parked
+ * unit for a service that is close, the red of a moving one for a service
+ * that was missed.
+ */
+export const SERVICE_STATUS_COLORS: Record<ServiceStatus, string> = {
+  ok: '#7d8693',
+  due_soon: '#d49a3a',
+  overdue: '#d0191f',
+}
+
+/**
+ * The service schedule of a unit, as the server works it out.
+ *
+ * The schedule is counted from the odometer: the next service is due when
+ * the odometer reaches the reading of the last service plus the interval.
+ */
+export interface VehicleService {
+  /** The interval the unit is serviced on, in kilometres. */
+  interval_km: number
+  /** When the unit was serviced last; null when it never was. */
+  last_service_at: string | null
+  /** The odometer at that moment, in kilometres. */
+  last_service_km: number
+  /** The odometer at which the next service is due, in kilometres. */
+  next_due_km: number
+  /**
+   * How many kilometres are left before the next service. It is negative
+   * once the unit drove past it.
+   */
+  remaining_km: number
+  /** Where the unit stands against its schedule. */
+  status: ServiceStatus
+}
+
+/** One entry of the service history of a unit. */
+export interface ServiceRecord {
+  id: number
+  vehicle_id: number
+  /** When the service was done (RFC3339). */
+  serviced_at: string
+  /** The odometer of the unit at that moment, in metres. */
+  odometer_m: number
+  /** What was done; may be empty. */
+  note: string
+  /** The account that wrote it down; null once the account is gone. */
+  recorded_by: number | null
+}
+
 /** One tracked unit, latest known position included (null until it reports). */
 export interface Vehicle {
   id: number
@@ -366,6 +433,13 @@ export interface Vehicle {
   /** Colour of this unit's delivery line. */
   route_color: string
   last_seen_at: string | null
+  /**
+   * How far the unit has driven since it was created. The server
+   * accumulates it, one position report at a time.
+   */
+  total_distance_km: number
+  /** The service schedule of the unit. */
+  service: VehicleService
   /**
    * When the running idle session began: the moment the unit started
    * standing still. Null while the unit is not idle.
@@ -404,6 +478,12 @@ export interface VehicleInput {
   driver_id: number | null
   /** Colour of the delivery line of this unit. */
   route_color: string
+  /**
+   * The interval the unit is serviced on, in kilometres. Null means the
+   * default of the server, which every unit without an interval of its own
+   * follows.
+   */
+  service_interval_km: number | null
 }
 
 /** The counters of one zone: how many places and units are inside it. */
@@ -847,6 +927,38 @@ export function vehicleStatusLabel(status: string): string {
 
 export function vehicleStatusColor(status: string): string {
   return VEHICLE_STATUS_COLORS[normalizeVehicleStatus(status)]
+}
+
+/** Values come from the wire, so coerce anything unexpected to a known one. */
+export function normalizeServiceStatus(status: string): ServiceStatus {
+  return (SERVICE_STATUSES as readonly string[]).includes(status) ? (status as ServiceStatus) : 'ok'
+}
+
+export function serviceStatusLabel(status: string): string {
+  return SERVICE_STATUS_LABELS[normalizeServiceStatus(status)]
+}
+
+export function serviceStatusColor(status: string): string {
+  return SERVICE_STATUS_COLORS[normalizeServiceStatus(status)]
+}
+
+/**
+ * "12.483 km" — the odometer of a unit.
+ *
+ * The thousands are separated by a dot, the way the operator reads them.
+ */
+export function formatOdometer(km: number): string {
+  if (!Number.isFinite(km) || km < 0) return '—'
+  return `${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(km)} km`
+}
+
+/**
+ * "320" / "150.5" — a number of kilometres without a unit, for the chip of
+ * the service status.
+ */
+export function formatKmShort(km: number): string {
+  if (!Number.isFinite(km)) return '—'
+  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(Math.round(km * 100) / 100)
 }
 
 /** Human age of the last reported position, e.g. "12s ago". */

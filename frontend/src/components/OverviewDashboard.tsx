@@ -1,8 +1,14 @@
 import type { ReactNode } from 'react'
 import type { GeofenceEvent, Overview, Vehicle } from '../lib/types'
-import { formatIdleDuration, formatLastSeen, formatOverviewDate, normalizeVehicleStatus } from '../lib/types'
+import {
+  formatIdleDuration,
+  formatLastSeen,
+  formatOverviewDate,
+  normalizeServiceStatus,
+  normalizeVehicleStatus,
+} from '../lib/types'
 import { Card } from './DashboardParts'
-import { IconActivity, IconClock, IconNavigation, IconPolygon, IconTruck } from './Icons'
+import { IconActivity, IconClock, IconNavigation, IconPolygon, IconShield, IconTruck } from './Icons'
 
 /* -------------------------------------------------------------------------- */
 /* Overview — the aggregate of the day                                          */
@@ -166,6 +172,42 @@ export function OverviewIdleNote({ vehicles }: { vehicles: Vehicle[] }) {
       <IconClock width={13} height={13} />
       <span>
         idle terlama: <b>{longest.name}</b> · {formatIdleDuration(longest.idle_duration_s)}
+      </span>
+    </p>
+  )
+}
+
+/**
+ * One small line below the fleet card: how many units come close to their
+ * next service, and how many drove past it.
+ *
+ * The numbers come from the fleet list (GET /api/vehicles): the server works
+ * out the schedule of every unit and hands it along with the fleet, so there
+ * is no extra request for this line.
+ */
+export function OverviewServiceNote({ vehicles }: { vehicles: Vehicle[] }) {
+  let dueSoon = 0
+  let overdue = 0
+  for (const v of vehicles) {
+    const status = normalizeServiceStatus(v.service?.status ?? 'ok')
+    if (status === 'due_soon') dueSoon += 1
+    else if (status === 'overdue') overdue += 1
+  }
+
+  if (dueSoon === 0 && overdue === 0) {
+    return (
+      <p className="ov-service-note">
+        <IconShield width={13} height={13} />
+        <span>Servis: semua aman</span>
+      </p>
+    )
+  }
+
+  return (
+    <p className="ov-service-note">
+      <IconShield width={13} height={13} />
+      <span>
+        Servis: <b>{dueSoon}</b> mendekati jadwal · <b>{overdue}</b> terlewat
       </span>
     </p>
   )

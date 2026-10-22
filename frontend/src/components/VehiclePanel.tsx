@@ -6,6 +6,7 @@ import type {
   RouteDraft,
   RoutePick,
   RouteStopPlace,
+  ServiceRecord,
   UserAccount,
   Vehicle,
   VehicleInput,
@@ -18,8 +19,11 @@ import {
   formatDuration,
   formatEtaClock,
   formatIdleDuration,
+  formatKmShort,
   formatLastSeen,
+  formatOdometer,
   hasPosition,
+  normalizeServiceStatus,
   normalizeVehicleKind,
   normalizeVehicleStatus,
   routeForVehicle,
@@ -27,6 +31,7 @@ import {
   routeEtaAt,
   routeEtaSeconds,
   secondsSince,
+  serviceStatusColor,
   vehicleKindLabel,
   vehicleStatusColor,
   vehicleStatusLabel,
@@ -34,10 +39,12 @@ import {
   VEHICLE_KIND_LABELS,
   VEHICLE_KINDS,
 } from '../lib/types'
-import { ApiError } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import type { PlaybackController } from '../lib/playback'
 import {
   IconAlert,
+  IconCheck,
+  IconClipboard,
   IconClock,
   IconCrosshair,
   IconEdit,
@@ -144,6 +151,11 @@ interface Props {
   onCreate: (input: VehicleInput) => Promise<void>
   onUpdate: (id: number, input: VehicleInput) => Promise<void>
   onDelete: (vehicle: Vehicle) => void
+  /**
+   * Admin-only: write down a service for a unit. The server starts the
+   * schedule of the unit over from the odometer it has right now.
+   */
+  onRecordService: (vehicleId: number, input: { note: string; serviced_at: string }) => Promise<void>
   /** Driver accounts a unit can be handed over to. */
   drivers: UserAccount[]
   /** Zone boundary crossings, newest first. */
@@ -159,6 +171,32 @@ interface UnitDraft {
   code: string
   kind: VehicleKind
   driverId: number | ''
+  /** The interval of the service, as the form reads it: a number, or empty. */
+  serviceInterval: string
+}
+
+/**
+ * Today, as the form of a service reads it: the day the service was done.
+ */
+function todayInputValue(): string {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+
+/**
+ * The day of a service as the operator reads it: "22 Oct 2026".
+ */
+function formatServiceDate(iso: string | null): string {
+  if (!iso) return '—'
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return iso
+  return new Date(t).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
 }
 
 /** Re-renders every few seconds so "12s ago" labels keep moving. */
@@ -241,6 +279,7 @@ export default function VehiclePanel({
   onCreate,
   onUpdate,
   onDelete,
+  onRecordService,
   drivers,
   events,
   playback,
@@ -264,12 +303,52 @@ export default function VehiclePanel({
   const [unitFields, setUnitFields] = useState<Record<string, string>>({})
   const [unitSaving, setUnitSaving] = useState(false)
 
+  // The service history of the unit that is selected, and the form that
+  // writes a service down.
+  const [services, setServices] = useState<ServiceRecord[]>([])
+  const [servicesLoading, setServicesLoading] = useState(false)
+  const [serviceOpen, setServiceOpen] = useState(false)
+  const [serviceNote, setServiceNote] = useState('')
+  const [serviceDate, setServiceDate] = useState(todayInputValue)
+  const [serviceSaving, setServiceSaving] = useState(false)
+  const [serviceError, setServiceError] = useState<string | null>(null)
+
+  // The history of the selected unit. It is read again every time another
+  // unit is picked, and after a service was written down.
+  useEffect(() => {
+    if (selectedId == null) {
+      setServices([])
+      return
+    }
+
+    let cancelled = false
+    setServicesLoading(true)
+    api
+      .listVehicleServices(selectedId)
+      .then((list) => {
+        if (!cancelled) setServices(list)
+      })
+      .catch(() => {
+        if (!cancelled) setServices([])
+      })
+      .finally(() => {
+        if (!cancelled) setServicesLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId])
+
   // A route error belongs to one vehicle: switching selection must not show it
   // for a different unit.
   useEffect(() => {
     setRouteError(null)
     setSaving(false)
     setPlanning(false)
+    setServiceOpen(false)
+    setServiceError(null)
+    setServiceNote('')
   }, [selectedId])
 
   const counts = useMemo(() => {
@@ -352,7 +431,7 @@ export default function VehiclePanel({
   }
 
   const openCreate = () => {
-    setUnit({ id: null, name: '', code: '', kind: 'truck', driverId: '' })
+    setUnit({ id: null, name: '', code: '', kind: 'truck', driverId: '', serviceInterval: '' })
     setUnitError(null)
     setUnitFields({})
   }
@@ -364,6 +443,9 @@ export default function VehiclePanel({
       code: v.code,
       kind: normalizeVehicleKind(v.kind),
       driverId: v.driver_id ?? '',
+      // The interval the unit follows right now. An empty field means the
+      // default of the server.
+      serviceInterval: v.service ? String(v.service.interval_km) : '',
     })
     setUnitError(null)
     setUnitFields({})
@@ -377,6 +459,8 @@ export default function VehiclePanel({
 
   const submitUnit = async () => {
     if (!unit) return
+    const interval = unit.serviceInterval.trim()
+    const parsed = interval === '' ? null : Number(interval)
     const input: VehicleInput = {
       name: unit.name,
       code: unit.code,
@@ -384,6 +468,8 @@ export default function VehiclePanel({
       driver_id: unit.driverId === '' ? null : unit.driverId,
       // The delivery line always uses the brand red; it is not user-configurable.
       route_color: DEFAULT_ROUTE_COLOR,
+      // An empty field means the default of the server.
+      service_interval_km: parsed === null || !Number.isFinite(parsed) ? null : parsed,
     }
     setUnitSaving(true)
     setUnitError(null)
@@ -404,6 +490,27 @@ export default function VehiclePanel({
     }
   }
 
+  // The service is written down: the odometer of the unit right now becomes
+  // the start of the next schedule, and the history is read again.
+  const submitService = async () => {
+    if (!selected) return
+    setServiceSaving(true)
+    setServiceError(null)
+    try {
+      await onRecordService(selected.id, {
+        note: serviceNote.trim(),
+        serviced_at: serviceDate,
+      })
+      setServiceOpen(false)
+      setServiceNote('')
+      setServices(await api.listVehicleServices(selected.id))
+    } catch (err) {
+      setServiceError(err instanceof Error ? err.message : 'Could not record the service')
+    } finally {
+      setServiceSaving(false)
+    }
+  }
+
   const unitFieldError = (field: string) =>
     unitFields[field] ? (
       <span className="um-error" role="alert">
@@ -412,6 +519,7 @@ export default function VehiclePanel({
     ) : null
 
   const selectedStatus = selected ? normalizeVehicleStatus(selected.status) : 'offline'
+  const selectedServiceStatus = normalizeServiceStatus(selected?.service?.status ?? 'ok')
   const showForm =
     !!selected && !activeRoute && (planning || !!draft?.origin || (draft?.stops.length ?? 0) > 0)
   // The plan is on its way to the server: the form waits for the line.
@@ -549,6 +657,89 @@ export default function VehiclePanel({
             {canDrive(selected) && hasPosition(selected) && (
               <p className="lt-drive-hint">Drag this unit's marker on the map to drive it.</p>
             )}
+
+            <div className="lt-service" aria-label="Service schedule">
+              <div className="lt-service-head">
+                <span className="lt-service-title">
+                  <IconClipboard width={13} height={13} />
+                  Servis
+                </span>
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="btn small secondary"
+                    onClick={() => {
+                      // The day of the service is today unless the operator
+                      // picks another one.
+                      setServiceDate(todayInputValue())
+                      setServiceError(null)
+                      setServiceOpen(true)
+                    }}
+                    title="Write down a service for this unit"
+                  >
+                    <IconCheck width={14} height={14} />
+                    Catat servis
+                  </button>
+                )}
+              </div>
+
+              <dl className="lt-service-facts">
+                <div>
+                  <dt>Odometer</dt>
+                  <dd>{formatOdometer(selected.total_distance_km)}</dd>
+                </div>
+                <div>
+                  <dt>Servis terakhir</dt>
+                  <dd>
+                    {selected.service?.last_service_at
+                      ? `${formatServiceDate(selected.service.last_service_at)} · ${formatKmShort(selected.service.last_service_km)} km`
+                      : 'Belum ada catatan servis'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Jadwal berikutnya</dt>
+                  <dd>
+                    {selected.service
+                      ? `${formatKmShort(selected.service.next_due_km)} km · interval ${formatKmShort(selected.service.interval_km)} km`
+                      : '—'}
+                  </dd>
+                </div>
+              </dl>
+
+              {selectedServiceStatus === 'due_soon' ? (
+                <span
+                  className="lt-chip service due_soon"
+                  style={{ '--svc': serviceStatusColor(selectedServiceStatus) } as CSSProperties}
+                >
+                  Servis sebentar lagi · sisa {formatKmShort(selected.service?.remaining_km ?? 0)} km
+                </span>
+              ) : selectedServiceStatus === 'overdue' ? (
+                <span
+                  className="lt-chip service overdue"
+                  style={{ '--svc': serviceStatusColor(selectedServiceStatus) } as CSSProperties}
+                >
+                  Telat servis · lewat {formatKmShort(-(selected.service?.remaining_km ?? 0))} km
+                </span>
+              ) : (
+                <span className="lt-service-ok">Servis aman</span>
+              )}
+
+              {servicesLoading ? (
+                <p className="lt-service-empty">Memuat riwayat servis…</p>
+              ) : services.length === 0 ? (
+                <p className="lt-service-empty">Belum ada riwayat servis.</p>
+              ) : (
+                <ul className="lt-service-list">
+                  {services.slice(0, 5).map((record) => (
+                    <li key={record.id}>
+                      <span>{formatServiceDate(record.serviced_at)}</span>
+                      <span>{formatKmShort(record.odometer_m / 1000)} km</span>
+                      {record.note && <em>{record.note}</em>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
             <div className="lt-actions">
               <button
@@ -866,6 +1057,7 @@ export default function VehiclePanel({
             const entering = !seenIds.current.has(v.id)
             const idleSeconds = idleSecondsOf(v, idleNow)
             const dwellSeconds = dwellSecondsOf(v, idleNow)
+            const serviceStatus = normalizeServiceStatus(v.service?.status ?? 'ok')
             return (
               <li
                 key={v.id}
@@ -922,6 +1114,30 @@ export default function VehiclePanel({
                         Di {v.current_zone.zone_name} · {formatIdleDuration(dwellSeconds)}
                       </span>
                     )}
+                    <span className="lt-card-service">
+                      <span className="lt-card-odo">
+                        <IconGauge width={12} height={12} />
+                        <span className="sr-only">Odometer</span>
+                        {formatOdometer(v.total_distance_km)}
+                      </span>
+                      {serviceStatus === 'due_soon' ? (
+                        <span
+                          className="lt-chip service due_soon"
+                          style={{ '--svc': serviceStatusColor(serviceStatus) } as CSSProperties}
+                        >
+                          Servis sebentar lagi · sisa {formatKmShort(v.service.remaining_km)} km
+                        </span>
+                      ) : serviceStatus === 'overdue' ? (
+                        <span
+                          className="lt-chip service overdue"
+                          style={{ '--svc': serviceStatusColor(serviceStatus) } as CSSProperties}
+                        >
+                          Telat servis · lewat {formatKmShort(-v.service.remaining_km)} km
+                        </span>
+                      ) : (
+                        <span className="lt-service-ok">Servis aman</span>
+                      )}
+                    </span>
                   </span>
                   <span className="lt-card-end">
                     <span className={`lt-chip ${status}`}>
@@ -1078,12 +1294,93 @@ export default function VehiclePanel({
               />
               {unitFieldError('driver_id')}
             </div>
+
+            <div className="um-field">
+              <label htmlFor="veh-service-interval">Interval servis (km)</label>
+              <input
+                id="veh-service-interval"
+                type="number"
+                min={1}
+                max={100000}
+                step="any"
+                value={unit.serviceInterval}
+                autoComplete="off"
+                onChange={(e) => setUnit({ ...unit, serviceInterval: e.target.value })}
+                placeholder="Kosong = bawaan 5.000 km"
+                aria-invalid={!!unitFields.service_interval_km}
+              />
+              {unitFieldError('service_interval_km')}
+            </div>
           </div>
 
           {unitError && (
             <div className="um-alert" role="alert">
               <IconAlert width={16} height={16} />
               <span>{unitError}</span>
+            </div>
+          )}
+        </FormModal>
+      )}
+      {serviceOpen && selected && (
+        <FormModal
+          titleId="veh-service-title"
+          title="Catat servis"
+          subtitle={`${selected.name} · ${formatOdometer(selected.total_distance_km)}`}
+          icon={<IconClipboard width={20} height={20} />}
+          onClose={() => setServiceOpen(false)}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setServiceOpen(false)}
+                disabled={serviceSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => void submitService()}
+                disabled={serviceSaving}
+              >
+                {serviceSaving ? 'Saving…' : 'Catat servis'}
+              </button>
+            </>
+          }
+        >
+          <div className="um-fgrid">
+            <div className="um-field">
+              <label htmlFor="veh-service-date">Tanggal servis</label>
+              <input
+                id="veh-service-date"
+                type="date"
+                value={serviceDate}
+                max={todayInputValue()}
+                onChange={(e) => setServiceDate(e.target.value)}
+              />
+            </div>
+
+            <div className="um-field wide">
+              <label htmlFor="veh-service-note">Catatan (opsional)</label>
+              <input
+                id="veh-service-note"
+                type="text"
+                value={serviceNote}
+                maxLength={500}
+                autoComplete="off"
+                onChange={(e) => setServiceNote(e.target.value)}
+                placeholder="ganti oli, cek rem…"
+              />
+            </div>
+          </div>
+
+          <p className="um-hint">Odometer saat ini akan jadi titik awal jadwal servis berikutnya.</p>
+
+          {serviceError && (
+            <div className="um-alert" role="alert">
+              <IconAlert width={16} height={16} />
+              <span>{serviceError}</span>
             </div>
           )}
         </FormModal>

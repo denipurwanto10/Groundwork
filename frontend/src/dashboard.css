@@ -954,6 +954,27 @@ button.kpi:hover {
   font-weight: 700;
 }
 
+/* "Servis: 2 mendekati jadwal · 1 terlewat" — the service schedule of the
+   fleet, one small line under the fleet card. */
+.ov-service-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 2px 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.ov-service-note svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.ov-service-note b {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .ov-summary {
   display: flex;
   flex-direction: column;
@@ -2257,6 +2278,11 @@ button.d-row:disabled {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+}
+
+/* A field that takes the whole row of the form. */
+.um-field.wide {
+  grid-column: 1 / -1;
 }
 
 .um-field > label,

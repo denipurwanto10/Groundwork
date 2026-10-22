@@ -13,6 +13,8 @@ import type {
   VehicleInput,
   VehicleList,
   VehicleRoute,
+  VehicleService,
+  ServiceRecord,
   RouteList,
   RouteStop,
   RouteStopPlace,
@@ -207,6 +209,9 @@ function toVehiclePayload(input: VehicleInput) {
     kind: input.kind,
     driver_id: input.driver_id,
     route_color: input.route_color,
+    // Null means the default of the server: the unit follows the interval
+    // every other unit without one follows.
+    service_interval_km: input.service_interval_km,
   }
 }
 
@@ -476,6 +481,43 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     })
+  },
+
+  /* ---- Service reminders (the odometer and the schedule) ---- */
+
+  /**
+   * The service history of one unit, newest first.
+   *
+   * A driver only receives the history of their own unit: the server
+   * narrows the list down to their own work.
+   */
+  listVehicleServices(vehicleId: number): Promise<ServiceRecord[]> {
+    return request<{ services: ServiceRecord[] }>(`/api/vehicles/${vehicleId}/services`).then(
+      (data) => data.services,
+    )
+  },
+
+  /**
+   * Admin-only: write down a service.
+   *
+   * The odometer of the unit right now becomes the start of the next
+   * schedule, so the unit is safe again until the next interval is used up.
+   * The answer carries the new record and the schedule of the unit after it.
+   */
+  recordVehicleService(
+    vehicleId: number,
+    input: { note?: string; serviced_at?: string },
+  ): Promise<{ service: ServiceRecord; service_status: VehicleService }> {
+    return request<{ service: ServiceRecord; service_status: VehicleService }>(
+      `/api/vehicles/${vehicleId}/services`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          note: input.note ?? '',
+          serviced_at: input.serviced_at ?? '',
+        }),
+      },
+    )
   },
 
   /**

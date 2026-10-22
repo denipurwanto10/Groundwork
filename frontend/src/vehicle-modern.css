@@ -1107,3 +1107,162 @@ button.fleet-row.d-row:hover:not(:disabled) {
   border-radius: 50%;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--zc, #c8161d) 25%, transparent);
 }
+
+/* --------------------------------------------------------------------------
+   The odometer and the service schedule of a unit (migration 029)
+   -------------------------------------------------------------------------- */
+
+/* "12.483 km" and the chip of the service, side by side under the name of
+   the unit. */
+.lt-card-service {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lt-card-odo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lt-card-odo svg {
+  flex: none;
+}
+
+/* A unit that is still fine gets no loud chip: the words stay dim. */
+.lt-service-ok {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* The chip of the service keeps its own case: "Servis sebentar lagi · sisa
+   320 km" reads better than it in capitals. */
+.lt-chip.service {
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+/* The colours of the vehicle statuses, nothing new: the amber of a parked
+   unit for a service that is close, the red of a moving one for a service
+   that was missed. */
+.lt-chip.service.due_soon {
+  color: #a8650a;
+  background: rgb(224 148 43 / 17%);
+}
+
+.lt-chip.service.overdue {
+  color: #b3261e;
+  background: rgb(208 25 31 / 15%);
+}
+
+:root[data-theme='dark'] .lt-chip.service.due_soon {
+  color: #f5c06b;
+}
+
+:root[data-theme='dark'] .lt-chip.service.overdue {
+  color: #ff9a94;
+}
+
+/* ----- the service block of the selected unit ----- */
+.lt-service {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  margin-top: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.lt-service-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lt-service-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.lt-service-title svg {
+  flex: none;
+}
+
+.lt-service-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+
+.lt-service-facts > div {
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.lt-service-facts dt {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.lt-service-facts dd {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lt-service-empty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lt-service-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.lt-service-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lt-service-list em {
+  overflow: hidden;
+  font-style: normal;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

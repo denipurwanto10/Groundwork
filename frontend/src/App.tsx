@@ -47,7 +47,7 @@ import ReportsPanel, { type ReportPreset } from './components/ReportsPanel'
 import { openVehicleStream, type StreamState } from './lib/vehicleStream'
 import { usePlayback } from './lib/playback'
 import { FleetCard, TypeBreakdownCard, ZonesCard } from './components/DashboardParts'
-import { OverviewStatCards, OverviewActivityCard, OverviewIdleNote } from './components/OverviewDashboard'
+import { OverviewStatCards, OverviewActivityCard, OverviewIdleNote, OverviewServiceNote } from './components/OverviewDashboard'
 import { useAuth } from './lib/auth'
 import { useTheme } from './lib/theme'
 import {
@@ -1069,6 +1069,19 @@ export default function App() {
       showToast('success', `${updated.name} saved`)
     }
 
+    // A service was written down: the odometer of the unit right now is the
+    // start of the next schedule, so the unit is safe again.
+    const handleVehicleService = async (
+      vehicleId: number,
+      input: { note: string; serviced_at: string },
+    ) => {
+      const result = await api.recordVehicleService(vehicleId, input)
+      setVehicles((prev) =>
+        prev.map((v) => (v.id === vehicleId ? { ...v, service: result.service_status } : v)),
+      )
+      showToast('success', 'Service recorded — the schedule starts over')
+    }
+
     const handleVehicleDelete = async () => {
       if (!canEdit || !vehicleToDelete) return
       setVehicleDeleting(true)
@@ -1878,6 +1891,7 @@ export default function App() {
               <div className="stage-side">
                 <FleetCard vehicles={vehicles} counts={fleet} onSelect={selectVehicle} onOpen={() => goTo('vehicles')} />
                 <OverviewIdleNote vehicles={vehicles} />
+                <OverviewServiceNote vehicles={vehicles} />
               </div>
               <div className="stage-extra">
                 <OverviewActivityCard {...overviewProps} onOpenFleet={() => goTo('vehicles')} />
@@ -2039,6 +2053,7 @@ export default function App() {
                 onCreate={handleVehicleCreate}
                 onUpdate={handleVehicleUpdate}
                 onDelete={(v) => setVehicleToDelete(v)}
+                onRecordService={handleVehicleService}
                 drivers={drivers}
                 events={geofenceEvents}
                 playback={playback}
