@@ -1,4 +1,4 @@
-# Groundwork — Field Operations, Mapped
+# Groundwork — Field Operations, Mapped 
  
 Platform operasi wilayah untuk Indonesia: peta sebagai antarmuka kerja.
 Setiap aset punya lokasi, setiap operasi punya wilayah, setiap pergerakan
